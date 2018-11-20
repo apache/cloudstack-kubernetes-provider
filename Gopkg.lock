@@ -86,6 +86,22 @@
   version = "v18"
 
 [[projects]]
+  branch = "master"
+  digest = "1:d4cdaee0b210c90e76f895778ef8b54ab68eac94537216775e2692b565e6c6bf"
+  name = "github.com/d2g/dhcp4"
+  packages = ["."]
+  pruneopts = ""
+  revision = "a1d1b6c41b1ce8a71a5121a9cee31809c4707d9c"
+
+[[projects]]
+  digest = "1:6ecd75b89037757b74ab549f7f9f673a429a0c44a70ab8f3b07d5d9bdbd98e00"
+  name = "github.com/d2g/dhcp4client"
+  packages = ["."]
+  pruneopts = ""
+  revision = "b7a004ff1a09ab6723625e179a44e476306977a6"
+  version = "v1.0.0"
+
+[[projects]]
   digest = "1:0deddd908b6b4b768cfc272c16ee61e7088a60f7fe2f06c547bd3d8e1f8b8e77"
   name = "github.com/davecgh/go-spew"
   packages = ["spew"]
@@ -194,14 +210,6 @@
   pruneopts = ""
   revision = "636bf0302bc95575d69441b25a2603156ffdddf1"
   version = "v1.1.1"
-
-[[projects]]
-  branch = "master"
-  digest = "1:107b233e45174dbab5b1324201d092ea9448e58243ab9f039e4c0f332e121e3a"
-  name = "github.com/golang/glog"
-  packages = ["."]
-  pruneopts = ""
-  revision = "23def4e6c14b4da8ac2ed8007337bc5eb5007998"
 
 [[projects]]
   branch = "master"
@@ -314,6 +322,14 @@
   pruneopts = ""
   revision = "1624edc4454b8682399def8740d46db5e4362ba4"
   version = "v1.1.5"
+
+[[projects]]
+  branch = "master"
+  digest = "1:2c5ad58492804c40bdaf5d92039b0cde8b5becd2b7feeb37d7d1cc36a8aa8dbe"
+  name = "github.com/kardianos/osext"
+  packages = ["."]
+  pruneopts = ""
+  revision = "ae77be60afb1dcacde03767a8c37337fad28ac14"
 
 [[projects]]
   digest = "1:6a874e3ddfb9db2b42bd8c85b6875407c702fa868eed20634ff489bc896ccfd3"
@@ -450,6 +466,14 @@
   pruneopts = ""
   revision = "298182f68c66c05229eb03ac171abe6e309ee79a"
   version = "v1.0.3"
+
+[[projects]]
+  digest = "1:622a2d180e8318f2b85e259fdef60b1d093b36e973b4eaed9da4f88e951c1f90"
+  name = "github.com/xanzy/go-cloudstack"
+  packages = ["cloudstack"]
+  pruneopts = ""
+  revision = "0bc524282c2afc7da6ef19291cac338b8c6b12a7"
+  version = "v2.3.3"
 
 [[projects]]
   branch = "master"
@@ -597,6 +621,19 @@
   version = "v1.16.0"
 
 [[projects]]
+  digest = "1:bb864e9881b2c241fc6348ba5ed57e6ccf8a675903f1f5c3d81c1b3d7cc4b8f8"
+  name = "gopkg.in/gcfg.v1"
+  packages = [
+    ".",
+    "scanner",
+    "token",
+    "types",
+  ]
+  pruneopts = ""
+  revision = "61b2c08bc8f6068f7c5ca684372f9a6cb1c45ebe"
+  version = "v1.2.3"
+
+[[projects]]
   digest = "1:75fb3fcfc73a8c723efde7777b40e8e8ff9babf30d8c56160d01beffea8a95a6"
   name = "gopkg.in/inf.v0"
   packages = ["."]
@@ -624,6 +661,14 @@
   pruneopts = ""
   revision = "ef984e69dd356202fd4e4910d4d9c24468bdf0b8"
   version = "v2.1.9"
+
+[[projects]]
+  digest = "1:ceec7e96590fb8168f36df4795fefe17051d4b0c2acc7ec4e260d8138c4dafac"
+  name = "gopkg.in/warnings.v0"
+  packages = ["."]
+  pruneopts = ""
+  revision = "ec4a0fea49c7b46c2aeb0b51aac55779c607e52b"
+  version = "v0.1.2"
 
 [[projects]]
   digest = "1:f0620375dd1f6251d9973b5f2596228cc8042e887cd7f827e4220bc1ce8c30e2"
@@ -1145,17 +1190,22 @@
   analyzer-name = "dep"
   analyzer-version = 1
   input-imports = [
-    "github.com/golang/glog",
+    "github.com/d2g/dhcp4",
+    "github.com/d2g/dhcp4client",
+    "github.com/kardianos/osext",
     "github.com/spf13/pflag",
-    "k8s.io/apiserver/pkg/server/healthz",
+    "github.com/xanzy/go-cloudstack/cloudstack",
+    "gopkg.in/gcfg.v1",
+    "k8s.io/api/core/v1",
+    "k8s.io/apimachinery/pkg/apis/meta/v1",
+    "k8s.io/apimachinery/pkg/types",
     "k8s.io/apiserver/pkg/util/flag",
     "k8s.io/apiserver/pkg/util/logs",
     "k8s.io/cloud-provider",
+    "k8s.io/klog",
     "k8s.io/kubernetes/cmd/cloud-controller-manager/app",
-    "k8s.io/kubernetes/cmd/cloud-controller-manager/app/options",
     "k8s.io/kubernetes/pkg/client/metrics/prometheus",
     "k8s.io/kubernetes/pkg/version/prometheus",
-    "k8s.io/kubernetes/pkg/version/verflag",
   ]
   solver-name = "gps-cdcl"
   solver-version = 1

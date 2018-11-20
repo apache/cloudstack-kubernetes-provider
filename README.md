@@ -14,8 +14,10 @@ You need GNU make, git and Go 1.10 to build cloudstack-ccm:
 make
 ```
 
-## Usage
+## Use
+
+Make sure your apiserver is running locally and keep your cloudstack config ready:
 
 ```bash
-./cloudstack-ccm --cloud-provider custom-cloudstack --master localhost
+./cloudstack-ccm --cloud-provider external-cloudstack --cloud-config cloud.config --master localhost
 ```
