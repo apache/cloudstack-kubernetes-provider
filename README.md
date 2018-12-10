@@ -32,7 +32,7 @@ Prebuilt containers are posted on [Docker Hub](https://hub.docker.com/r/swisstxt
 
 ### Kubernetes
 
-To deploy the ccm in the cluster see [deployment.yaml](https://github.com/swisstxt/cloudstack-cloud-controller-manager/blob/master/deployment.yaml) and configure your cloudstack and api server connection. See the comments.
+To deploy the ccm in the cluster see [deployment.yaml](/deployment.yaml) and configure your cloudstack and api server connection. See the comments.
 
 ### Development
 
