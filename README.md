@@ -17,10 +17,10 @@ cd ${GOPATH}/src/github.com/swisstxt/cloudstack-cloud-controller-manager
 make
 ```
 
-To build the cloudstack-controller-manager container, please use the provided Docker file:
+To build the cloudstack-cloud-controller-manager container, please use the provided Docker file:
 
 ```bash
-make docker
+docker build . -t swisstxt/cloudstack-cloud-controller-manager:latest
 ```
 
 ## Use
