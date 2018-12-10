@@ -1,5 +1,7 @@
 # Cloudstack Cloud Controller Manager
 
+![](https://img.shields.io/docker/build/swisstxt/cloudstack-cloud-controller-manager.svg?style=flat-square "Docker build status")
+
 A Cloud Controller Manager to facilitate Kubernetes deployments on Cloudstack.
 
 Based on the old Cloudstack provider in kube-controller-manager.
@@ -15,13 +17,17 @@ cd ${GOPATH}/src/github.com/swisstxt/cloudstack-cloud-controller-manager
 make
 ```
 
-To build the cloudstack-ccm container, please use the provided Docker file:
+To build the cloudstack-controller-manager container, please use the provided Docker file:
 
 ```bash
 make docker
 ```
 
 ## Use
+
+Prebuilt containers are posted on [Docker Hub](https://hub.docker.com/r/swisstxt/cloudstack-cloud-controller-manager).
+
+**TODO** Add an example Kubernetes deployment.
 
 Make sure your apiserver is running locally and keep your cloudstack config ready:
 
