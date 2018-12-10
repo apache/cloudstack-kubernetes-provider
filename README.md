@@ -1,5 +1,8 @@
 # Cloudstack Cloud Controller Manager
 
+![](https://img.shields.io/github/release/swisstxt/cloudstack-cloud-controller-manager.svg "Release")
+![](https://img.shields.io/badge/license-Apache%202.0-blue.svg "Apache 2.0 license")
+![](https://img.shields.io/badge/language-Go-%235adaff.svg "Go language")
 ![](https://img.shields.io/docker/build/swisstxt/cloudstack-cloud-controller-manager.svg?style=flat-square "Docker build status")
 
 A Cloud Controller Manager to facilitate Kubernetes deployments on Cloudstack.
