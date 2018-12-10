@@ -31,5 +31,6 @@ Make sure your apiserver is running locally and keep your cloudstack config read
 
 ## Copyright
 
-© 2018 SWISS TXT AG and the Kubernetes authors
+© 2018 SWISS TXT AG and the Kubernetes authors.
+
 See LICENSE-2.0 for permitted usage.
