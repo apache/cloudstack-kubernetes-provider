@@ -5,6 +5,7 @@ GIT_COMMIT_SHORT=$(shell git rev-parse --short HEAD)
 GIT_VERSION=${VERSION}-master+${GIT_COMMIT}
 LDFLAGS="-X github.com/swisstxt/cloudstack-cloud-controller-manager/vendor/k8s.io/kubernetes/pkg/version.gitVersion=${GIT_VERSION} -X github.com/swisstxt/cloudstack-cloud-controller-manager/vendor/k8s.io/kubernetes/pkg/version.gitCommit=${GIT_COMMIT} -X github.com/swisstxt/cloudstack-cloud-controller-manager/vendor/k8s.io/kubernetes/pkg/version.buildDate=${BUILD_DATE}"
 export CGO_ENABLED=0
+export GO111MODULE=on
 
 CMD_SRC=\
 	cmd/cloudstack-ccm/main.go
