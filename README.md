@@ -34,6 +34,19 @@ Prebuilt containers are posted on [Docker Hub](https://hub.docker.com/r/swisstxt
 
 To deploy the ccm in the cluster see [deployment.yaml](/deployment.yaml) and configure your cloudstack and api server connection. See the comments.
 
+### Protocols
+
+This CCM supports TCP, UDP and [TCP-Proxy](https://www.haproxy.org/download/1.8/doc/proxy-protocol.txt)
+LoadBalancer deployments.
+
+For UDP and Proxy Protocol support, CloudStack 4.6 or later is required.
+
+Since kube-proxy does not support the Proxy Protocol or UDP, you should connect this
+directly to containers, for example by deploying a DaemonSet and setting `hostNetwork: true`.
+
+See [service.yaml](/service.yaml) for an example Service deployment and part
+of a suitable configuration for an ingress controller.
+
 ### Development
 
 Make sure your apiserver is running locally and keep your cloudstack config ready:
