@@ -28,6 +28,13 @@ import (
 	cloudprovider "k8s.io/cloud-provider"
 )
 
+// ServiceAnnotationLoadBalancerProxyProtocol is the annotation used on the
+// service to enable the proxy protocol on a CloudStack load balancer.
+// This annotation is a boolean value, true means the proxy protocol is enabled.
+// Anything else, including the annotation being absent, disables it.
+// Note that this protocol only applies to TCP service ports.
+const ServiceAnnotationLoadBalancerProxyProtocol = "service.beta.kubernetes.io/cloudstack-load-balancer-proxy-protocol"
+
 type loadBalancer struct {
 	*cloudstack.CloudStackClient
 
@@ -114,11 +121,17 @@ func (cs *CSCloud) EnsureLoadBalancer(ctx context.Context, clusterName string, s
 	klog.V(4).Infof("Load balancer %v is associated with IP %v", lb.name, lb.ipAddr)
 
 	for _, port := range service.Spec.Ports {
+		// Construct the protocol name first, we need it a few times
+		protocol, err := constructProtocolName(port, service.Annotations)
+		if err != nil {
+			return nil, err
+		}
+
 		// All ports have their own load balancer rule, so add the port to lbName to keep the names unique.
-		lbRuleName := fmt.Sprintf("%s-%d", lb.name, port.Port)
+		lbRuleName := fmt.Sprintf("%s-%s-%d", lb.name, protocol, port.Port)
 
 		// If the load balancer rule exists and is up-to-date, we move on to the next rule.
-		exists, needsUpdate, err := lb.checkLoadBalancerRule(lbRuleName, port)
+		exists, needsUpdate, err := lb.checkLoadBalancerRule(lbRuleName, port, protocol)
 		if err != nil {
 			return nil, err
 		}
@@ -131,7 +144,7 @@ func (cs *CSCloud) EnsureLoadBalancer(ctx context.Context, clusterName string, s
 
 		if needsUpdate {
 			klog.V(4).Infof("Updating load balancer rule: %v", lbRuleName)
-			if err := lb.updateLoadBalancerRule(lbRuleName); err != nil {
+			if err := lb.updateLoadBalancerRule(lbRuleName, protocol); err != nil {
 				return nil, err
 			}
 			// Delete the rule from the map, to prevent it being deleted.
@@ -140,7 +153,7 @@ func (cs *CSCloud) EnsureLoadBalancer(ctx context.Context, clusterName string, s
 		}
 
 		klog.V(4).Infof("Creating load balancer rule: %v", lbRuleName)
-		lbRule, err := lb.createLoadBalancerRule(lbRuleName, port)
+		lbRule, err := lb.createLoadBalancerRule(lbRuleName, port, protocol)
 		if err != nil {
 			return nil, err
 		}
@@ -408,9 +421,33 @@ func (lb *loadBalancer) releaseLoadBalancerIP() error {
 	return nil
 }
 
+// constructProtocolName builds a CS API compatible protocol name that incorporates
+// data from a ServicePort and (optionally) annotations on the service.
+// Currently supported are: "tcp", "udp" and "tcp-proxy".
+// The latter two require CloudStack 4.6 or later.
+func constructProtocolName(port v1.ServicePort, annotations map[string]string) (string, error) {
+	proxy := false
+	// FIXME this accepts any value as true, even "false", 0 or other falsey stuff
+	if _, ok := annotations[ServiceAnnotationLoadBalancerProxyProtocol]; ok {
+		proxy = true
+	}
+	switch port.Protocol {
+	case v1.ProtocolTCP:
+		if proxy {
+			return "tcp-proxy", nil
+		} else {
+			return "tcp", nil
+		}
+	case v1.ProtocolUDP:
+		return "udp", nil
+	default:
+		return "", fmt.Errorf("unsupported load balancer protocol: %v", port.Protocol)
+	}
+}
+
 // checkLoadBalancerRule checks if the rule already exists and if it does, if it can be updated. If
 // it does exist but cannot be updated, it will delete the existing rule so it can be created again.
-func (lb *loadBalancer) checkLoadBalancerRule(lbRuleName string, port v1.ServicePort) (bool, bool, error) {
+func (lb *loadBalancer) checkLoadBalancerRule(lbRuleName string, port v1.ServicePort, protocol string) (bool, bool, error) {
 	lbRule, ok := lb.rules[lbRuleName]
 	if !ok {
 		return false, false, nil
@@ -418,7 +455,9 @@ func (lb *loadBalancer) checkLoadBalancerRule(lbRuleName string, port v1.Service
 
 	// Check if any of the values we cannot update (those that require a new load balancer rule) are changed.
 	if lbRule.Publicip == lb.ipAddr && lbRule.Privateport == strconv.Itoa(int(port.NodePort)) && lbRule.Publicport == strconv.Itoa(int(port.Port)) {
-		return true, lbRule.Algorithm != lb.algorithm, nil
+		updateAlgo := lbRule.Algorithm != lb.algorithm
+		updateProto := lbRule.Protocol != protocol
+		return true, updateAlgo || updateProto, nil
 	}
 
 	// Delete the load balancer rule so we can create a new one using the new values.
@@ -430,18 +469,19 @@ func (lb *loadBalancer) checkLoadBalancerRule(lbRuleName string, port v1.Service
 }
 
 // updateLoadBalancerRule updates a load balancer rule.
-func (lb *loadBalancer) updateLoadBalancerRule(lbRuleName string) error {
+func (lb *loadBalancer) updateLoadBalancerRule(lbRuleName string, protocol string) error {
 	lbRule := lb.rules[lbRuleName]
 
 	p := lb.LoadBalancer.NewUpdateLoadBalancerRuleParams(lbRule.Id)
 	p.SetAlgorithm(lb.algorithm)
+	p.SetProtocol(protocol)
 
 	_, err := lb.LoadBalancer.UpdateLoadBalancerRule(p)
 	return err
 }
 
 // createLoadBalancerRule creates a new load balancer rule and returns it's ID.
-func (lb *loadBalancer) createLoadBalancerRule(lbRuleName string, port v1.ServicePort) (*cloudstack.LoadBalancerRule, error) {
+func (lb *loadBalancer) createLoadBalancerRule(lbRuleName string, port v1.ServicePort, protocol string) (*cloudstack.LoadBalancerRule, error) {
 	p := lb.LoadBalancer.NewCreateLoadBalancerRuleParams(
 		lb.algorithm,
 		lbRuleName,
@@ -452,14 +492,7 @@ func (lb *loadBalancer) createLoadBalancerRule(lbRuleName string, port v1.Servic
 	p.SetNetworkid(lb.networkID)
 	p.SetPublicipid(lb.ipAddrID)
 
-	switch port.Protocol {
-	case v1.ProtocolTCP:
-		p.SetProtocol("TCP")
-	case v1.ProtocolUDP:
-		p.SetProtocol("UDP")
-	default:
-		return nil, fmt.Errorf("unsupported load balancer protocol: %v", port.Protocol)
-	}
+	p.SetProtocol(protocol)
 
 	// Do not create corresponding firewall rule.
 	p.SetOpenfirewall(true)
