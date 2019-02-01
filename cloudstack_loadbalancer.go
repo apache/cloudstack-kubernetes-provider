@@ -30,9 +30,10 @@ import (
 
 // ServiceAnnotationLoadBalancerProxyProtocol is the annotation used on the
 // service to enable the proxy protocol on a CloudStack load balancer.
-// This annotation is a boolean value, true means the proxy protocol is enabled.
-// Anything else, including the annotation being absent, disables it.
-// Note that this protocol only applies to TCP service ports.
+// The value of this annotation is ignored, even if it is seemingly boolean.
+// Simple presence of the annotation will enable it.
+// Note that this protocol only applies to TCP service ports and
+// CloudStack 4.6 is required for it to work.
 const ServiceAnnotationLoadBalancerProxyProtocol = "service.beta.kubernetes.io/cloudstack-load-balancer-proxy-protocol"
 
 type loadBalancer struct {
@@ -513,6 +514,7 @@ func (lb *loadBalancer) createLoadBalancerRule(lbRuleName string, port v1.Servic
 		Publicport:  r.Publicport,
 		Publicip:    r.Publicip,
 		Publicipid:  r.Publicipid,
+		Protocol:    r.Protocol,
 	}
 
 	return lbRule, nil
