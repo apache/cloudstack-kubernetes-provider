@@ -106,7 +106,26 @@ func (s *EventService) ArchiveEvents(p *ArchiveEventsParams) (*ArchiveEventsResp
 
 type ArchiveEventsResponse struct {
 	Displaytext string `json:"displaytext"`
-	Success     string `json:"success"`
+	Success     bool   `json:"success"`
+}
+
+func (r *ArchiveEventsResponse) UnmarshalJSON(b []byte) error {
+	var m map[string]interface{}
+	err := json.Unmarshal(b, &m)
+	if err != nil {
+		return err
+	}
+
+	if success, ok := m["success"].(string); ok {
+		m["success"] = success == "true"
+		b, err = json.Marshal(m)
+		if err != nil {
+			return err
+		}
+	}
+
+	type alias ArchiveEventsResponse
+	return json.Unmarshal(b, (*alias)(r))
 }
 
 type DeleteEventsParams struct {
@@ -191,7 +210,26 @@ func (s *EventService) DeleteEvents(p *DeleteEventsParams) (*DeleteEventsRespons
 
 type DeleteEventsResponse struct {
 	Displaytext string `json:"displaytext"`
-	Success     string `json:"success"`
+	Success     bool   `json:"success"`
+}
+
+func (r *DeleteEventsResponse) UnmarshalJSON(b []byte) error {
+	var m map[string]interface{}
+	err := json.Unmarshal(b, &m)
+	if err != nil {
+		return err
+	}
+
+	if success, ok := m["success"].(string); ok {
+		m["success"] = success == "true"
+		b, err = json.Marshal(m)
+		if err != nil {
+			return err
+		}
+	}
+
+	type alias DeleteEventsResponse
+	return json.Unmarshal(b, (*alias)(r))
 }
 
 type ListEventTypesParams struct {
@@ -294,6 +332,9 @@ func (p *ListEventsParams) toURLValues() url.Values {
 	}
 	if v, found := p.p["startdate"]; found {
 		u.Set("startdate", v.(string))
+	}
+	if v, found := p.p["startid"]; found {
+		u.Set("startid", v.(string))
 	}
 	if v, found := p.p["type"]; found {
 		u.Set("type", v.(string))
@@ -410,6 +451,14 @@ func (p *ListEventsParams) SetStartdate(v string) {
 		p.p = make(map[string]interface{})
 	}
 	p.p["startdate"] = v
+	return
+}
+
+func (p *ListEventsParams) SetStartid(v string) {
+	if p.p == nil {
+		p.p = make(map[string]interface{})
+	}
+	p.p["startid"] = v
 	return
 }
 

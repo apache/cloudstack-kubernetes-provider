@@ -184,7 +184,7 @@ func (p *QueryAsyncJobResultParams) toURLValues() url.Values {
 	return u
 }
 
-func (p *QueryAsyncJobResultParams) SetJobid(v string) {
+func (p *QueryAsyncJobResultParams) SetJobID(v string) {
 	if p.p == nil {
 		p.p = make(map[string]interface{})
 	}

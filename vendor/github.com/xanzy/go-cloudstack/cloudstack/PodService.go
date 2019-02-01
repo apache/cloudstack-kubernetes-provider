@@ -142,27 +142,33 @@ func (s *PodService) CreatePod(p *CreatePodParams) (*CreatePodResponse, error) {
 }
 
 type CreatePodResponse struct {
-	Allocationstate string `json:"allocationstate"`
-	Capacity        []struct {
-		Capacitytotal int64  `json:"capacitytotal"`
-		Capacityused  int64  `json:"capacityused"`
-		Clusterid     string `json:"clusterid"`
-		Clustername   string `json:"clustername"`
-		Percentused   string `json:"percentused"`
-		Podid         string `json:"podid"`
-		Podname       string `json:"podname"`
-		Type          int    `json:"type"`
-		Zoneid        string `json:"zoneid"`
-		Zonename      string `json:"zonename"`
-	} `json:"capacity"`
-	Endip    string `json:"endip"`
-	Gateway  string `json:"gateway"`
-	Id       string `json:"id"`
-	Name     string `json:"name"`
-	Netmask  string `json:"netmask"`
-	Startip  string `json:"startip"`
-	Zoneid   string `json:"zoneid"`
-	Zonename string `json:"zonename"`
+	Allocationstate string                      `json:"allocationstate"`
+	Capacity        []CreatePodResponseCapacity `json:"capacity"`
+	Endip           []string                    `json:"endip"`
+	Forsystemvms    []string                    `json:"forsystemvms"`
+	Gateway         string                      `json:"gateway"`
+	Id              string                      `json:"id"`
+	Name            string                      `json:"name"`
+	Netmask         string                      `json:"netmask"`
+	Startip         []string                    `json:"startip"`
+	Vlanid          []string                    `json:"vlanid"`
+	Zoneid          string                      `json:"zoneid"`
+	Zonename        string                      `json:"zonename"`
+}
+
+type CreatePodResponseCapacity struct {
+	Capacityallocated int64  `json:"capacityallocated"`
+	Capacitytotal     int64  `json:"capacitytotal"`
+	Capacityused      int64  `json:"capacityused"`
+	Clusterid         string `json:"clusterid"`
+	Clustername       string `json:"clustername"`
+	Name              string `json:"name"`
+	Percentused       string `json:"percentused"`
+	Podid             string `json:"podid"`
+	Podname           string `json:"podname"`
+	Type              int    `json:"type"`
+	Zoneid            string `json:"zoneid"`
+	Zonename          string `json:"zonename"`
 }
 
 type DedicatePodParams struct {
@@ -314,7 +320,26 @@ func (s *PodService) DeletePod(p *DeletePodParams) (*DeletePodResponse, error) {
 
 type DeletePodResponse struct {
 	Displaytext string `json:"displaytext"`
-	Success     string `json:"success"`
+	Success     bool   `json:"success"`
+}
+
+func (r *DeletePodResponse) UnmarshalJSON(b []byte) error {
+	var m map[string]interface{}
+	err := json.Unmarshal(b, &m)
+	if err != nil {
+		return err
+	}
+
+	if success, ok := m["success"].(string); ok {
+		m["success"] = success == "true"
+		b, err = json.Marshal(m)
+		if err != nil {
+			return err
+		}
+	}
+
+	type alias DeletePodResponse
+	return json.Unmarshal(b, (*alias)(r))
 }
 
 type ListDedicatedPodsParams struct {
@@ -660,27 +685,33 @@ type ListPodsResponse struct {
 }
 
 type Pod struct {
-	Allocationstate string `json:"allocationstate"`
-	Capacity        []struct {
-		Capacitytotal int64  `json:"capacitytotal"`
-		Capacityused  int64  `json:"capacityused"`
-		Clusterid     string `json:"clusterid"`
-		Clustername   string `json:"clustername"`
-		Percentused   string `json:"percentused"`
-		Podid         string `json:"podid"`
-		Podname       string `json:"podname"`
-		Type          int    `json:"type"`
-		Zoneid        string `json:"zoneid"`
-		Zonename      string `json:"zonename"`
-	} `json:"capacity"`
-	Endip    string `json:"endip"`
-	Gateway  string `json:"gateway"`
-	Id       string `json:"id"`
-	Name     string `json:"name"`
-	Netmask  string `json:"netmask"`
-	Startip  string `json:"startip"`
-	Zoneid   string `json:"zoneid"`
-	Zonename string `json:"zonename"`
+	Allocationstate string        `json:"allocationstate"`
+	Capacity        []PodCapacity `json:"capacity"`
+	Endip           []string      `json:"endip"`
+	Forsystemvms    []string      `json:"forsystemvms"`
+	Gateway         string        `json:"gateway"`
+	Id              string        `json:"id"`
+	Name            string        `json:"name"`
+	Netmask         string        `json:"netmask"`
+	Startip         []string      `json:"startip"`
+	Vlanid          []string      `json:"vlanid"`
+	Zoneid          string        `json:"zoneid"`
+	Zonename        string        `json:"zonename"`
+}
+
+type PodCapacity struct {
+	Capacityallocated int64  `json:"capacityallocated"`
+	Capacitytotal     int64  `json:"capacitytotal"`
+	Capacityused      int64  `json:"capacityused"`
+	Clusterid         string `json:"clusterid"`
+	Clustername       string `json:"clustername"`
+	Name              string `json:"name"`
+	Percentused       string `json:"percentused"`
+	Podid             string `json:"podid"`
+	Podname           string `json:"podname"`
+	Type              int    `json:"type"`
+	Zoneid            string `json:"zoneid"`
+	Zonename          string `json:"zonename"`
 }
 
 type ReleaseDedicatedPodParams struct {
@@ -865,25 +896,31 @@ func (s *PodService) UpdatePod(p *UpdatePodParams) (*UpdatePodResponse, error) {
 }
 
 type UpdatePodResponse struct {
-	Allocationstate string `json:"allocationstate"`
-	Capacity        []struct {
-		Capacitytotal int64  `json:"capacitytotal"`
-		Capacityused  int64  `json:"capacityused"`
-		Clusterid     string `json:"clusterid"`
-		Clustername   string `json:"clustername"`
-		Percentused   string `json:"percentused"`
-		Podid         string `json:"podid"`
-		Podname       string `json:"podname"`
-		Type          int    `json:"type"`
-		Zoneid        string `json:"zoneid"`
-		Zonename      string `json:"zonename"`
-	} `json:"capacity"`
-	Endip    string `json:"endip"`
-	Gateway  string `json:"gateway"`
-	Id       string `json:"id"`
-	Name     string `json:"name"`
-	Netmask  string `json:"netmask"`
-	Startip  string `json:"startip"`
-	Zoneid   string `json:"zoneid"`
-	Zonename string `json:"zonename"`
+	Allocationstate string                      `json:"allocationstate"`
+	Capacity        []UpdatePodResponseCapacity `json:"capacity"`
+	Endip           []string                    `json:"endip"`
+	Forsystemvms    []string                    `json:"forsystemvms"`
+	Gateway         string                      `json:"gateway"`
+	Id              string                      `json:"id"`
+	Name            string                      `json:"name"`
+	Netmask         string                      `json:"netmask"`
+	Startip         []string                    `json:"startip"`
+	Vlanid          []string                    `json:"vlanid"`
+	Zoneid          string                      `json:"zoneid"`
+	Zonename        string                      `json:"zonename"`
+}
+
+type UpdatePodResponseCapacity struct {
+	Capacityallocated int64  `json:"capacityallocated"`
+	Capacitytotal     int64  `json:"capacitytotal"`
+	Capacityused      int64  `json:"capacityused"`
+	Clusterid         string `json:"clusterid"`
+	Clustername       string `json:"clustername"`
+	Name              string `json:"name"`
+	Percentused       string `json:"percentused"`
+	Podid             string `json:"podid"`
+	Podname           string `json:"podname"`
+	Type              int    `json:"type"`
+	Zoneid            string `json:"zoneid"`
+	Zonename          string `json:"zonename"`
 }

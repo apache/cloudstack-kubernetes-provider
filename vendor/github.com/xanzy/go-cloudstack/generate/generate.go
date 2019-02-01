@@ -32,9 +32,13 @@ import (
 	"unicode"
 )
 
-type apiInfo map[string][]string
-
 const pkg = "cloudstack"
+
+// We prefill this one value to make sure it is not
+// created twice, as this is also a top level type.
+var typeNames = map[string]bool{"Nic": true}
+
+type apiInfo map[string][]string
 
 type allServices struct {
 	services services
@@ -273,8 +277,17 @@ func (as *allServices) GeneralCode() ([]byte, error) {
 	pn("		client: &http.Client{")
 	pn("			Jar: jar,")
 	pn("			Transport: &http.Transport{")
-	pn("				Proxy:           http.ProxyFromEnvironment,")
-	pn("				TLSClientConfig: &tls.Config{InsecureSkipVerify: !verifyssl}, // If verifyssl is true, skipping the verify should be false and vice versa")
+	pn("				Proxy: http.ProxyFromEnvironment,")
+	pn("				DialContext: (&net.Dialer{")
+	pn("					Timeout:   30 * time.Second,")
+	pn("					KeepAlive: 30 * time.Second,")
+	pn("					DualStack: true,")
+	pn("				}).DialContext,")
+	pn("				MaxIdleConns:          100,")
+	pn("				IdleConnTimeout:       90 * time.Second,")
+	pn("				TLSClientConfig:       &tls.Config{InsecureSkipVerify: !verifyssl}, // If verifyssl is true, skipping the verify should be false and vice versa")
+	pn("				TLSHandshakeTimeout:   10 * time.Second,")
+	pn("				ExpectContinueTimeout: 1 * time.Second,")
 	pn("			},")
 	pn("		Timeout: time.Duration(60 * time.Second),")
 	pn("		},")
@@ -1246,15 +1259,38 @@ func (s *service) generateResponseType(a *API) {
 		tn = parseSingular(ln)
 	}
 
-	pn("type %s struct {", tn)
-	if a.Isasync {
-		pn("	JobID string `json:\"jobid\"`")
-	}
 	sort.Sort(a.Response)
-	s.recusiveGenerateResponseType(a.Response, a.Isasync)
-	pn("}")
-	pn("")
-	return
+	customMarshal := s.recusiveGenerateResponseType(tn, a.Response, a.Isasync)
+
+	if customMarshal {
+		pn("func (r *%s) UnmarshalJSON(b []byte) error {", tn)
+		pn("	var m map[string]interface{}")
+		pn("	err := json.Unmarshal(b, &m)")
+		pn("	if err != nil {")
+		pn("		return err")
+		pn("	}")
+		pn("")
+		pn("	if success, ok := m[\"success\"].(string); ok {")
+		pn("		m[\"success\"] = success == \"true\"")
+		pn("		b, err = json.Marshal(m)")
+		pn("		if err != nil {")
+		pn("			return err")
+		pn("		}")
+		pn("	}")
+		pn("")
+		// pn("	if ostypeid, ok := m[\"ostypeid\"].(int); ok {")
+		// pn("		m[\"ostypeid\"] = strconv.Itoa(ostypeid)")
+		// pn("		b, err = json.Marshal(m)")
+		// pn("		if err != nil {")
+		// pn("			return err")
+		// pn("		}")
+		// pn("	}")
+		// pn("")
+		pn("	type alias %s", tn)
+		pn("	return json.Unmarshal(b, (*alias)(r))")
+		pn("}")
+		pn("")
+	}
 }
 
 func parseSingular(n string) string {
@@ -1267,9 +1303,15 @@ func parseSingular(n string) string {
 	return strings.TrimSuffix(n, "s")
 }
 
-func (s *service) recusiveGenerateResponseType(resp APIResponses, async bool) (output string) {
+func (s *service) recusiveGenerateResponseType(tn string, resp APIResponses, async bool) bool {
 	pn := s.pn
+	customMarshal := false
 	found := make(map[string]bool)
+
+	pn("type %s struct {", tn)
+	if async && !strings.Contains(tn, "SystemVm") {
+		pn("	JobID string `json:\"jobid\"`")
+	}
 
 	for _, r := range resp {
 		if r.Name == "" {
@@ -1277,33 +1319,70 @@ func (s *service) recusiveGenerateResponseType(resp APIResponses, async bool) (o
 		}
 		if r.Name == "secondaryip" {
 			pn("%s []struct {", capitalize(r.Name))
-			pn("Id string `json:\"id\"`")
-			pn("Ipaddress string `json:\"ipaddress\"`")
+			pn("	Id string `json:\"id\"`")
+			pn("	Ipaddress string `json:\"ipaddress\"`")
 			pn("} `json:\"%s\"`", r.Name)
 			continue
 		}
 		if r.Response != nil {
-			pn("%s []struct {", capitalize(r.Name))
 			sort.Sort(r.Response)
-			s.recusiveGenerateResponseType(r.Response, async)
-			pn("} `json:\"%s\"`", r.Name)
+			typeName, create := getUniqueTypeName(tn, r.Name)
+			pn("%s []%s `json:\"%s\"`", capitalize(r.Name), typeName, r.Name)
+			if create {
+				defer s.recusiveGenerateResponseType(typeName, r.Response, false)
+			}
 		} else {
 			if !found[r.Name] {
 				// This code is needed because the response field is different for sync and async calls :(
-				if r.Name == "success" {
-					if async {
-						pn("%s bool `json:\"%s\"`", capitalize(r.Name), r.Name)
-					} else {
-						pn("%s string `json:\"%s\"`", capitalize(r.Name), r.Name)
+				switch r.Name {
+				case "success":
+					pn("%s bool `json:\"%s\"`", capitalize(r.Name), r.Name)
+					if !async {
+						customMarshal = true
 					}
-				} else {
+				// case "ostypeid":
+				// 	pn("%s string `json:\"%s\"`", capitalize(r.Name), r.Name)
+				// 	customMarshal = true
+				default:
 					pn("%s %s `json:\"%s\"`", capitalize(r.Name), mapType(r.Type), r.Name)
 				}
 				found[r.Name] = true
 			}
 		}
 	}
-	return
+
+	pn("}")
+	pn("")
+
+	return customMarshal
+}
+
+func getUniqueTypeName(prefix, name string) (string, bool) {
+	// We have special cases for [in|e]gressrules, nics and tags as the exact
+	// sames types are used used in multiple different locations.
+	switch {
+	case strings.HasSuffix(name, "gressrule"):
+		name = "rule"
+	case strings.HasSuffix(name, "nic"):
+		prefix = ""
+		name = "nic"
+	case strings.HasSuffix(name, "tags"):
+		prefix = ""
+		name = "tags"
+	}
+
+	tn := prefix + capitalize(name)
+	if !typeNames[tn] {
+		typeNames[tn] = true
+		return tn, true
+	}
+
+	// Return here as this means the type already exists.
+	if name == "rule" || name == "nic" || name == "tags" {
+		return tn, false
+	}
+
+	return getUniqueTypeName(prefix, name+"Internal")
 }
 
 func getAllServices(listApis string) (*allServices, []error, error) {
@@ -1317,6 +1396,7 @@ func getAllServices(listApis string) (*allServices, []error, error) {
 	as := &allServices{}
 	errors := []error{}
 	for sn, apis := range layout {
+		typeNames[sn] = true
 		s := &service{name: sn}
 		for _, api := range apis {
 			a, found := ai[api]
@@ -1334,8 +1414,8 @@ func getAllServices(listApis string) (*allServices, []error, error) {
 
 	// Add an extra field to enable adding a custom service
 	as.services = append(as.services, &service{name: "CustomService"})
-
 	sort.Sort(as.services)
+
 	return as, errors, nil
 }
 
@@ -1382,6 +1462,8 @@ func mapType(t string) string {
 		return "int"
 	case "long":
 		return "int64"
+	case "float":
+		return "float64"
 	case "list":
 		return "[]string"
 	case "map":
@@ -1401,6 +1483,9 @@ func mapType(t string) string {
 }
 
 func capitalize(s string) string {
+	if s == "jobid" {
+		return "JobID"
+	}
 	r := []rune(s)
 	r[0] = unicode.ToUpper(r[0])
 	return string(r)

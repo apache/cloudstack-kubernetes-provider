@@ -32,6 +32,9 @@ func (p *AddLdapConfigurationParams) toURLValues() url.Values {
 	if p.p == nil {
 		return u
 	}
+	if v, found := p.p["domainid"]; found {
+		u.Set("domainid", v.(string))
+	}
 	if v, found := p.p["hostname"]; found {
 		u.Set("hostname", v.(string))
 	}
@@ -40,6 +43,14 @@ func (p *AddLdapConfigurationParams) toURLValues() url.Values {
 		u.Set("port", vv)
 	}
 	return u
+}
+
+func (p *AddLdapConfigurationParams) SetDomainid(v string) {
+	if p.p == nil {
+		p.p = make(map[string]interface{})
+	}
+	p.p["domainid"] = v
+	return
 }
 
 func (p *AddLdapConfigurationParams) SetHostname(v string) {
@@ -84,6 +95,7 @@ func (s *LDAPService) AddLdapConfiguration(p *AddLdapConfigurationParams) (*AddL
 }
 
 type AddLdapConfigurationResponse struct {
+	Domainid string `json:"domainid"`
 	Hostname string `json:"hostname"`
 	Port     int    `json:"port"`
 }
@@ -97,10 +109,25 @@ func (p *DeleteLdapConfigurationParams) toURLValues() url.Values {
 	if p.p == nil {
 		return u
 	}
+	if v, found := p.p["domainid"]; found {
+		u.Set("domainid", v.(string))
+	}
 	if v, found := p.p["hostname"]; found {
 		u.Set("hostname", v.(string))
 	}
+	if v, found := p.p["port"]; found {
+		vv := strconv.Itoa(v.(int))
+		u.Set("port", vv)
+	}
 	return u
+}
+
+func (p *DeleteLdapConfigurationParams) SetDomainid(v string) {
+	if p.p == nil {
+		p.p = make(map[string]interface{})
+	}
+	p.p["domainid"] = v
+	return
 }
 
 func (p *DeleteLdapConfigurationParams) SetHostname(v string) {
@@ -108,6 +135,14 @@ func (p *DeleteLdapConfigurationParams) SetHostname(v string) {
 		p.p = make(map[string]interface{})
 	}
 	p.p["hostname"] = v
+	return
+}
+
+func (p *DeleteLdapConfigurationParams) SetPort(v int) {
+	if p.p == nil {
+		p.p = make(map[string]interface{})
+	}
+	p.p["port"] = v
 	return
 }
 
@@ -136,6 +171,7 @@ func (s *LDAPService) DeleteLdapConfiguration(p *DeleteLdapConfigurationParams) 
 }
 
 type DeleteLdapConfigurationResponse struct {
+	Domainid string `json:"domainid"`
 	Hostname string `json:"hostname"`
 	Port     int    `json:"port"`
 }
@@ -435,7 +471,7 @@ func (s *LDAPService) NewLdapConfigParams() *LdapConfigParams {
 	return p
 }
 
-// Configure the LDAP context for this site.
+// (Deprecated, use addLdapConfiguration) Configure the LDAP context for this site.
 func (s *LDAPService) LdapConfig(p *LdapConfigParams) (*LdapConfigResponse, error) {
 	resp, err := s.cs.newRequest("ldapConfig", p.toURLValues())
 	if err != nil {
@@ -613,83 +649,86 @@ func (s *LDAPService) LdapCreateAccount(p *LdapCreateAccountParams) (*LdapCreate
 }
 
 type LdapCreateAccountResponse struct {
-	Accountdetails            map[string]string `json:"accountdetails"`
-	Accounttype               int               `json:"accounttype"`
-	Cpuavailable              string            `json:"cpuavailable"`
-	Cpulimit                  string            `json:"cpulimit"`
-	Cputotal                  int64             `json:"cputotal"`
-	Defaultzoneid             string            `json:"defaultzoneid"`
-	Domain                    string            `json:"domain"`
-	Domainid                  string            `json:"domainid"`
-	Groups                    []string          `json:"groups"`
-	Id                        string            `json:"id"`
-	Ipavailable               string            `json:"ipavailable"`
-	Iplimit                   string            `json:"iplimit"`
-	Iptotal                   int64             `json:"iptotal"`
-	Iscleanuprequired         bool              `json:"iscleanuprequired"`
-	Isdefault                 bool              `json:"isdefault"`
-	Memoryavailable           string            `json:"memoryavailable"`
-	Memorylimit               string            `json:"memorylimit"`
-	Memorytotal               int64             `json:"memorytotal"`
-	Name                      string            `json:"name"`
-	Networkavailable          string            `json:"networkavailable"`
-	Networkdomain             string            `json:"networkdomain"`
-	Networklimit              string            `json:"networklimit"`
-	Networktotal              int64             `json:"networktotal"`
-	Primarystorageavailable   string            `json:"primarystorageavailable"`
-	Primarystoragelimit       string            `json:"primarystoragelimit"`
-	Primarystoragetotal       int64             `json:"primarystoragetotal"`
-	Projectavailable          string            `json:"projectavailable"`
-	Projectlimit              string            `json:"projectlimit"`
-	Projecttotal              int64             `json:"projecttotal"`
-	Receivedbytes             int64             `json:"receivedbytes"`
-	Roleid                    string            `json:"roleid"`
-	Rolename                  string            `json:"rolename"`
-	Roletype                  string            `json:"roletype"`
-	Secondarystorageavailable string            `json:"secondarystorageavailable"`
-	Secondarystoragelimit     string            `json:"secondarystoragelimit"`
-	Secondarystoragetotal     int64             `json:"secondarystoragetotal"`
-	Sentbytes                 int64             `json:"sentbytes"`
-	Snapshotavailable         string            `json:"snapshotavailable"`
-	Snapshotlimit             string            `json:"snapshotlimit"`
-	Snapshottotal             int64             `json:"snapshottotal"`
-	State                     string            `json:"state"`
-	Templateavailable         string            `json:"templateavailable"`
-	Templatelimit             string            `json:"templatelimit"`
-	Templatetotal             int64             `json:"templatetotal"`
-	User                      []struct {
-		Account             string `json:"account"`
-		Accountid           string `json:"accountid"`
-		Accounttype         int    `json:"accounttype"`
-		Apikey              string `json:"apikey"`
-		Created             string `json:"created"`
-		Domain              string `json:"domain"`
-		Domainid            string `json:"domainid"`
-		Email               string `json:"email"`
-		Firstname           string `json:"firstname"`
-		Id                  string `json:"id"`
-		Iscallerchilddomain bool   `json:"iscallerchilddomain"`
-		Isdefault           bool   `json:"isdefault"`
-		Lastname            string `json:"lastname"`
-		Roleid              string `json:"roleid"`
-		Rolename            string `json:"rolename"`
-		Roletype            string `json:"roletype"`
-		Secretkey           string `json:"secretkey"`
-		State               string `json:"state"`
-		Timezone            string `json:"timezone"`
-		Username            string `json:"username"`
-	} `json:"user"`
-	Vmavailable     string `json:"vmavailable"`
-	Vmlimit         string `json:"vmlimit"`
-	Vmrunning       int    `json:"vmrunning"`
-	Vmstopped       int    `json:"vmstopped"`
-	Vmtotal         int64  `json:"vmtotal"`
-	Volumeavailable string `json:"volumeavailable"`
-	Volumelimit     string `json:"volumelimit"`
-	Volumetotal     int64  `json:"volumetotal"`
-	Vpcavailable    string `json:"vpcavailable"`
-	Vpclimit        string `json:"vpclimit"`
-	Vpctotal        int64  `json:"vpctotal"`
+	Accountdetails            map[string]string               `json:"accountdetails"`
+	Accounttype               int                             `json:"accounttype"`
+	Cpuavailable              string                          `json:"cpuavailable"`
+	Cpulimit                  string                          `json:"cpulimit"`
+	Cputotal                  int64                           `json:"cputotal"`
+	Defaultzoneid             string                          `json:"defaultzoneid"`
+	Domain                    string                          `json:"domain"`
+	Domainid                  string                          `json:"domainid"`
+	Groups                    []string                        `json:"groups"`
+	Id                        string                          `json:"id"`
+	Ipavailable               string                          `json:"ipavailable"`
+	Iplimit                   string                          `json:"iplimit"`
+	Iptotal                   int64                           `json:"iptotal"`
+	Iscleanuprequired         bool                            `json:"iscleanuprequired"`
+	Isdefault                 bool                            `json:"isdefault"`
+	Memoryavailable           string                          `json:"memoryavailable"`
+	Memorylimit               string                          `json:"memorylimit"`
+	Memorytotal               int64                           `json:"memorytotal"`
+	Name                      string                          `json:"name"`
+	Networkavailable          string                          `json:"networkavailable"`
+	Networkdomain             string                          `json:"networkdomain"`
+	Networklimit              string                          `json:"networklimit"`
+	Networktotal              int64                           `json:"networktotal"`
+	Primarystorageavailable   string                          `json:"primarystorageavailable"`
+	Primarystoragelimit       string                          `json:"primarystoragelimit"`
+	Primarystoragetotal       int64                           `json:"primarystoragetotal"`
+	Projectavailable          string                          `json:"projectavailable"`
+	Projectlimit              string                          `json:"projectlimit"`
+	Projecttotal              int64                           `json:"projecttotal"`
+	Receivedbytes             int64                           `json:"receivedbytes"`
+	Roleid                    string                          `json:"roleid"`
+	Rolename                  string                          `json:"rolename"`
+	Roletype                  string                          `json:"roletype"`
+	Secondarystorageavailable string                          `json:"secondarystorageavailable"`
+	Secondarystoragelimit     string                          `json:"secondarystoragelimit"`
+	Secondarystoragetotal     float64                         `json:"secondarystoragetotal"`
+	Sentbytes                 int64                           `json:"sentbytes"`
+	Snapshotavailable         string                          `json:"snapshotavailable"`
+	Snapshotlimit             string                          `json:"snapshotlimit"`
+	Snapshottotal             int64                           `json:"snapshottotal"`
+	State                     string                          `json:"state"`
+	Templateavailable         string                          `json:"templateavailable"`
+	Templatelimit             string                          `json:"templatelimit"`
+	Templatetotal             int64                           `json:"templatetotal"`
+	User                      []LdapCreateAccountResponseUser `json:"user"`
+	Vmavailable               string                          `json:"vmavailable"`
+	Vmlimit                   string                          `json:"vmlimit"`
+	Vmrunning                 int                             `json:"vmrunning"`
+	Vmstopped                 int                             `json:"vmstopped"`
+	Vmtotal                   int64                           `json:"vmtotal"`
+	Volumeavailable           string                          `json:"volumeavailable"`
+	Volumelimit               string                          `json:"volumelimit"`
+	Volumetotal               int64                           `json:"volumetotal"`
+	Vpcavailable              string                          `json:"vpcavailable"`
+	Vpclimit                  string                          `json:"vpclimit"`
+	Vpctotal                  int64                           `json:"vpctotal"`
+}
+
+type LdapCreateAccountResponseUser struct {
+	Account             string `json:"account"`
+	Accountid           string `json:"accountid"`
+	Accounttype         int    `json:"accounttype"`
+	Apikey              string `json:"apikey"`
+	Created             string `json:"created"`
+	Domain              string `json:"domain"`
+	Domainid            string `json:"domainid"`
+	Email               string `json:"email"`
+	Firstname           string `json:"firstname"`
+	Id                  string `json:"id"`
+	Iscallerchilddomain bool   `json:"iscallerchilddomain"`
+	Isdefault           bool   `json:"isdefault"`
+	Lastname            string `json:"lastname"`
+	Roleid              string `json:"roleid"`
+	Rolename            string `json:"rolename"`
+	Roletype            string `json:"roletype"`
+	Secretkey           string `json:"secretkey"`
+	State               string `json:"state"`
+	Timezone            string `json:"timezone"`
+	Username            string `json:"username"`
+	Usersource          string `json:"usersource"`
 }
 
 type LdapRemoveParams struct {
@@ -712,7 +751,7 @@ func (s *LDAPService) NewLdapRemoveParams() *LdapRemoveParams {
 	return p
 }
 
-// Remove the LDAP context for this site.
+// (Deprecated , use deleteLdapConfiguration) Remove the LDAP context for this site.
 func (s *LDAPService) LdapRemove(p *LdapRemoveParams) (*LdapRemoveResponse, error) {
 	resp, err := s.cs.newRequest("ldapRemove", p.toURLValues())
 	if err != nil {
@@ -756,6 +795,9 @@ func (p *LinkDomainToLdapParams) toURLValues() url.Values {
 	if v, found := p.p["domainid"]; found {
 		u.Set("domainid", v.(string))
 	}
+	if v, found := p.p["ldapdomain"]; found {
+		u.Set("ldapdomain", v.(string))
+	}
 	if v, found := p.p["name"]; found {
 		u.Set("name", v.(string))
 	}
@@ -789,6 +831,14 @@ func (p *LinkDomainToLdapParams) SetDomainid(v string) {
 	return
 }
 
+func (p *LinkDomainToLdapParams) SetLdapdomain(v string) {
+	if p.p == nil {
+		p.p = make(map[string]interface{})
+	}
+	p.p["ldapdomain"] = v
+	return
+}
+
 func (p *LinkDomainToLdapParams) SetName(v string) {
 	if p.p == nil {
 		p.p = make(map[string]interface{})
@@ -807,12 +857,11 @@ func (p *LinkDomainToLdapParams) SetType(v string) {
 
 // You should always use this function to get a new LinkDomainToLdapParams instance,
 // as then you are sure you have configured all required params
-func (s *LDAPService) NewLinkDomainToLdapParams(accounttype int, domainid string, name string, lDAPType string) *LinkDomainToLdapParams {
+func (s *LDAPService) NewLinkDomainToLdapParams(accounttype int, domainid string, lDAPType string) *LinkDomainToLdapParams {
 	p := &LinkDomainToLdapParams{}
 	p.p = make(map[string]interface{})
 	p.p["accounttype"] = accounttype
 	p.p["domainid"] = domainid
-	p.p["name"] = name
 	p.p["type"] = lDAPType
 	return p
 }
@@ -835,7 +884,8 @@ func (s *LDAPService) LinkDomainToLdap(p *LinkDomainToLdapParams) (*LinkDomainTo
 type LinkDomainToLdapResponse struct {
 	Accountid   string `json:"accountid"`
 	Accounttype int    `json:"accounttype"`
-	Domainid    int64  `json:"domainid"`
+	Domainid    string `json:"domainid"`
+	Ldapdomain  string `json:"ldapdomain"`
 	Name        string `json:"name"`
 	Type        string `json:"type"`
 }
@@ -848,6 +898,9 @@ func (p *ListLdapConfigurationsParams) toURLValues() url.Values {
 	u := url.Values{}
 	if p.p == nil {
 		return u
+	}
+	if v, found := p.p["domainid"]; found {
+		u.Set("domainid", v.(string))
 	}
 	if v, found := p.p["hostname"]; found {
 		u.Set("hostname", v.(string))
@@ -868,6 +921,14 @@ func (p *ListLdapConfigurationsParams) toURLValues() url.Values {
 		u.Set("port", vv)
 	}
 	return u
+}
+
+func (p *ListLdapConfigurationsParams) SetDomainid(v string) {
+	if p.p == nil {
+		p.p = make(map[string]interface{})
+	}
+	p.p["domainid"] = v
+	return
 }
 
 func (p *ListLdapConfigurationsParams) SetHostname(v string) {
@@ -939,6 +1000,7 @@ type ListLdapConfigurationsResponse struct {
 }
 
 type LdapConfiguration struct {
+	Domainid string `json:"domainid"`
 	Hostname string `json:"hostname"`
 	Port     int    `json:"port"`
 }

@@ -104,15 +104,14 @@ func (s *SwiftService) AddSwift(p *AddSwiftParams) (*AddSwiftResponse, error) {
 }
 
 type AddSwiftResponse struct {
-	Details      []interface{} `json:"details"`
-	Id           string        `json:"id"`
-	Name         string        `json:"name"`
-	Protocol     string        `json:"protocol"`
-	Providername string        `json:"providername"`
-	Scope        string        `json:"scope"`
-	Url          string        `json:"url"`
-	Zoneid       string        `json:"zoneid"`
-	Zonename     string        `json:"zonename"`
+	Id           string `json:"id"`
+	Name         string `json:"name"`
+	Protocol     string `json:"protocol"`
+	Providername string `json:"providername"`
+	Scope        string `json:"scope"`
+	Url          string `json:"url"`
+	Zoneid       string `json:"zoneid"`
+	Zonename     string `json:"zonename"`
 }
 
 type ListSwiftsParams struct {
@@ -239,13 +238,12 @@ type ListSwiftsResponse struct {
 }
 
 type Swift struct {
-	Details      []interface{} `json:"details"`
-	Id           string        `json:"id"`
-	Name         string        `json:"name"`
-	Protocol     string        `json:"protocol"`
-	Providername string        `json:"providername"`
-	Scope        string        `json:"scope"`
-	Url          string        `json:"url"`
-	Zoneid       string        `json:"zoneid"`
-	Zonename     string        `json:"zonename"`
+	Id           string `json:"id"`
+	Name         string `json:"name"`
+	Protocol     string `json:"protocol"`
+	Providername string `json:"providername"`
+	Scope        string `json:"scope"`
+	Url          string `json:"url"`
+	Zoneid       string `json:"zoneid"`
+	Zonename     string `json:"zonename"`
 }

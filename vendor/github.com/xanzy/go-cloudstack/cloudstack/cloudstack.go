@@ -26,6 +26,7 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
+	"net"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
@@ -88,9 +89,6 @@ type CloudStackClient struct {
 	DiskOffering        *DiskOfferingService
 	Domain              *DomainService
 	Event               *EventService
-	ExtFirewall         *ExtFirewallService
-	ExtLoadBalancer     *ExtLoadBalancerService
-	ExternalDevice      *ExternalDeviceService
 	Firewall            *FirewallService
 	GuestOS             *GuestOSService
 	Host                *HostService
@@ -150,8 +148,17 @@ func newClient(apiurl string, apikey string, secret string, async bool, verifyss
 		client: &http.Client{
 			Jar: jar,
 			Transport: &http.Transport{
-				Proxy:           http.ProxyFromEnvironment,
-				TLSClientConfig: &tls.Config{InsecureSkipVerify: !verifyssl}, // If verifyssl is true, skipping the verify should be false and vice versa
+				Proxy: http.ProxyFromEnvironment,
+				DialContext: (&net.Dialer{
+					Timeout:   30 * time.Second,
+					KeepAlive: 30 * time.Second,
+					DualStack: true,
+				}).DialContext,
+				MaxIdleConns:          100,
+				IdleConnTimeout:       90 * time.Second,
+				TLSClientConfig:       &tls.Config{InsecureSkipVerify: !verifyssl}, // If verifyssl is true, skipping the verify should be false and vice versa
+				TLSHandshakeTimeout:   10 * time.Second,
+				ExpectContinueTimeout: 1 * time.Second,
 			},
 			Timeout: time.Duration(60 * time.Second),
 		},
@@ -181,9 +188,6 @@ func newClient(apiurl string, apikey string, secret string, async bool, verifyss
 	cs.DiskOffering = NewDiskOfferingService(cs)
 	cs.Domain = NewDomainService(cs)
 	cs.Event = NewEventService(cs)
-	cs.ExtFirewall = NewExtFirewallService(cs)
-	cs.ExtLoadBalancer = NewExtLoadBalancerService(cs)
-	cs.ExternalDevice = NewExternalDeviceService(cs)
 	cs.Firewall = NewFirewallService(cs)
 	cs.GuestOS = NewGuestOSService(cs)
 	cs.Host = NewHostService(cs)
@@ -613,30 +617,6 @@ type EventService struct {
 
 func NewEventService(cs *CloudStackClient) *EventService {
 	return &EventService{cs: cs}
-}
-
-type ExtFirewallService struct {
-	cs *CloudStackClient
-}
-
-func NewExtFirewallService(cs *CloudStackClient) *ExtFirewallService {
-	return &ExtFirewallService{cs: cs}
-}
-
-type ExtLoadBalancerService struct {
-	cs *CloudStackClient
-}
-
-func NewExtLoadBalancerService(cs *CloudStackClient) *ExtLoadBalancerService {
-	return &ExtLoadBalancerService{cs: cs}
-}
-
-type ExternalDeviceService struct {
-	cs *CloudStackClient
-}
-
-func NewExternalDeviceService(cs *CloudStackClient) *ExternalDeviceService {
-	return &ExternalDeviceService{cs: cs}
 }
 
 type FirewallService struct {

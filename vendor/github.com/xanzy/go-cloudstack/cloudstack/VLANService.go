@@ -45,6 +45,10 @@ func (p *CreateVlanIpRangeParams) toURLValues() url.Values {
 	if v, found := p.p["endipv6"]; found {
 		u.Set("endipv6", v.(string))
 	}
+	if v, found := p.p["forsystemvms"]; found {
+		vv := strconv.FormatBool(v.(bool))
+		u.Set("forsystemvms", vv)
+	}
 	if v, found := p.p["forvirtualnetwork"]; found {
 		vv := strconv.FormatBool(v.(bool))
 		u.Set("forvirtualnetwork", vv)
@@ -117,6 +121,14 @@ func (p *CreateVlanIpRangeParams) SetEndipv6(v string) {
 		p.p = make(map[string]interface{})
 	}
 	p.p["endipv6"] = v
+	return
+}
+
+func (p *CreateVlanIpRangeParams) SetForsystemvms(v bool) {
+	if p.p == nil {
+		p.p = make(map[string]interface{})
+	}
+	p.p["forsystemvms"] = v
 	return
 }
 
@@ -254,6 +266,7 @@ type CreateVlanIpRangeResponse struct {
 	Domainid          string `json:"domainid"`
 	Endip             string `json:"endip"`
 	Endipv6           string `json:"endipv6"`
+	Forsystemvms      bool   `json:"forsystemvms"`
 	Forvirtualnetwork bool   `json:"forvirtualnetwork"`
 	Gateway           string `json:"gateway"`
 	Id                string `json:"id"`
@@ -425,7 +438,26 @@ func (s *VLANService) DeleteVlanIpRange(p *DeleteVlanIpRangeParams) (*DeleteVlan
 
 type DeleteVlanIpRangeResponse struct {
 	Displaytext string `json:"displaytext"`
-	Success     string `json:"success"`
+	Success     bool   `json:"success"`
+}
+
+func (r *DeleteVlanIpRangeResponse) UnmarshalJSON(b []byte) error {
+	var m map[string]interface{}
+	err := json.Unmarshal(b, &m)
+	if err != nil {
+		return err
+	}
+
+	if success, ok := m["success"].(string); ok {
+		m["success"] = success == "true"
+		b, err = json.Marshal(m)
+		if err != nil {
+			return err
+		}
+	}
+
+	type alias DeleteVlanIpRangeResponse
+	return json.Unmarshal(b, (*alias)(r))
 }
 
 type ListDedicatedGuestVlanRangesParams struct {
@@ -851,6 +883,7 @@ type VlanIpRange struct {
 	Domainid          string `json:"domainid"`
 	Endip             string `json:"endip"`
 	Endipv6           string `json:"endipv6"`
+	Forsystemvms      bool   `json:"forsystemvms"`
 	Forvirtualnetwork bool   `json:"forvirtualnetwork"`
 	Gateway           string `json:"gateway"`
 	Id                string `json:"id"`

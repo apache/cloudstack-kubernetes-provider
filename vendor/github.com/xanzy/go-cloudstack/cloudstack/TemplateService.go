@@ -36,6 +36,10 @@ func (p *CopyTemplateParams) toURLValues() url.Values {
 	if v, found := p.p["destzoneid"]; found {
 		u.Set("destzoneid", v.(string))
 	}
+	if v, found := p.p["destzoneids"]; found {
+		vv := strings.Join(v.([]string), ",")
+		u.Set("destzoneids", vv)
+	}
 	if v, found := p.p["id"]; found {
 		u.Set("id", v.(string))
 	}
@@ -50,6 +54,14 @@ func (p *CopyTemplateParams) SetDestzoneid(v string) {
 		p.p = make(map[string]interface{})
 	}
 	p.p["destzoneid"] = v
+	return
+}
+
+func (p *CopyTemplateParams) SetDestzoneids(v []string) {
+	if p.p == nil {
+		p.p = make(map[string]interface{})
+	}
+	p.p["destzoneids"] = v
 	return
 }
 
@@ -71,10 +83,9 @@ func (p *CopyTemplateParams) SetSourcezoneid(v string) {
 
 // You should always use this function to get a new CopyTemplateParams instance,
 // as then you are sure you have configured all required params
-func (s *TemplateService) NewCopyTemplateParams(destzoneid string, id string) *CopyTemplateParams {
+func (s *TemplateService) NewCopyTemplateParams(id string) *CopyTemplateParams {
 	p := &CopyTemplateParams{}
 	p.p = make(map[string]interface{})
-	p.p["destzoneid"] = destzoneid
 	p.p["id"] = id
 	return p
 }
@@ -118,11 +129,14 @@ type CopyTemplateResponse struct {
 	JobID                 string            `json:"jobid"`
 	Account               string            `json:"account"`
 	Accountid             string            `json:"accountid"`
+	Bits                  int               `json:"bits"`
 	Bootable              bool              `json:"bootable"`
 	Checksum              string            `json:"checksum"`
+	Childtemplates        []interface{}     `json:"childtemplates"`
 	Created               string            `json:"created"`
 	CrossZones            bool              `json:"crossZones"`
 	Details               map[string]string `json:"details"`
+	Directdownload        bool              `json:"directdownload"`
 	Displaytext           string            `json:"displaytext"`
 	Domain                string            `json:"domain"`
 	Domainid              string            `json:"domainid"`
@@ -139,7 +153,9 @@ type CopyTemplateResponse struct {
 	Name                  string            `json:"name"`
 	Ostypeid              string            `json:"ostypeid"`
 	Ostypename            string            `json:"ostypename"`
+	Parenttemplateid      string            `json:"parenttemplateid"`
 	Passwordenabled       bool              `json:"passwordenabled"`
+	Physicalsize          int64             `json:"physicalsize"`
 	Project               string            `json:"project"`
 	Projectid             string            `json:"projectid"`
 	Removed               string            `json:"removed"`
@@ -401,11 +417,14 @@ type CreateTemplateResponse struct {
 	JobID                 string            `json:"jobid"`
 	Account               string            `json:"account"`
 	Accountid             string            `json:"accountid"`
+	Bits                  int               `json:"bits"`
 	Bootable              bool              `json:"bootable"`
 	Checksum              string            `json:"checksum"`
+	Childtemplates        []interface{}     `json:"childtemplates"`
 	Created               string            `json:"created"`
 	CrossZones            bool              `json:"crossZones"`
 	Details               map[string]string `json:"details"`
+	Directdownload        bool              `json:"directdownload"`
 	Displaytext           string            `json:"displaytext"`
 	Domain                string            `json:"domain"`
 	Domainid              string            `json:"domainid"`
@@ -422,7 +441,9 @@ type CreateTemplateResponse struct {
 	Name                  string            `json:"name"`
 	Ostypeid              string            `json:"ostypeid"`
 	Ostypename            string            `json:"ostypename"`
+	Parenttemplateid      string            `json:"parenttemplateid"`
 	Passwordenabled       bool              `json:"passwordenabled"`
+	Physicalsize          int64             `json:"physicalsize"`
 	Project               string            `json:"project"`
 	Projectid             string            `json:"projectid"`
 	Removed               string            `json:"removed"`
@@ -445,6 +466,10 @@ func (p *DeleteTemplateParams) toURLValues() url.Values {
 	if p.p == nil {
 		return u
 	}
+	if v, found := p.p["forced"]; found {
+		vv := strconv.FormatBool(v.(bool))
+		u.Set("forced", vv)
+	}
 	if v, found := p.p["id"]; found {
 		u.Set("id", v.(string))
 	}
@@ -452,6 +477,14 @@ func (p *DeleteTemplateParams) toURLValues() url.Values {
 		u.Set("zoneid", v.(string))
 	}
 	return u
+}
+
+func (p *DeleteTemplateParams) SetForced(v bool) {
+	if p.p == nil {
+		p.p = make(map[string]interface{})
+	}
+	p.p["forced"] = v
+	return
 }
 
 func (p *DeleteTemplateParams) SetId(v string) {
@@ -1067,6 +1100,9 @@ func (p *ListTemplatesParams) toURLValues() url.Values {
 		vv := strconv.Itoa(v.(int))
 		u.Set("pagesize", vv)
 	}
+	if v, found := p.p["parenttemplateid"]; found {
+		u.Set("parenttemplateid", v.(string))
+	}
 	if v, found := p.p["projectid"]; found {
 		u.Set("projectid", v.(string))
 	}
@@ -1176,6 +1212,14 @@ func (p *ListTemplatesParams) SetPagesize(v int) {
 		p.p = make(map[string]interface{})
 	}
 	p.p["pagesize"] = v
+	return
+}
+
+func (p *ListTemplatesParams) SetParenttemplateid(v string) {
+	if p.p == nil {
+		p.p = make(map[string]interface{})
+	}
+	p.p["parenttemplateid"] = v
 	return
 }
 
@@ -1337,11 +1381,14 @@ type ListTemplatesResponse struct {
 type Template struct {
 	Account               string            `json:"account"`
 	Accountid             string            `json:"accountid"`
+	Bits                  int               `json:"bits"`
 	Bootable              bool              `json:"bootable"`
 	Checksum              string            `json:"checksum"`
+	Childtemplates        []interface{}     `json:"childtemplates"`
 	Created               string            `json:"created"`
 	CrossZones            bool              `json:"crossZones"`
 	Details               map[string]string `json:"details"`
+	Directdownload        bool              `json:"directdownload"`
 	Displaytext           string            `json:"displaytext"`
 	Domain                string            `json:"domain"`
 	Domainid              string            `json:"domainid"`
@@ -1358,7 +1405,9 @@ type Template struct {
 	Name                  string            `json:"name"`
 	Ostypeid              string            `json:"ostypeid"`
 	Ostypename            string            `json:"ostypename"`
+	Parenttemplateid      string            `json:"parenttemplateid"`
 	Passwordenabled       bool              `json:"passwordenabled"`
+	Physicalsize          int64             `json:"physicalsize"`
 	Project               string            `json:"project"`
 	Projectid             string            `json:"projectid"`
 	Removed               string            `json:"removed"`
@@ -1445,11 +1494,14 @@ func (s *TemplateService) PrepareTemplate(p *PrepareTemplateParams) (*PrepareTem
 type PrepareTemplateResponse struct {
 	Account               string            `json:"account"`
 	Accountid             string            `json:"accountid"`
+	Bits                  int               `json:"bits"`
 	Bootable              bool              `json:"bootable"`
 	Checksum              string            `json:"checksum"`
+	Childtemplates        []interface{}     `json:"childtemplates"`
 	Created               string            `json:"created"`
 	CrossZones            bool              `json:"crossZones"`
 	Details               map[string]string `json:"details"`
+	Directdownload        bool              `json:"directdownload"`
 	Displaytext           string            `json:"displaytext"`
 	Domain                string            `json:"domain"`
 	Domainid              string            `json:"domainid"`
@@ -1466,7 +1518,9 @@ type PrepareTemplateResponse struct {
 	Name                  string            `json:"name"`
 	Ostypeid              string            `json:"ostypeid"`
 	Ostypename            string            `json:"ostypename"`
+	Parenttemplateid      string            `json:"parenttemplateid"`
 	Passwordenabled       bool              `json:"passwordenabled"`
+	Physicalsize          int64             `json:"physicalsize"`
 	Project               string            `json:"project"`
 	Projectid             string            `json:"projectid"`
 	Removed               string            `json:"removed"`
@@ -1505,6 +1559,10 @@ func (p *RegisterTemplateParams) toURLValues() url.Values {
 			u.Set(fmt.Sprintf("details[%d].%s", i, k), vv)
 			i++
 		}
+	}
+	if v, found := p.p["directdownload"]; found {
+		vv := strconv.FormatBool(v.(bool))
+		u.Set("directdownload", vv)
 	}
 	if v, found := p.p["displaytext"]; found {
 		u.Set("displaytext", v.(string))
@@ -1568,6 +1626,10 @@ func (p *RegisterTemplateParams) toURLValues() url.Values {
 	if v, found := p.p["zoneid"]; found {
 		u.Set("zoneid", v.(string))
 	}
+	if v, found := p.p["zoneids"]; found {
+		vv := strings.Join(v.([]string), ",")
+		u.Set("zoneids", vv)
+	}
 	return u
 }
 
@@ -1600,6 +1662,14 @@ func (p *RegisterTemplateParams) SetDetails(v map[string]string) {
 		p.p = make(map[string]interface{})
 	}
 	p.p["details"] = v
+	return
+}
+
+func (p *RegisterTemplateParams) SetDirectdownload(v bool) {
+	if p.p == nil {
+		p.p = make(map[string]interface{})
+	}
+	p.p["directdownload"] = v
 	return
 }
 
@@ -1747,9 +1817,17 @@ func (p *RegisterTemplateParams) SetZoneid(v string) {
 	return
 }
 
+func (p *RegisterTemplateParams) SetZoneids(v []string) {
+	if p.p == nil {
+		p.p = make(map[string]interface{})
+	}
+	p.p["zoneids"] = v
+	return
+}
+
 // You should always use this function to get a new RegisterTemplateParams instance,
 // as then you are sure you have configured all required params
-func (s *TemplateService) NewRegisterTemplateParams(displaytext string, format string, hypervisor string, name string, ostypeid string, url string, zoneid string) *RegisterTemplateParams {
+func (s *TemplateService) NewRegisterTemplateParams(displaytext string, format string, hypervisor string, name string, ostypeid string, url string) *RegisterTemplateParams {
 	p := &RegisterTemplateParams{}
 	p.p = make(map[string]interface{})
 	p.p["displaytext"] = displaytext
@@ -1758,7 +1836,6 @@ func (s *TemplateService) NewRegisterTemplateParams(displaytext string, format s
 	p.p["name"] = name
 	p.p["ostypeid"] = ostypeid
 	p.p["url"] = url
-	p.p["zoneid"] = zoneid
 	return p
 }
 
@@ -1785,11 +1862,14 @@ type RegisterTemplateResponse struct {
 type RegisterTemplate struct {
 	Account               string            `json:"account"`
 	Accountid             string            `json:"accountid"`
+	Bits                  int               `json:"bits"`
 	Bootable              bool              `json:"bootable"`
 	Checksum              string            `json:"checksum"`
+	Childtemplates        []interface{}     `json:"childtemplates"`
 	Created               string            `json:"created"`
 	CrossZones            bool              `json:"crossZones"`
 	Details               map[string]string `json:"details"`
+	Directdownload        bool              `json:"directdownload"`
 	Displaytext           string            `json:"displaytext"`
 	Domain                string            `json:"domain"`
 	Domainid              string            `json:"domainid"`
@@ -1806,7 +1886,9 @@ type RegisterTemplate struct {
 	Name                  string            `json:"name"`
 	Ostypeid              string            `json:"ostypeid"`
 	Ostypename            string            `json:"ostypename"`
+	Parenttemplateid      string            `json:"parenttemplateid"`
 	Passwordenabled       bool              `json:"passwordenabled"`
+	Physicalsize          int64             `json:"physicalsize"`
 	Project               string            `json:"project"`
 	Projectid             string            `json:"projectid"`
 	Removed               string            `json:"removed"`
@@ -1832,6 +1914,10 @@ func (p *UpdateTemplateParams) toURLValues() url.Values {
 	if v, found := p.p["bootable"]; found {
 		vv := strconv.FormatBool(v.(bool))
 		u.Set("bootable", vv)
+	}
+	if v, found := p.p["cleanupdetails"]; found {
+		vv := strconv.FormatBool(v.(bool))
+		u.Set("cleanupdetails", vv)
 	}
 	if v, found := p.p["details"]; found {
 		i := 0
@@ -1883,6 +1969,14 @@ func (p *UpdateTemplateParams) SetBootable(v bool) {
 		p.p = make(map[string]interface{})
 	}
 	p.p["bootable"] = v
+	return
+}
+
+func (p *UpdateTemplateParams) SetCleanupdetails(v bool) {
+	if p.p == nil {
+		p.p = make(map[string]interface{})
+	}
+	p.p["cleanupdetails"] = v
 	return
 }
 
@@ -2001,11 +2095,14 @@ func (s *TemplateService) UpdateTemplate(p *UpdateTemplateParams) (*UpdateTempla
 type UpdateTemplateResponse struct {
 	Account               string            `json:"account"`
 	Accountid             string            `json:"accountid"`
+	Bits                  int               `json:"bits"`
 	Bootable              bool              `json:"bootable"`
 	Checksum              string            `json:"checksum"`
+	Childtemplates        []interface{}     `json:"childtemplates"`
 	Created               string            `json:"created"`
 	CrossZones            bool              `json:"crossZones"`
 	Details               map[string]string `json:"details"`
+	Directdownload        bool              `json:"directdownload"`
 	Displaytext           string            `json:"displaytext"`
 	Domain                string            `json:"domain"`
 	Domainid              string            `json:"domainid"`
@@ -2022,7 +2119,9 @@ type UpdateTemplateResponse struct {
 	Name                  string            `json:"name"`
 	Ostypeid              string            `json:"ostypeid"`
 	Ostypename            string            `json:"ostypename"`
+	Parenttemplateid      string            `json:"parenttemplateid"`
 	Passwordenabled       bool              `json:"passwordenabled"`
+	Physicalsize          int64             `json:"physicalsize"`
 	Project               string            `json:"project"`
 	Projectid             string            `json:"projectid"`
 	Removed               string            `json:"removed"`
@@ -2156,7 +2255,26 @@ func (s *TemplateService) UpdateTemplatePermissions(p *UpdateTemplatePermissions
 
 type UpdateTemplatePermissionsResponse struct {
 	Displaytext string `json:"displaytext"`
-	Success     string `json:"success"`
+	Success     bool   `json:"success"`
+}
+
+func (r *UpdateTemplatePermissionsResponse) UnmarshalJSON(b []byte) error {
+	var m map[string]interface{}
+	err := json.Unmarshal(b, &m)
+	if err != nil {
+		return err
+	}
+
+	if success, ok := m["success"].(string); ok {
+		m["success"] = success == "true"
+		b, err = json.Marshal(m)
+		if err != nil {
+			return err
+		}
+	}
+
+	type alias UpdateTemplatePermissionsResponse
+	return json.Unmarshal(b, (*alias)(r))
 }
 
 type UpgradeRouterTemplateParams struct {
@@ -2261,6 +2379,6 @@ func (s *TemplateService) UpgradeRouterTemplate(p *UpgradeRouterTemplateParams) 
 }
 
 type UpgradeRouterTemplateResponse struct {
-	Jobid     string `json:"jobid"`
+	JobID     string `json:"jobid"`
 	Jobstatus int    `json:"jobstatus"`
 }

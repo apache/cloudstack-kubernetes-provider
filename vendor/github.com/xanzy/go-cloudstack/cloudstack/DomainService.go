@@ -105,51 +105,51 @@ func (s *DomainService) CreateDomain(p *CreateDomainParams) (*CreateDomainRespon
 }
 
 type CreateDomainResponse struct {
-	Cpuavailable              string `json:"cpuavailable"`
-	Cpulimit                  string `json:"cpulimit"`
-	Cputotal                  int64  `json:"cputotal"`
-	Haschild                  bool   `json:"haschild"`
-	Id                        string `json:"id"`
-	Ipavailable               string `json:"ipavailable"`
-	Iplimit                   string `json:"iplimit"`
-	Iptotal                   int64  `json:"iptotal"`
-	Level                     int    `json:"level"`
-	Memoryavailable           string `json:"memoryavailable"`
-	Memorylimit               string `json:"memorylimit"`
-	Memorytotal               int64  `json:"memorytotal"`
-	Name                      string `json:"name"`
-	Networkavailable          string `json:"networkavailable"`
-	Networkdomain             string `json:"networkdomain"`
-	Networklimit              string `json:"networklimit"`
-	Networktotal              int64  `json:"networktotal"`
-	Parentdomainid            string `json:"parentdomainid"`
-	Parentdomainname          string `json:"parentdomainname"`
-	Path                      string `json:"path"`
-	Primarystorageavailable   string `json:"primarystorageavailable"`
-	Primarystoragelimit       string `json:"primarystoragelimit"`
-	Primarystoragetotal       int64  `json:"primarystoragetotal"`
-	Projectavailable          string `json:"projectavailable"`
-	Projectlimit              string `json:"projectlimit"`
-	Projecttotal              int64  `json:"projecttotal"`
-	Secondarystorageavailable string `json:"secondarystorageavailable"`
-	Secondarystoragelimit     string `json:"secondarystoragelimit"`
-	Secondarystoragetotal     int64  `json:"secondarystoragetotal"`
-	Snapshotavailable         string `json:"snapshotavailable"`
-	Snapshotlimit             string `json:"snapshotlimit"`
-	Snapshottotal             int64  `json:"snapshottotal"`
-	State                     string `json:"state"`
-	Templateavailable         string `json:"templateavailable"`
-	Templatelimit             string `json:"templatelimit"`
-	Templatetotal             int64  `json:"templatetotal"`
-	Vmavailable               string `json:"vmavailable"`
-	Vmlimit                   string `json:"vmlimit"`
-	Vmtotal                   int64  `json:"vmtotal"`
-	Volumeavailable           string `json:"volumeavailable"`
-	Volumelimit               string `json:"volumelimit"`
-	Volumetotal               int64  `json:"volumetotal"`
-	Vpcavailable              string `json:"vpcavailable"`
-	Vpclimit                  string `json:"vpclimit"`
-	Vpctotal                  int64  `json:"vpctotal"`
+	Cpuavailable              string  `json:"cpuavailable"`
+	Cpulimit                  string  `json:"cpulimit"`
+	Cputotal                  int64   `json:"cputotal"`
+	Haschild                  bool    `json:"haschild"`
+	Id                        string  `json:"id"`
+	Ipavailable               string  `json:"ipavailable"`
+	Iplimit                   string  `json:"iplimit"`
+	Iptotal                   int64   `json:"iptotal"`
+	Level                     int     `json:"level"`
+	Memoryavailable           string  `json:"memoryavailable"`
+	Memorylimit               string  `json:"memorylimit"`
+	Memorytotal               int64   `json:"memorytotal"`
+	Name                      string  `json:"name"`
+	Networkavailable          string  `json:"networkavailable"`
+	Networkdomain             string  `json:"networkdomain"`
+	Networklimit              string  `json:"networklimit"`
+	Networktotal              int64   `json:"networktotal"`
+	Parentdomainid            string  `json:"parentdomainid"`
+	Parentdomainname          string  `json:"parentdomainname"`
+	Path                      string  `json:"path"`
+	Primarystorageavailable   string  `json:"primarystorageavailable"`
+	Primarystoragelimit       string  `json:"primarystoragelimit"`
+	Primarystoragetotal       int64   `json:"primarystoragetotal"`
+	Projectavailable          string  `json:"projectavailable"`
+	Projectlimit              string  `json:"projectlimit"`
+	Projecttotal              int64   `json:"projecttotal"`
+	Secondarystorageavailable string  `json:"secondarystorageavailable"`
+	Secondarystoragelimit     string  `json:"secondarystoragelimit"`
+	Secondarystoragetotal     float64 `json:"secondarystoragetotal"`
+	Snapshotavailable         string  `json:"snapshotavailable"`
+	Snapshotlimit             string  `json:"snapshotlimit"`
+	Snapshottotal             int64   `json:"snapshottotal"`
+	State                     string  `json:"state"`
+	Templateavailable         string  `json:"templateavailable"`
+	Templatelimit             string  `json:"templatelimit"`
+	Templatetotal             int64   `json:"templatetotal"`
+	Vmavailable               string  `json:"vmavailable"`
+	Vmlimit                   string  `json:"vmlimit"`
+	Vmtotal                   int64   `json:"vmtotal"`
+	Volumeavailable           string  `json:"volumeavailable"`
+	Volumelimit               string  `json:"volumelimit"`
+	Volumetotal               int64   `json:"volumetotal"`
+	Vpcavailable              string  `json:"vpcavailable"`
+	Vpclimit                  string  `json:"vpclimit"`
+	Vpctotal                  int64   `json:"vpctotal"`
 }
 
 type DeleteDomainParams struct {
@@ -437,51 +437,51 @@ type ListDomainChildrenResponse struct {
 }
 
 type DomainChildren struct {
-	Cpuavailable              string `json:"cpuavailable"`
-	Cpulimit                  string `json:"cpulimit"`
-	Cputotal                  int64  `json:"cputotal"`
-	Haschild                  bool   `json:"haschild"`
-	Id                        string `json:"id"`
-	Ipavailable               string `json:"ipavailable"`
-	Iplimit                   string `json:"iplimit"`
-	Iptotal                   int64  `json:"iptotal"`
-	Level                     int    `json:"level"`
-	Memoryavailable           string `json:"memoryavailable"`
-	Memorylimit               string `json:"memorylimit"`
-	Memorytotal               int64  `json:"memorytotal"`
-	Name                      string `json:"name"`
-	Networkavailable          string `json:"networkavailable"`
-	Networkdomain             string `json:"networkdomain"`
-	Networklimit              string `json:"networklimit"`
-	Networktotal              int64  `json:"networktotal"`
-	Parentdomainid            string `json:"parentdomainid"`
-	Parentdomainname          string `json:"parentdomainname"`
-	Path                      string `json:"path"`
-	Primarystorageavailable   string `json:"primarystorageavailable"`
-	Primarystoragelimit       string `json:"primarystoragelimit"`
-	Primarystoragetotal       int64  `json:"primarystoragetotal"`
-	Projectavailable          string `json:"projectavailable"`
-	Projectlimit              string `json:"projectlimit"`
-	Projecttotal              int64  `json:"projecttotal"`
-	Secondarystorageavailable string `json:"secondarystorageavailable"`
-	Secondarystoragelimit     string `json:"secondarystoragelimit"`
-	Secondarystoragetotal     int64  `json:"secondarystoragetotal"`
-	Snapshotavailable         string `json:"snapshotavailable"`
-	Snapshotlimit             string `json:"snapshotlimit"`
-	Snapshottotal             int64  `json:"snapshottotal"`
-	State                     string `json:"state"`
-	Templateavailable         string `json:"templateavailable"`
-	Templatelimit             string `json:"templatelimit"`
-	Templatetotal             int64  `json:"templatetotal"`
-	Vmavailable               string `json:"vmavailable"`
-	Vmlimit                   string `json:"vmlimit"`
-	Vmtotal                   int64  `json:"vmtotal"`
-	Volumeavailable           string `json:"volumeavailable"`
-	Volumelimit               string `json:"volumelimit"`
-	Volumetotal               int64  `json:"volumetotal"`
-	Vpcavailable              string `json:"vpcavailable"`
-	Vpclimit                  string `json:"vpclimit"`
-	Vpctotal                  int64  `json:"vpctotal"`
+	Cpuavailable              string  `json:"cpuavailable"`
+	Cpulimit                  string  `json:"cpulimit"`
+	Cputotal                  int64   `json:"cputotal"`
+	Haschild                  bool    `json:"haschild"`
+	Id                        string  `json:"id"`
+	Ipavailable               string  `json:"ipavailable"`
+	Iplimit                   string  `json:"iplimit"`
+	Iptotal                   int64   `json:"iptotal"`
+	Level                     int     `json:"level"`
+	Memoryavailable           string  `json:"memoryavailable"`
+	Memorylimit               string  `json:"memorylimit"`
+	Memorytotal               int64   `json:"memorytotal"`
+	Name                      string  `json:"name"`
+	Networkavailable          string  `json:"networkavailable"`
+	Networkdomain             string  `json:"networkdomain"`
+	Networklimit              string  `json:"networklimit"`
+	Networktotal              int64   `json:"networktotal"`
+	Parentdomainid            string  `json:"parentdomainid"`
+	Parentdomainname          string  `json:"parentdomainname"`
+	Path                      string  `json:"path"`
+	Primarystorageavailable   string  `json:"primarystorageavailable"`
+	Primarystoragelimit       string  `json:"primarystoragelimit"`
+	Primarystoragetotal       int64   `json:"primarystoragetotal"`
+	Projectavailable          string  `json:"projectavailable"`
+	Projectlimit              string  `json:"projectlimit"`
+	Projecttotal              int64   `json:"projecttotal"`
+	Secondarystorageavailable string  `json:"secondarystorageavailable"`
+	Secondarystoragelimit     string  `json:"secondarystoragelimit"`
+	Secondarystoragetotal     float64 `json:"secondarystoragetotal"`
+	Snapshotavailable         string  `json:"snapshotavailable"`
+	Snapshotlimit             string  `json:"snapshotlimit"`
+	Snapshottotal             int64   `json:"snapshottotal"`
+	State                     string  `json:"state"`
+	Templateavailable         string  `json:"templateavailable"`
+	Templatelimit             string  `json:"templatelimit"`
+	Templatetotal             int64   `json:"templatetotal"`
+	Vmavailable               string  `json:"vmavailable"`
+	Vmlimit                   string  `json:"vmlimit"`
+	Vmtotal                   int64   `json:"vmtotal"`
+	Volumeavailable           string  `json:"volumeavailable"`
+	Volumelimit               string  `json:"volumelimit"`
+	Volumetotal               int64   `json:"volumetotal"`
+	Vpcavailable              string  `json:"vpcavailable"`
+	Vpclimit                  string  `json:"vpclimit"`
+	Vpctotal                  int64   `json:"vpctotal"`
 }
 
 type ListDomainsParams struct {
@@ -492,6 +492,10 @@ func (p *ListDomainsParams) toURLValues() url.Values {
 	u := url.Values{}
 	if p.p == nil {
 		return u
+	}
+	if v, found := p.p["details"]; found {
+		vv := strings.Join(v.([]string), ",")
+		u.Set("details", vv)
 	}
 	if v, found := p.p["id"]; found {
 		u.Set("id", v.(string))
@@ -519,6 +523,14 @@ func (p *ListDomainsParams) toURLValues() url.Values {
 		u.Set("pagesize", vv)
 	}
 	return u
+}
+
+func (p *ListDomainsParams) SetDetails(v []string) {
+	if p.p == nil {
+		p.p = make(map[string]interface{})
+	}
+	p.p["details"] = v
+	return
 }
 
 func (p *ListDomainsParams) SetId(v string) {
@@ -689,51 +701,51 @@ type ListDomainsResponse struct {
 }
 
 type Domain struct {
-	Cpuavailable              string `json:"cpuavailable"`
-	Cpulimit                  string `json:"cpulimit"`
-	Cputotal                  int64  `json:"cputotal"`
-	Haschild                  bool   `json:"haschild"`
-	Id                        string `json:"id"`
-	Ipavailable               string `json:"ipavailable"`
-	Iplimit                   string `json:"iplimit"`
-	Iptotal                   int64  `json:"iptotal"`
-	Level                     int    `json:"level"`
-	Memoryavailable           string `json:"memoryavailable"`
-	Memorylimit               string `json:"memorylimit"`
-	Memorytotal               int64  `json:"memorytotal"`
-	Name                      string `json:"name"`
-	Networkavailable          string `json:"networkavailable"`
-	Networkdomain             string `json:"networkdomain"`
-	Networklimit              string `json:"networklimit"`
-	Networktotal              int64  `json:"networktotal"`
-	Parentdomainid            string `json:"parentdomainid"`
-	Parentdomainname          string `json:"parentdomainname"`
-	Path                      string `json:"path"`
-	Primarystorageavailable   string `json:"primarystorageavailable"`
-	Primarystoragelimit       string `json:"primarystoragelimit"`
-	Primarystoragetotal       int64  `json:"primarystoragetotal"`
-	Projectavailable          string `json:"projectavailable"`
-	Projectlimit              string `json:"projectlimit"`
-	Projecttotal              int64  `json:"projecttotal"`
-	Secondarystorageavailable string `json:"secondarystorageavailable"`
-	Secondarystoragelimit     string `json:"secondarystoragelimit"`
-	Secondarystoragetotal     int64  `json:"secondarystoragetotal"`
-	Snapshotavailable         string `json:"snapshotavailable"`
-	Snapshotlimit             string `json:"snapshotlimit"`
-	Snapshottotal             int64  `json:"snapshottotal"`
-	State                     string `json:"state"`
-	Templateavailable         string `json:"templateavailable"`
-	Templatelimit             string `json:"templatelimit"`
-	Templatetotal             int64  `json:"templatetotal"`
-	Vmavailable               string `json:"vmavailable"`
-	Vmlimit                   string `json:"vmlimit"`
-	Vmtotal                   int64  `json:"vmtotal"`
-	Volumeavailable           string `json:"volumeavailable"`
-	Volumelimit               string `json:"volumelimit"`
-	Volumetotal               int64  `json:"volumetotal"`
-	Vpcavailable              string `json:"vpcavailable"`
-	Vpclimit                  string `json:"vpclimit"`
-	Vpctotal                  int64  `json:"vpctotal"`
+	Cpuavailable              string  `json:"cpuavailable"`
+	Cpulimit                  string  `json:"cpulimit"`
+	Cputotal                  int64   `json:"cputotal"`
+	Haschild                  bool    `json:"haschild"`
+	Id                        string  `json:"id"`
+	Ipavailable               string  `json:"ipavailable"`
+	Iplimit                   string  `json:"iplimit"`
+	Iptotal                   int64   `json:"iptotal"`
+	Level                     int     `json:"level"`
+	Memoryavailable           string  `json:"memoryavailable"`
+	Memorylimit               string  `json:"memorylimit"`
+	Memorytotal               int64   `json:"memorytotal"`
+	Name                      string  `json:"name"`
+	Networkavailable          string  `json:"networkavailable"`
+	Networkdomain             string  `json:"networkdomain"`
+	Networklimit              string  `json:"networklimit"`
+	Networktotal              int64   `json:"networktotal"`
+	Parentdomainid            string  `json:"parentdomainid"`
+	Parentdomainname          string  `json:"parentdomainname"`
+	Path                      string  `json:"path"`
+	Primarystorageavailable   string  `json:"primarystorageavailable"`
+	Primarystoragelimit       string  `json:"primarystoragelimit"`
+	Primarystoragetotal       int64   `json:"primarystoragetotal"`
+	Projectavailable          string  `json:"projectavailable"`
+	Projectlimit              string  `json:"projectlimit"`
+	Projecttotal              int64   `json:"projecttotal"`
+	Secondarystorageavailable string  `json:"secondarystorageavailable"`
+	Secondarystoragelimit     string  `json:"secondarystoragelimit"`
+	Secondarystoragetotal     float64 `json:"secondarystoragetotal"`
+	Snapshotavailable         string  `json:"snapshotavailable"`
+	Snapshotlimit             string  `json:"snapshotlimit"`
+	Snapshottotal             int64   `json:"snapshottotal"`
+	State                     string  `json:"state"`
+	Templateavailable         string  `json:"templateavailable"`
+	Templatelimit             string  `json:"templatelimit"`
+	Templatetotal             int64   `json:"templatetotal"`
+	Vmavailable               string  `json:"vmavailable"`
+	Vmlimit                   string  `json:"vmlimit"`
+	Vmtotal                   int64   `json:"vmtotal"`
+	Volumeavailable           string  `json:"volumeavailable"`
+	Volumelimit               string  `json:"volumelimit"`
+	Volumetotal               int64   `json:"volumetotal"`
+	Vpcavailable              string  `json:"vpcavailable"`
+	Vpclimit                  string  `json:"vpclimit"`
+	Vpctotal                  int64   `json:"vpctotal"`
 }
 
 type UpdateDomainParams struct {
@@ -806,49 +818,49 @@ func (s *DomainService) UpdateDomain(p *UpdateDomainParams) (*UpdateDomainRespon
 }
 
 type UpdateDomainResponse struct {
-	Cpuavailable              string `json:"cpuavailable"`
-	Cpulimit                  string `json:"cpulimit"`
-	Cputotal                  int64  `json:"cputotal"`
-	Haschild                  bool   `json:"haschild"`
-	Id                        string `json:"id"`
-	Ipavailable               string `json:"ipavailable"`
-	Iplimit                   string `json:"iplimit"`
-	Iptotal                   int64  `json:"iptotal"`
-	Level                     int    `json:"level"`
-	Memoryavailable           string `json:"memoryavailable"`
-	Memorylimit               string `json:"memorylimit"`
-	Memorytotal               int64  `json:"memorytotal"`
-	Name                      string `json:"name"`
-	Networkavailable          string `json:"networkavailable"`
-	Networkdomain             string `json:"networkdomain"`
-	Networklimit              string `json:"networklimit"`
-	Networktotal              int64  `json:"networktotal"`
-	Parentdomainid            string `json:"parentdomainid"`
-	Parentdomainname          string `json:"parentdomainname"`
-	Path                      string `json:"path"`
-	Primarystorageavailable   string `json:"primarystorageavailable"`
-	Primarystoragelimit       string `json:"primarystoragelimit"`
-	Primarystoragetotal       int64  `json:"primarystoragetotal"`
-	Projectavailable          string `json:"projectavailable"`
-	Projectlimit              string `json:"projectlimit"`
-	Projecttotal              int64  `json:"projecttotal"`
-	Secondarystorageavailable string `json:"secondarystorageavailable"`
-	Secondarystoragelimit     string `json:"secondarystoragelimit"`
-	Secondarystoragetotal     int64  `json:"secondarystoragetotal"`
-	Snapshotavailable         string `json:"snapshotavailable"`
-	Snapshotlimit             string `json:"snapshotlimit"`
-	Snapshottotal             int64  `json:"snapshottotal"`
-	State                     string `json:"state"`
-	Templateavailable         string `json:"templateavailable"`
-	Templatelimit             string `json:"templatelimit"`
-	Templatetotal             int64  `json:"templatetotal"`
-	Vmavailable               string `json:"vmavailable"`
-	Vmlimit                   string `json:"vmlimit"`
-	Vmtotal                   int64  `json:"vmtotal"`
-	Volumeavailable           string `json:"volumeavailable"`
-	Volumelimit               string `json:"volumelimit"`
-	Volumetotal               int64  `json:"volumetotal"`
-	Vpcavailable              string `json:"vpcavailable"`
-	Vpclimit                  string `json:"vpclimit"`
-	Vpctotal                  int64  `json:"vpctotal"`
+	Cpuavailable              string  `json:"cpuavailable"`
+	Cpulimit                  string  `json:"cpulimit"`
+	Cputotal                  int64   `json:"cputotal"`
+	Haschild                  bool    `json:"haschild"`
+	Id                        string  `json:"id"`
+	Ipavailable               string  `json:"ipavailable"`
+	Iplimit                   string  `json:"iplimit"`
+	Iptotal                   int64   `json:"iptotal"`
+	Level                     int     `json:"level"`
+	Memoryavailable           string  `json:"memoryavailable"`
+	Memorylimit               string  `json:"memorylimit"`
+	Memorytotal               int64   `json:"memorytotal"`
+	Name                      string  `json:"name"`
+	Networkavailable          string  `json:"networkavailable"`
+	Networkdomain             string  `json:"networkdomain"`
+	Networklimit              string  `json:"networklimit"`
+	Networktotal              int64   `json:"networktotal"`
+	Parentdomainid            string  `json:"parentdomainid"`
+	Parentdomainname          string  `json:"parentdomainname"`
+	Path                      string  `json:"path"`
+	Primarystorageavailable   string  `json:"primarystorageavailable"`
+	Primarystoragelimit       string  `json:"primarystoragelimit"`
+	Primarystoragetotal       int64   `json:"primarystoragetotal"`
+	Projectavailable          string  `json:"projectavailable"`
+	Projectlimit              string  `json:"projectlimit"`
+	Projecttotal              int64   `json:"projecttotal"`
+	Secondarystorageavailable string  `json:"secondarystorageavailable"`
+	Secondarystoragelimit     string  `json:"secondarystoragelimit"`
+	Secondarystoragetotal     float64 `json:"secondarystoragetotal"`
+	Snapshotavailable         string  `json:"snapshotavailable"`
+	Snapshotlimit             string  `json:"snapshotlimit"`
+	Snapshottotal             int64   `json:"snapshottotal"`
+	State                     string  `json:"state"`
+	Templateavailable         string  `json:"templateavailable"`
+	Templatelimit             string  `json:"templatelimit"`
+	Templatetotal             int64   `json:"templatetotal"`
+	Vmavailable               string  `json:"vmavailable"`
+	Vmlimit                   string  `json:"vmlimit"`
+	Vmtotal                   int64   `json:"vmtotal"`
+	Volumeavailable           string  `json:"volumeavailable"`
+	Volumelimit               string  `json:"volumelimit"`
+	Volumetotal               int64   `json:"volumetotal"`
+	Vpcavailable              string  `json:"vpcavailable"`
+	Vpclimit                  string  `json:"vpclimit"`
+	Vpctotal                  int64   `json:"vpctotal"`
 }

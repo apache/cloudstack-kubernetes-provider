@@ -153,31 +153,20 @@ func (s *NATService) CreateIpForwardingRule(p *CreateIpForwardingRuleParams) (*C
 }
 
 type CreateIpForwardingRuleResponse struct {
-	JobID          string `json:"jobid"`
-	Cidrlist       string `json:"cidrlist"`
-	Fordisplay     bool   `json:"fordisplay"`
-	Id             string `json:"id"`
-	Ipaddress      string `json:"ipaddress"`
-	Ipaddressid    string `json:"ipaddressid"`
-	Networkid      string `json:"networkid"`
-	Privateendport string `json:"privateendport"`
-	Privateport    string `json:"privateport"`
-	Protocol       string `json:"protocol"`
-	Publicendport  string `json:"publicendport"`
-	Publicport     string `json:"publicport"`
-	State          string `json:"state"`
-	Tags           []struct {
-		Account      string `json:"account"`
-		Customer     string `json:"customer"`
-		Domain       string `json:"domain"`
-		Domainid     string `json:"domainid"`
-		Key          string `json:"key"`
-		Project      string `json:"project"`
-		Projectid    string `json:"projectid"`
-		Resourceid   string `json:"resourceid"`
-		Resourcetype string `json:"resourcetype"`
-		Value        string `json:"value"`
-	} `json:"tags"`
+	JobID                     string `json:"jobid"`
+	Cidrlist                  string `json:"cidrlist"`
+	Fordisplay                bool   `json:"fordisplay"`
+	Id                        string `json:"id"`
+	Ipaddress                 string `json:"ipaddress"`
+	Ipaddressid               string `json:"ipaddressid"`
+	Networkid                 string `json:"networkid"`
+	Privateendport            string `json:"privateendport"`
+	Privateport               string `json:"privateport"`
+	Protocol                  string `json:"protocol"`
+	Publicendport             string `json:"publicendport"`
+	Publicport                string `json:"publicport"`
+	State                     string `json:"state"`
+	Tags                      []Tags `json:"tags"`
 	Virtualmachinedisplayname string `json:"virtualmachinedisplayname"`
 	Virtualmachineid          string `json:"virtualmachineid"`
 	Virtualmachinename        string `json:"virtualmachinename"`
@@ -403,7 +392,26 @@ func (s *NATService) EnableStaticNat(p *EnableStaticNatParams) (*EnableStaticNat
 
 type EnableStaticNatResponse struct {
 	Displaytext string `json:"displaytext"`
-	Success     string `json:"success"`
+	Success     bool   `json:"success"`
+}
+
+func (r *EnableStaticNatResponse) UnmarshalJSON(b []byte) error {
+	var m map[string]interface{}
+	err := json.Unmarshal(b, &m)
+	if err != nil {
+		return err
+	}
+
+	if success, ok := m["success"].(string); ok {
+		m["success"] = success == "true"
+		b, err = json.Marshal(m)
+		if err != nil {
+			return err
+		}
+	}
+
+	type alias EnableStaticNatResponse
+	return json.Unmarshal(b, (*alias)(r))
 }
 
 type ListIpForwardingRulesParams struct {
@@ -605,30 +613,19 @@ type ListIpForwardingRulesResponse struct {
 }
 
 type IpForwardingRule struct {
-	Cidrlist       string `json:"cidrlist"`
-	Fordisplay     bool   `json:"fordisplay"`
-	Id             string `json:"id"`
-	Ipaddress      string `json:"ipaddress"`
-	Ipaddressid    string `json:"ipaddressid"`
-	Networkid      string `json:"networkid"`
-	Privateendport string `json:"privateendport"`
-	Privateport    string `json:"privateport"`
-	Protocol       string `json:"protocol"`
-	Publicendport  string `json:"publicendport"`
-	Publicport     string `json:"publicport"`
-	State          string `json:"state"`
-	Tags           []struct {
-		Account      string `json:"account"`
-		Customer     string `json:"customer"`
-		Domain       string `json:"domain"`
-		Domainid     string `json:"domainid"`
-		Key          string `json:"key"`
-		Project      string `json:"project"`
-		Projectid    string `json:"projectid"`
-		Resourceid   string `json:"resourceid"`
-		Resourcetype string `json:"resourcetype"`
-		Value        string `json:"value"`
-	} `json:"tags"`
+	Cidrlist                  string `json:"cidrlist"`
+	Fordisplay                bool   `json:"fordisplay"`
+	Id                        string `json:"id"`
+	Ipaddress                 string `json:"ipaddress"`
+	Ipaddressid               string `json:"ipaddressid"`
+	Networkid                 string `json:"networkid"`
+	Privateendport            string `json:"privateendport"`
+	Privateport               string `json:"privateport"`
+	Protocol                  string `json:"protocol"`
+	Publicendport             string `json:"publicendport"`
+	Publicport                string `json:"publicport"`
+	State                     string `json:"state"`
+	Tags                      []Tags `json:"tags"`
 	Virtualmachinedisplayname string `json:"virtualmachinedisplayname"`
 	Virtualmachineid          string `json:"virtualmachineid"`
 	Virtualmachinename        string `json:"virtualmachinename"`

@@ -33,6 +33,13 @@ func (p *AddGuestOsParams) toURLValues() url.Values {
 	if p.p == nil {
 		return u
 	}
+	if v, found := p.p["details"]; found {
+		i := 0
+		for k, vv := range v.(map[string]string) {
+			u.Set(fmt.Sprintf("details[%d].%s", i, k), vv)
+			i++
+		}
+	}
 	if v, found := p.p["name"]; found {
 		u.Set("name", v.(string))
 	}
@@ -43,6 +50,14 @@ func (p *AddGuestOsParams) toURLValues() url.Values {
 		u.Set("osdisplayname", v.(string))
 	}
 	return u
+}
+
+func (p *AddGuestOsParams) SetDetails(v map[string]string) {
+	if p.p == nil {
+		p.p = make(map[string]interface{})
+	}
+	p.p["details"] = v
+	return
 }
 
 func (p *AddGuestOsParams) SetName(v string) {
@@ -71,9 +86,10 @@ func (p *AddGuestOsParams) SetOsdisplayname(v string) {
 
 // You should always use this function to get a new AddGuestOsParams instance,
 // as then you are sure you have configured all required params
-func (s *GuestOSService) NewAddGuestOsParams(oscategoryid string, osdisplayname string) *AddGuestOsParams {
+func (s *GuestOSService) NewAddGuestOsParams(details map[string]string, oscategoryid string, osdisplayname string) *AddGuestOsParams {
 	p := &AddGuestOsParams{}
 	p.p = make(map[string]interface{})
+	p.p["details"] = details
 	p.p["oscategoryid"] = oscategoryid
 	p.p["osdisplayname"] = osdisplayname
 	return p
@@ -118,7 +134,7 @@ type AddGuestOsResponse struct {
 	JobID         string `json:"jobid"`
 	Description   string `json:"description"`
 	Id            string `json:"id"`
-	Isuserdefined string `json:"isuserdefined"`
+	Isuserdefined bool   `json:"isuserdefined"`
 	Oscategoryid  string `json:"oscategoryid"`
 }
 
@@ -737,7 +753,7 @@ type ListOsTypesResponse struct {
 type OsType struct {
 	Description   string `json:"description"`
 	Id            string `json:"id"`
-	Isuserdefined string `json:"isuserdefined"`
+	Isuserdefined bool   `json:"isuserdefined"`
 	Oscategoryid  string `json:"oscategoryid"`
 }
 
@@ -886,6 +902,13 @@ func (p *UpdateGuestOsParams) toURLValues() url.Values {
 	if p.p == nil {
 		return u
 	}
+	if v, found := p.p["details"]; found {
+		i := 0
+		for k, vv := range v.(map[string]string) {
+			u.Set(fmt.Sprintf("details[%d].%s", i, k), vv)
+			i++
+		}
+	}
 	if v, found := p.p["id"]; found {
 		u.Set("id", v.(string))
 	}
@@ -893,6 +916,14 @@ func (p *UpdateGuestOsParams) toURLValues() url.Values {
 		u.Set("osdisplayname", v.(string))
 	}
 	return u
+}
+
+func (p *UpdateGuestOsParams) SetDetails(v map[string]string) {
+	if p.p == nil {
+		p.p = make(map[string]interface{})
+	}
+	p.p["details"] = v
+	return
 }
 
 func (p *UpdateGuestOsParams) SetId(v string) {
@@ -913,9 +944,10 @@ func (p *UpdateGuestOsParams) SetOsdisplayname(v string) {
 
 // You should always use this function to get a new UpdateGuestOsParams instance,
 // as then you are sure you have configured all required params
-func (s *GuestOSService) NewUpdateGuestOsParams(id string, osdisplayname string) *UpdateGuestOsParams {
+func (s *GuestOSService) NewUpdateGuestOsParams(details map[string]string, id string, osdisplayname string) *UpdateGuestOsParams {
 	p := &UpdateGuestOsParams{}
 	p.p = make(map[string]interface{})
+	p.p["details"] = details
 	p.p["id"] = id
 	p.p["osdisplayname"] = osdisplayname
 	return p
@@ -960,7 +992,7 @@ type UpdateGuestOsResponse struct {
 	JobID         string `json:"jobid"`
 	Description   string `json:"description"`
 	Id            string `json:"id"`
-	Isuserdefined string `json:"isuserdefined"`
+	Isuserdefined bool   `json:"isuserdefined"`
 	Oscategoryid  string `json:"oscategoryid"`
 }
 

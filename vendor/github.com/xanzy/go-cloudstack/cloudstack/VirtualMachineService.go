@@ -33,8 +33,19 @@ func (p *AddNicToVirtualMachineParams) toURLValues() url.Values {
 	if p.p == nil {
 		return u
 	}
+	if v, found := p.p["dhcpoptions"]; found {
+		i := 0
+		for k, vv := range v.(map[string]string) {
+			u.Set(fmt.Sprintf("dhcpoptions[%d].key", i), k)
+			u.Set(fmt.Sprintf("dhcpoptions[%d].value", i), vv)
+			i++
+		}
+	}
 	if v, found := p.p["ipaddress"]; found {
 		u.Set("ipaddress", v.(string))
+	}
+	if v, found := p.p["macaddress"]; found {
+		u.Set("macaddress", v.(string))
 	}
 	if v, found := p.p["networkid"]; found {
 		u.Set("networkid", v.(string))
@@ -45,11 +56,27 @@ func (p *AddNicToVirtualMachineParams) toURLValues() url.Values {
 	return u
 }
 
+func (p *AddNicToVirtualMachineParams) SetDhcpoptions(v map[string]string) {
+	if p.p == nil {
+		p.p = make(map[string]interface{})
+	}
+	p.p["dhcpoptions"] = v
+	return
+}
+
 func (p *AddNicToVirtualMachineParams) SetIpaddress(v string) {
 	if p.p == nil {
 		p.p = make(map[string]interface{})
 	}
 	p.p["ipaddress"] = v
+	return
+}
+
+func (p *AddNicToVirtualMachineParams) SetMacaddress(v string) {
+	if p.p == nil {
+		p.p = make(map[string]interface{})
+	}
+	p.p["macaddress"] = v
 	return
 }
 
@@ -115,173 +142,111 @@ func (s *VirtualMachineService) AddNicToVirtualMachine(p *AddNicToVirtualMachine
 }
 
 type AddNicToVirtualMachineResponse struct {
-	JobID         string `json:"jobid"`
-	Account       string `json:"account"`
-	Affinitygroup []struct {
-		Account           string   `json:"account"`
-		Description       string   `json:"description"`
-		Domain            string   `json:"domain"`
-		Domainid          string   `json:"domainid"`
-		Id                string   `json:"id"`
-		Name              string   `json:"name"`
-		Project           string   `json:"project"`
-		Projectid         string   `json:"projectid"`
-		Type              string   `json:"type"`
-		VirtualmachineIds []string `json:"virtualmachineIds"`
-	} `json:"affinitygroup"`
-	Cpunumber             int               `json:"cpunumber"`
-	Cpuspeed              int               `json:"cpuspeed"`
-	Cpuused               string            `json:"cpuused"`
-	Created               string            `json:"created"`
-	Details               map[string]string `json:"details"`
-	Diskioread            int64             `json:"diskioread"`
-	Diskiowrite           int64             `json:"diskiowrite"`
-	Diskkbsread           int64             `json:"diskkbsread"`
-	Diskkbswrite          int64             `json:"diskkbswrite"`
-	Diskofferingid        string            `json:"diskofferingid"`
-	Diskofferingname      string            `json:"diskofferingname"`
-	Displayname           string            `json:"displayname"`
-	Displayvm             bool              `json:"displayvm"`
-	Domain                string            `json:"domain"`
-	Domainid              string            `json:"domainid"`
-	Forvirtualnetwork     bool              `json:"forvirtualnetwork"`
-	Group                 string            `json:"group"`
-	Groupid               string            `json:"groupid"`
-	Guestosid             string            `json:"guestosid"`
-	Haenable              bool              `json:"haenable"`
-	Hostid                string            `json:"hostid"`
-	Hostname              string            `json:"hostname"`
-	Hypervisor            string            `json:"hypervisor"`
-	Id                    string            `json:"id"`
-	Instancename          string            `json:"instancename"`
-	Isdynamicallyscalable bool              `json:"isdynamicallyscalable"`
-	Isodisplaytext        string            `json:"isodisplaytext"`
-	Isoid                 string            `json:"isoid"`
-	Isoname               string            `json:"isoname"`
-	Keypair               string            `json:"keypair"`
-	Memory                int               `json:"memory"`
-	Memoryintfreekbs      int64             `json:"memoryintfreekbs"`
-	Memorykbs             int64             `json:"memorykbs"`
-	Memorytargetkbs       int64             `json:"memorytargetkbs"`
-	Name                  string            `json:"name"`
-	Networkkbsread        int64             `json:"networkkbsread"`
-	Networkkbswrite       int64             `json:"networkkbswrite"`
-	Nic                   []struct {
-		Broadcasturi         string `json:"broadcasturi"`
-		Deviceid             string `json:"deviceid"`
-		Gateway              string `json:"gateway"`
-		Id                   string `json:"id"`
-		Ip6address           string `json:"ip6address"`
-		Ip6cidr              string `json:"ip6cidr"`
-		Ip6gateway           string `json:"ip6gateway"`
-		Ipaddress            string `json:"ipaddress"`
-		Isdefault            bool   `json:"isdefault"`
-		Isolationuri         string `json:"isolationuri"`
-		Macaddress           string `json:"macaddress"`
-		Netmask              string `json:"netmask"`
-		Networkid            string `json:"networkid"`
-		Networkname          string `json:"networkname"`
-		Nsxlogicalswitch     string `json:"nsxlogicalswitch"`
-		Nsxlogicalswitchport string `json:"nsxlogicalswitchport"`
-		Secondaryip          []struct {
-			Id        string `json:"id"`
-			Ipaddress string `json:"ipaddress"`
-		} `json:"secondaryip"`
-		Traffictype      string `json:"traffictype"`
-		Type             string `json:"type"`
-		Virtualmachineid string `json:"virtualmachineid"`
-	} `json:"nic"`
-	Ostypeid        int64  `json:"ostypeid"`
-	Password        string `json:"password"`
-	Passwordenabled bool   `json:"passwordenabled"`
-	Project         string `json:"project"`
-	Projectid       string `json:"projectid"`
-	Publicip        string `json:"publicip"`
-	Publicipid      string `json:"publicipid"`
-	Rootdeviceid    int64  `json:"rootdeviceid"`
-	Rootdevicetype  string `json:"rootdevicetype"`
-	Securitygroup   []struct {
-		Account     string `json:"account"`
-		Description string `json:"description"`
-		Domain      string `json:"domain"`
-		Domainid    string `json:"domainid"`
-		Egressrule  []struct {
-			Account           string `json:"account"`
-			Cidr              string `json:"cidr"`
-			Endport           int    `json:"endport"`
-			Icmpcode          int    `json:"icmpcode"`
-			Icmptype          int    `json:"icmptype"`
-			Protocol          string `json:"protocol"`
-			Ruleid            string `json:"ruleid"`
-			Securitygroupname string `json:"securitygroupname"`
-			Startport         int    `json:"startport"`
-			Tags              []struct {
-				Account      string `json:"account"`
-				Customer     string `json:"customer"`
-				Domain       string `json:"domain"`
-				Domainid     string `json:"domainid"`
-				Key          string `json:"key"`
-				Project      string `json:"project"`
-				Projectid    string `json:"projectid"`
-				Resourceid   string `json:"resourceid"`
-				Resourcetype string `json:"resourcetype"`
-				Value        string `json:"value"`
-			} `json:"tags"`
-		} `json:"egressrule"`
-		Id          string `json:"id"`
-		Ingressrule []struct {
-			Account           string `json:"account"`
-			Cidr              string `json:"cidr"`
-			Endport           int    `json:"endport"`
-			Icmpcode          int    `json:"icmpcode"`
-			Icmptype          int    `json:"icmptype"`
-			Protocol          string `json:"protocol"`
-			Ruleid            string `json:"ruleid"`
-			Securitygroupname string `json:"securitygroupname"`
-			Startport         int    `json:"startport"`
-			Tags              []struct {
-				Account      string `json:"account"`
-				Customer     string `json:"customer"`
-				Domain       string `json:"domain"`
-				Domainid     string `json:"domainid"`
-				Key          string `json:"key"`
-				Project      string `json:"project"`
-				Projectid    string `json:"projectid"`
-				Resourceid   string `json:"resourceid"`
-				Resourcetype string `json:"resourcetype"`
-				Value        string `json:"value"`
-			} `json:"tags"`
-		} `json:"ingressrule"`
-		Name      string `json:"name"`
-		Project   string `json:"project"`
-		Projectid string `json:"projectid"`
-		Tags      []struct {
-			Account      string `json:"account"`
-			Customer     string `json:"customer"`
-			Domain       string `json:"domain"`
-			Domainid     string `json:"domainid"`
-			Key          string `json:"key"`
-			Project      string `json:"project"`
-			Projectid    string `json:"projectid"`
-			Resourceid   string `json:"resourceid"`
-			Resourcetype string `json:"resourcetype"`
-			Value        string `json:"value"`
-		} `json:"tags"`
-		Virtualmachinecount int           `json:"virtualmachinecount"`
-		Virtualmachineids   []interface{} `json:"virtualmachineids"`
-	} `json:"securitygroup"`
-	Serviceofferingid   string `json:"serviceofferingid"`
-	Serviceofferingname string `json:"serviceofferingname"`
-	Servicestate        string `json:"servicestate"`
-	State               string `json:"state"`
-	Templatedisplaytext string `json:"templatedisplaytext"`
-	Templateid          string `json:"templateid"`
-	Templatename        string `json:"templatename"`
-	Userid              string `json:"userid"`
-	Username            string `json:"username"`
-	Vgpu                string `json:"vgpu"`
-	Zoneid              string `json:"zoneid"`
-	Zonename            string `json:"zonename"`
+	JobID                 string                                        `json:"jobid"`
+	Account               string                                        `json:"account"`
+	Affinitygroup         []AddNicToVirtualMachineResponseAffinitygroup `json:"affinitygroup"`
+	Cpunumber             int                                           `json:"cpunumber"`
+	Cpuspeed              int                                           `json:"cpuspeed"`
+	Cpuused               string                                        `json:"cpuused"`
+	Created               string                                        `json:"created"`
+	Details               map[string]string                             `json:"details"`
+	Diskioread            int64                                         `json:"diskioread"`
+	Diskiowrite           int64                                         `json:"diskiowrite"`
+	Diskkbsread           int64                                         `json:"diskkbsread"`
+	Diskkbswrite          int64                                         `json:"diskkbswrite"`
+	Diskofferingid        string                                        `json:"diskofferingid"`
+	Diskofferingname      string                                        `json:"diskofferingname"`
+	Displayname           string                                        `json:"displayname"`
+	Displayvm             bool                                          `json:"displayvm"`
+	Domain                string                                        `json:"domain"`
+	Domainid              string                                        `json:"domainid"`
+	Forvirtualnetwork     bool                                          `json:"forvirtualnetwork"`
+	Group                 string                                        `json:"group"`
+	Groupid               string                                        `json:"groupid"`
+	Guestosid             string                                        `json:"guestosid"`
+	Haenable              bool                                          `json:"haenable"`
+	Hostid                string                                        `json:"hostid"`
+	Hostname              string                                        `json:"hostname"`
+	Hypervisor            string                                        `json:"hypervisor"`
+	Id                    string                                        `json:"id"`
+	Instancename          string                                        `json:"instancename"`
+	Isdynamicallyscalable bool                                          `json:"isdynamicallyscalable"`
+	Isodisplaytext        string                                        `json:"isodisplaytext"`
+	Isoid                 string                                        `json:"isoid"`
+	Isoname               string                                        `json:"isoname"`
+	Keypair               string                                        `json:"keypair"`
+	Memory                int                                           `json:"memory"`
+	Memoryintfreekbs      int64                                         `json:"memoryintfreekbs"`
+	Memorykbs             int64                                         `json:"memorykbs"`
+	Memorytargetkbs       int64                                         `json:"memorytargetkbs"`
+	Name                  string                                        `json:"name"`
+	Networkkbsread        int64                                         `json:"networkkbsread"`
+	Networkkbswrite       int64                                         `json:"networkkbswrite"`
+	Nic                   []Nic                                         `json:"nic"`
+	Ostypeid              int64                                         `json:"ostypeid"`
+	Password              string                                        `json:"password"`
+	Passwordenabled       bool                                          `json:"passwordenabled"`
+	Project               string                                        `json:"project"`
+	Projectid             string                                        `json:"projectid"`
+	Publicip              string                                        `json:"publicip"`
+	Publicipid            string                                        `json:"publicipid"`
+	Rootdeviceid          int64                                         `json:"rootdeviceid"`
+	Rootdevicetype        string                                        `json:"rootdevicetype"`
+	Securitygroup         []AddNicToVirtualMachineResponseSecuritygroup `json:"securitygroup"`
+	Serviceofferingid     string                                        `json:"serviceofferingid"`
+	Serviceofferingname   string                                        `json:"serviceofferingname"`
+	Servicestate          string                                        `json:"servicestate"`
+	State                 string                                        `json:"state"`
+	Templatedisplaytext   string                                        `json:"templatedisplaytext"`
+	Templateid            string                                        `json:"templateid"`
+	Templatename          string                                        `json:"templatename"`
+	Userid                string                                        `json:"userid"`
+	Username              string                                        `json:"username"`
+	Vgpu                  string                                        `json:"vgpu"`
+	Zoneid                string                                        `json:"zoneid"`
+	Zonename              string                                        `json:"zonename"`
+}
+
+type AddNicToVirtualMachineResponseSecuritygroup struct {
+	Account             string                                            `json:"account"`
+	Description         string                                            `json:"description"`
+	Domain              string                                            `json:"domain"`
+	Domainid            string                                            `json:"domainid"`
+	Egressrule          []AddNicToVirtualMachineResponseSecuritygroupRule `json:"egressrule"`
+	Id                  string                                            `json:"id"`
+	Ingressrule         []AddNicToVirtualMachineResponseSecuritygroupRule `json:"ingressrule"`
+	Name                string                                            `json:"name"`
+	Project             string                                            `json:"project"`
+	Projectid           string                                            `json:"projectid"`
+	Tags                []Tags                                            `json:"tags"`
+	Virtualmachinecount int                                               `json:"virtualmachinecount"`
+	Virtualmachineids   []interface{}                                     `json:"virtualmachineids"`
+}
+
+type AddNicToVirtualMachineResponseSecuritygroupRule struct {
+	Account           string `json:"account"`
+	Cidr              string `json:"cidr"`
+	Endport           int    `json:"endport"`
+	Icmpcode          int    `json:"icmpcode"`
+	Icmptype          int    `json:"icmptype"`
+	Protocol          string `json:"protocol"`
+	Ruleid            string `json:"ruleid"`
+	Securitygroupname string `json:"securitygroupname"`
+	Startport         int    `json:"startport"`
+	Tags              []Tags `json:"tags"`
+}
+
+type AddNicToVirtualMachineResponseAffinitygroup struct {
+	Account           string   `json:"account"`
+	Description       string   `json:"description"`
+	Domain            string   `json:"domain"`
+	Domainid          string   `json:"domainid"`
+	Id                string   `json:"id"`
+	Name              string   `json:"name"`
+	Project           string   `json:"project"`
+	Projectid         string   `json:"projectid"`
+	Type              string   `json:"type"`
+	VirtualmachineIds []string `json:"virtualmachineIds"`
 }
 
 type AssignVirtualMachineParams struct {
@@ -302,6 +267,9 @@ func (p *AssignVirtualMachineParams) toURLValues() url.Values {
 	if v, found := p.p["networkids"]; found {
 		vv := strings.Join(v.([]string), ",")
 		u.Set("networkids", vv)
+	}
+	if v, found := p.p["projectid"]; found {
+		u.Set("projectid", v.(string))
 	}
 	if v, found := p.p["securitygroupids"]; found {
 		vv := strings.Join(v.([]string), ",")
@@ -337,6 +305,14 @@ func (p *AssignVirtualMachineParams) SetNetworkids(v []string) {
 	return
 }
 
+func (p *AssignVirtualMachineParams) SetProjectid(v string) {
+	if p.p == nil {
+		p.p = make(map[string]interface{})
+	}
+	p.p["projectid"] = v
+	return
+}
+
 func (p *AssignVirtualMachineParams) SetSecuritygroupids(v []string) {
 	if p.p == nil {
 		p.p = make(map[string]interface{})
@@ -355,11 +331,9 @@ func (p *AssignVirtualMachineParams) SetVirtualmachineid(v string) {
 
 // You should always use this function to get a new AssignVirtualMachineParams instance,
 // as then you are sure you have configured all required params
-func (s *VirtualMachineService) NewAssignVirtualMachineParams(account string, domainid string, virtualmachineid string) *AssignVirtualMachineParams {
+func (s *VirtualMachineService) NewAssignVirtualMachineParams(virtualmachineid string) *AssignVirtualMachineParams {
 	p := &AssignVirtualMachineParams{}
 	p.p = make(map[string]interface{})
-	p.p["account"] = account
-	p.p["domainid"] = domainid
 	p.p["virtualmachineid"] = virtualmachineid
 	return p
 }
@@ -380,172 +354,110 @@ func (s *VirtualMachineService) AssignVirtualMachine(p *AssignVirtualMachinePara
 }
 
 type AssignVirtualMachineResponse struct {
-	Account       string `json:"account"`
-	Affinitygroup []struct {
-		Account           string   `json:"account"`
-		Description       string   `json:"description"`
-		Domain            string   `json:"domain"`
-		Domainid          string   `json:"domainid"`
-		Id                string   `json:"id"`
-		Name              string   `json:"name"`
-		Project           string   `json:"project"`
-		Projectid         string   `json:"projectid"`
-		Type              string   `json:"type"`
-		VirtualmachineIds []string `json:"virtualmachineIds"`
-	} `json:"affinitygroup"`
-	Cpunumber             int               `json:"cpunumber"`
-	Cpuspeed              int               `json:"cpuspeed"`
-	Cpuused               string            `json:"cpuused"`
-	Created               string            `json:"created"`
-	Details               map[string]string `json:"details"`
-	Diskioread            int64             `json:"diskioread"`
-	Diskiowrite           int64             `json:"diskiowrite"`
-	Diskkbsread           int64             `json:"diskkbsread"`
-	Diskkbswrite          int64             `json:"diskkbswrite"`
-	Diskofferingid        string            `json:"diskofferingid"`
-	Diskofferingname      string            `json:"diskofferingname"`
-	Displayname           string            `json:"displayname"`
-	Displayvm             bool              `json:"displayvm"`
-	Domain                string            `json:"domain"`
-	Domainid              string            `json:"domainid"`
-	Forvirtualnetwork     bool              `json:"forvirtualnetwork"`
-	Group                 string            `json:"group"`
-	Groupid               string            `json:"groupid"`
-	Guestosid             string            `json:"guestosid"`
-	Haenable              bool              `json:"haenable"`
-	Hostid                string            `json:"hostid"`
-	Hostname              string            `json:"hostname"`
-	Hypervisor            string            `json:"hypervisor"`
-	Id                    string            `json:"id"`
-	Instancename          string            `json:"instancename"`
-	Isdynamicallyscalable bool              `json:"isdynamicallyscalable"`
-	Isodisplaytext        string            `json:"isodisplaytext"`
-	Isoid                 string            `json:"isoid"`
-	Isoname               string            `json:"isoname"`
-	Keypair               string            `json:"keypair"`
-	Memory                int               `json:"memory"`
-	Memoryintfreekbs      int64             `json:"memoryintfreekbs"`
-	Memorykbs             int64             `json:"memorykbs"`
-	Memorytargetkbs       int64             `json:"memorytargetkbs"`
-	Name                  string            `json:"name"`
-	Networkkbsread        int64             `json:"networkkbsread"`
-	Networkkbswrite       int64             `json:"networkkbswrite"`
-	Nic                   []struct {
-		Broadcasturi         string `json:"broadcasturi"`
-		Deviceid             string `json:"deviceid"`
-		Gateway              string `json:"gateway"`
-		Id                   string `json:"id"`
-		Ip6address           string `json:"ip6address"`
-		Ip6cidr              string `json:"ip6cidr"`
-		Ip6gateway           string `json:"ip6gateway"`
-		Ipaddress            string `json:"ipaddress"`
-		Isdefault            bool   `json:"isdefault"`
-		Isolationuri         string `json:"isolationuri"`
-		Macaddress           string `json:"macaddress"`
-		Netmask              string `json:"netmask"`
-		Networkid            string `json:"networkid"`
-		Networkname          string `json:"networkname"`
-		Nsxlogicalswitch     string `json:"nsxlogicalswitch"`
-		Nsxlogicalswitchport string `json:"nsxlogicalswitchport"`
-		Secondaryip          []struct {
-			Id        string `json:"id"`
-			Ipaddress string `json:"ipaddress"`
-		} `json:"secondaryip"`
-		Traffictype      string `json:"traffictype"`
-		Type             string `json:"type"`
-		Virtualmachineid string `json:"virtualmachineid"`
-	} `json:"nic"`
-	Ostypeid        int64  `json:"ostypeid"`
-	Password        string `json:"password"`
-	Passwordenabled bool   `json:"passwordenabled"`
-	Project         string `json:"project"`
-	Projectid       string `json:"projectid"`
-	Publicip        string `json:"publicip"`
-	Publicipid      string `json:"publicipid"`
-	Rootdeviceid    int64  `json:"rootdeviceid"`
-	Rootdevicetype  string `json:"rootdevicetype"`
-	Securitygroup   []struct {
-		Account     string `json:"account"`
-		Description string `json:"description"`
-		Domain      string `json:"domain"`
-		Domainid    string `json:"domainid"`
-		Egressrule  []struct {
-			Account           string `json:"account"`
-			Cidr              string `json:"cidr"`
-			Endport           int    `json:"endport"`
-			Icmpcode          int    `json:"icmpcode"`
-			Icmptype          int    `json:"icmptype"`
-			Protocol          string `json:"protocol"`
-			Ruleid            string `json:"ruleid"`
-			Securitygroupname string `json:"securitygroupname"`
-			Startport         int    `json:"startport"`
-			Tags              []struct {
-				Account      string `json:"account"`
-				Customer     string `json:"customer"`
-				Domain       string `json:"domain"`
-				Domainid     string `json:"domainid"`
-				Key          string `json:"key"`
-				Project      string `json:"project"`
-				Projectid    string `json:"projectid"`
-				Resourceid   string `json:"resourceid"`
-				Resourcetype string `json:"resourcetype"`
-				Value        string `json:"value"`
-			} `json:"tags"`
-		} `json:"egressrule"`
-		Id          string `json:"id"`
-		Ingressrule []struct {
-			Account           string `json:"account"`
-			Cidr              string `json:"cidr"`
-			Endport           int    `json:"endport"`
-			Icmpcode          int    `json:"icmpcode"`
-			Icmptype          int    `json:"icmptype"`
-			Protocol          string `json:"protocol"`
-			Ruleid            string `json:"ruleid"`
-			Securitygroupname string `json:"securitygroupname"`
-			Startport         int    `json:"startport"`
-			Tags              []struct {
-				Account      string `json:"account"`
-				Customer     string `json:"customer"`
-				Domain       string `json:"domain"`
-				Domainid     string `json:"domainid"`
-				Key          string `json:"key"`
-				Project      string `json:"project"`
-				Projectid    string `json:"projectid"`
-				Resourceid   string `json:"resourceid"`
-				Resourcetype string `json:"resourcetype"`
-				Value        string `json:"value"`
-			} `json:"tags"`
-		} `json:"ingressrule"`
-		Name      string `json:"name"`
-		Project   string `json:"project"`
-		Projectid string `json:"projectid"`
-		Tags      []struct {
-			Account      string `json:"account"`
-			Customer     string `json:"customer"`
-			Domain       string `json:"domain"`
-			Domainid     string `json:"domainid"`
-			Key          string `json:"key"`
-			Project      string `json:"project"`
-			Projectid    string `json:"projectid"`
-			Resourceid   string `json:"resourceid"`
-			Resourcetype string `json:"resourcetype"`
-			Value        string `json:"value"`
-		} `json:"tags"`
-		Virtualmachinecount int           `json:"virtualmachinecount"`
-		Virtualmachineids   []interface{} `json:"virtualmachineids"`
-	} `json:"securitygroup"`
-	Serviceofferingid   string `json:"serviceofferingid"`
-	Serviceofferingname string `json:"serviceofferingname"`
-	Servicestate        string `json:"servicestate"`
-	State               string `json:"state"`
-	Templatedisplaytext string `json:"templatedisplaytext"`
-	Templateid          string `json:"templateid"`
-	Templatename        string `json:"templatename"`
-	Userid              string `json:"userid"`
-	Username            string `json:"username"`
-	Vgpu                string `json:"vgpu"`
-	Zoneid              string `json:"zoneid"`
-	Zonename            string `json:"zonename"`
+	Account               string                                      `json:"account"`
+	Affinitygroup         []AssignVirtualMachineResponseAffinitygroup `json:"affinitygroup"`
+	Cpunumber             int                                         `json:"cpunumber"`
+	Cpuspeed              int                                         `json:"cpuspeed"`
+	Cpuused               string                                      `json:"cpuused"`
+	Created               string                                      `json:"created"`
+	Details               map[string]string                           `json:"details"`
+	Diskioread            int64                                       `json:"diskioread"`
+	Diskiowrite           int64                                       `json:"diskiowrite"`
+	Diskkbsread           int64                                       `json:"diskkbsread"`
+	Diskkbswrite          int64                                       `json:"diskkbswrite"`
+	Diskofferingid        string                                      `json:"diskofferingid"`
+	Diskofferingname      string                                      `json:"diskofferingname"`
+	Displayname           string                                      `json:"displayname"`
+	Displayvm             bool                                        `json:"displayvm"`
+	Domain                string                                      `json:"domain"`
+	Domainid              string                                      `json:"domainid"`
+	Forvirtualnetwork     bool                                        `json:"forvirtualnetwork"`
+	Group                 string                                      `json:"group"`
+	Groupid               string                                      `json:"groupid"`
+	Guestosid             string                                      `json:"guestosid"`
+	Haenable              bool                                        `json:"haenable"`
+	Hostid                string                                      `json:"hostid"`
+	Hostname              string                                      `json:"hostname"`
+	Hypervisor            string                                      `json:"hypervisor"`
+	Id                    string                                      `json:"id"`
+	Instancename          string                                      `json:"instancename"`
+	Isdynamicallyscalable bool                                        `json:"isdynamicallyscalable"`
+	Isodisplaytext        string                                      `json:"isodisplaytext"`
+	Isoid                 string                                      `json:"isoid"`
+	Isoname               string                                      `json:"isoname"`
+	Keypair               string                                      `json:"keypair"`
+	Memory                int                                         `json:"memory"`
+	Memoryintfreekbs      int64                                       `json:"memoryintfreekbs"`
+	Memorykbs             int64                                       `json:"memorykbs"`
+	Memorytargetkbs       int64                                       `json:"memorytargetkbs"`
+	Name                  string                                      `json:"name"`
+	Networkkbsread        int64                                       `json:"networkkbsread"`
+	Networkkbswrite       int64                                       `json:"networkkbswrite"`
+	Nic                   []Nic                                       `json:"nic"`
+	Ostypeid              int64                                       `json:"ostypeid"`
+	Password              string                                      `json:"password"`
+	Passwordenabled       bool                                        `json:"passwordenabled"`
+	Project               string                                      `json:"project"`
+	Projectid             string                                      `json:"projectid"`
+	Publicip              string                                      `json:"publicip"`
+	Publicipid            string                                      `json:"publicipid"`
+	Rootdeviceid          int64                                       `json:"rootdeviceid"`
+	Rootdevicetype        string                                      `json:"rootdevicetype"`
+	Securitygroup         []AssignVirtualMachineResponseSecuritygroup `json:"securitygroup"`
+	Serviceofferingid     string                                      `json:"serviceofferingid"`
+	Serviceofferingname   string                                      `json:"serviceofferingname"`
+	Servicestate          string                                      `json:"servicestate"`
+	State                 string                                      `json:"state"`
+	Templatedisplaytext   string                                      `json:"templatedisplaytext"`
+	Templateid            string                                      `json:"templateid"`
+	Templatename          string                                      `json:"templatename"`
+	Userid                string                                      `json:"userid"`
+	Username              string                                      `json:"username"`
+	Vgpu                  string                                      `json:"vgpu"`
+	Zoneid                string                                      `json:"zoneid"`
+	Zonename              string                                      `json:"zonename"`
+}
+
+type AssignVirtualMachineResponseSecuritygroup struct {
+	Account             string                                          `json:"account"`
+	Description         string                                          `json:"description"`
+	Domain              string                                          `json:"domain"`
+	Domainid            string                                          `json:"domainid"`
+	Egressrule          []AssignVirtualMachineResponseSecuritygroupRule `json:"egressrule"`
+	Id                  string                                          `json:"id"`
+	Ingressrule         []AssignVirtualMachineResponseSecuritygroupRule `json:"ingressrule"`
+	Name                string                                          `json:"name"`
+	Project             string                                          `json:"project"`
+	Projectid           string                                          `json:"projectid"`
+	Tags                []Tags                                          `json:"tags"`
+	Virtualmachinecount int                                             `json:"virtualmachinecount"`
+	Virtualmachineids   []interface{}                                   `json:"virtualmachineids"`
+}
+
+type AssignVirtualMachineResponseSecuritygroupRule struct {
+	Account           string `json:"account"`
+	Cidr              string `json:"cidr"`
+	Endport           int    `json:"endport"`
+	Icmpcode          int    `json:"icmpcode"`
+	Icmptype          int    `json:"icmptype"`
+	Protocol          string `json:"protocol"`
+	Ruleid            string `json:"ruleid"`
+	Securitygroupname string `json:"securitygroupname"`
+	Startport         int    `json:"startport"`
+	Tags              []Tags `json:"tags"`
+}
+
+type AssignVirtualMachineResponseAffinitygroup struct {
+	Account           string   `json:"account"`
+	Description       string   `json:"description"`
+	Domain            string   `json:"domain"`
+	Domainid          string   `json:"domainid"`
+	Id                string   `json:"id"`
+	Name              string   `json:"name"`
+	Project           string   `json:"project"`
+	Projectid         string   `json:"projectid"`
+	Type              string   `json:"type"`
+	VirtualmachineIds []string `json:"virtualmachineIds"`
 }
 
 type ChangeServiceForVirtualMachineParams struct {
@@ -623,172 +535,110 @@ func (s *VirtualMachineService) ChangeServiceForVirtualMachine(p *ChangeServiceF
 }
 
 type ChangeServiceForVirtualMachineResponse struct {
-	Account       string `json:"account"`
-	Affinitygroup []struct {
-		Account           string   `json:"account"`
-		Description       string   `json:"description"`
-		Domain            string   `json:"domain"`
-		Domainid          string   `json:"domainid"`
-		Id                string   `json:"id"`
-		Name              string   `json:"name"`
-		Project           string   `json:"project"`
-		Projectid         string   `json:"projectid"`
-		Type              string   `json:"type"`
-		VirtualmachineIds []string `json:"virtualmachineIds"`
-	} `json:"affinitygroup"`
-	Cpunumber             int               `json:"cpunumber"`
-	Cpuspeed              int               `json:"cpuspeed"`
-	Cpuused               string            `json:"cpuused"`
-	Created               string            `json:"created"`
-	Details               map[string]string `json:"details"`
-	Diskioread            int64             `json:"diskioread"`
-	Diskiowrite           int64             `json:"diskiowrite"`
-	Diskkbsread           int64             `json:"diskkbsread"`
-	Diskkbswrite          int64             `json:"diskkbswrite"`
-	Diskofferingid        string            `json:"diskofferingid"`
-	Diskofferingname      string            `json:"diskofferingname"`
-	Displayname           string            `json:"displayname"`
-	Displayvm             bool              `json:"displayvm"`
-	Domain                string            `json:"domain"`
-	Domainid              string            `json:"domainid"`
-	Forvirtualnetwork     bool              `json:"forvirtualnetwork"`
-	Group                 string            `json:"group"`
-	Groupid               string            `json:"groupid"`
-	Guestosid             string            `json:"guestosid"`
-	Haenable              bool              `json:"haenable"`
-	Hostid                string            `json:"hostid"`
-	Hostname              string            `json:"hostname"`
-	Hypervisor            string            `json:"hypervisor"`
-	Id                    string            `json:"id"`
-	Instancename          string            `json:"instancename"`
-	Isdynamicallyscalable bool              `json:"isdynamicallyscalable"`
-	Isodisplaytext        string            `json:"isodisplaytext"`
-	Isoid                 string            `json:"isoid"`
-	Isoname               string            `json:"isoname"`
-	Keypair               string            `json:"keypair"`
-	Memory                int               `json:"memory"`
-	Memoryintfreekbs      int64             `json:"memoryintfreekbs"`
-	Memorykbs             int64             `json:"memorykbs"`
-	Memorytargetkbs       int64             `json:"memorytargetkbs"`
-	Name                  string            `json:"name"`
-	Networkkbsread        int64             `json:"networkkbsread"`
-	Networkkbswrite       int64             `json:"networkkbswrite"`
-	Nic                   []struct {
-		Broadcasturi         string `json:"broadcasturi"`
-		Deviceid             string `json:"deviceid"`
-		Gateway              string `json:"gateway"`
-		Id                   string `json:"id"`
-		Ip6address           string `json:"ip6address"`
-		Ip6cidr              string `json:"ip6cidr"`
-		Ip6gateway           string `json:"ip6gateway"`
-		Ipaddress            string `json:"ipaddress"`
-		Isdefault            bool   `json:"isdefault"`
-		Isolationuri         string `json:"isolationuri"`
-		Macaddress           string `json:"macaddress"`
-		Netmask              string `json:"netmask"`
-		Networkid            string `json:"networkid"`
-		Networkname          string `json:"networkname"`
-		Nsxlogicalswitch     string `json:"nsxlogicalswitch"`
-		Nsxlogicalswitchport string `json:"nsxlogicalswitchport"`
-		Secondaryip          []struct {
-			Id        string `json:"id"`
-			Ipaddress string `json:"ipaddress"`
-		} `json:"secondaryip"`
-		Traffictype      string `json:"traffictype"`
-		Type             string `json:"type"`
-		Virtualmachineid string `json:"virtualmachineid"`
-	} `json:"nic"`
-	Ostypeid        int64  `json:"ostypeid"`
-	Password        string `json:"password"`
-	Passwordenabled bool   `json:"passwordenabled"`
-	Project         string `json:"project"`
-	Projectid       string `json:"projectid"`
-	Publicip        string `json:"publicip"`
-	Publicipid      string `json:"publicipid"`
-	Rootdeviceid    int64  `json:"rootdeviceid"`
-	Rootdevicetype  string `json:"rootdevicetype"`
-	Securitygroup   []struct {
-		Account     string `json:"account"`
-		Description string `json:"description"`
-		Domain      string `json:"domain"`
-		Domainid    string `json:"domainid"`
-		Egressrule  []struct {
-			Account           string `json:"account"`
-			Cidr              string `json:"cidr"`
-			Endport           int    `json:"endport"`
-			Icmpcode          int    `json:"icmpcode"`
-			Icmptype          int    `json:"icmptype"`
-			Protocol          string `json:"protocol"`
-			Ruleid            string `json:"ruleid"`
-			Securitygroupname string `json:"securitygroupname"`
-			Startport         int    `json:"startport"`
-			Tags              []struct {
-				Account      string `json:"account"`
-				Customer     string `json:"customer"`
-				Domain       string `json:"domain"`
-				Domainid     string `json:"domainid"`
-				Key          string `json:"key"`
-				Project      string `json:"project"`
-				Projectid    string `json:"projectid"`
-				Resourceid   string `json:"resourceid"`
-				Resourcetype string `json:"resourcetype"`
-				Value        string `json:"value"`
-			} `json:"tags"`
-		} `json:"egressrule"`
-		Id          string `json:"id"`
-		Ingressrule []struct {
-			Account           string `json:"account"`
-			Cidr              string `json:"cidr"`
-			Endport           int    `json:"endport"`
-			Icmpcode          int    `json:"icmpcode"`
-			Icmptype          int    `json:"icmptype"`
-			Protocol          string `json:"protocol"`
-			Ruleid            string `json:"ruleid"`
-			Securitygroupname string `json:"securitygroupname"`
-			Startport         int    `json:"startport"`
-			Tags              []struct {
-				Account      string `json:"account"`
-				Customer     string `json:"customer"`
-				Domain       string `json:"domain"`
-				Domainid     string `json:"domainid"`
-				Key          string `json:"key"`
-				Project      string `json:"project"`
-				Projectid    string `json:"projectid"`
-				Resourceid   string `json:"resourceid"`
-				Resourcetype string `json:"resourcetype"`
-				Value        string `json:"value"`
-			} `json:"tags"`
-		} `json:"ingressrule"`
-		Name      string `json:"name"`
-		Project   string `json:"project"`
-		Projectid string `json:"projectid"`
-		Tags      []struct {
-			Account      string `json:"account"`
-			Customer     string `json:"customer"`
-			Domain       string `json:"domain"`
-			Domainid     string `json:"domainid"`
-			Key          string `json:"key"`
-			Project      string `json:"project"`
-			Projectid    string `json:"projectid"`
-			Resourceid   string `json:"resourceid"`
-			Resourcetype string `json:"resourcetype"`
-			Value        string `json:"value"`
-		} `json:"tags"`
-		Virtualmachinecount int           `json:"virtualmachinecount"`
-		Virtualmachineids   []interface{} `json:"virtualmachineids"`
-	} `json:"securitygroup"`
-	Serviceofferingid   string `json:"serviceofferingid"`
-	Serviceofferingname string `json:"serviceofferingname"`
-	Servicestate        string `json:"servicestate"`
-	State               string `json:"state"`
-	Templatedisplaytext string `json:"templatedisplaytext"`
-	Templateid          string `json:"templateid"`
-	Templatename        string `json:"templatename"`
-	Userid              string `json:"userid"`
-	Username            string `json:"username"`
-	Vgpu                string `json:"vgpu"`
-	Zoneid              string `json:"zoneid"`
-	Zonename            string `json:"zonename"`
+	Account               string                                                `json:"account"`
+	Affinitygroup         []ChangeServiceForVirtualMachineResponseAffinitygroup `json:"affinitygroup"`
+	Cpunumber             int                                                   `json:"cpunumber"`
+	Cpuspeed              int                                                   `json:"cpuspeed"`
+	Cpuused               string                                                `json:"cpuused"`
+	Created               string                                                `json:"created"`
+	Details               map[string]string                                     `json:"details"`
+	Diskioread            int64                                                 `json:"diskioread"`
+	Diskiowrite           int64                                                 `json:"diskiowrite"`
+	Diskkbsread           int64                                                 `json:"diskkbsread"`
+	Diskkbswrite          int64                                                 `json:"diskkbswrite"`
+	Diskofferingid        string                                                `json:"diskofferingid"`
+	Diskofferingname      string                                                `json:"diskofferingname"`
+	Displayname           string                                                `json:"displayname"`
+	Displayvm             bool                                                  `json:"displayvm"`
+	Domain                string                                                `json:"domain"`
+	Domainid              string                                                `json:"domainid"`
+	Forvirtualnetwork     bool                                                  `json:"forvirtualnetwork"`
+	Group                 string                                                `json:"group"`
+	Groupid               string                                                `json:"groupid"`
+	Guestosid             string                                                `json:"guestosid"`
+	Haenable              bool                                                  `json:"haenable"`
+	Hostid                string                                                `json:"hostid"`
+	Hostname              string                                                `json:"hostname"`
+	Hypervisor            string                                                `json:"hypervisor"`
+	Id                    string                                                `json:"id"`
+	Instancename          string                                                `json:"instancename"`
+	Isdynamicallyscalable bool                                                  `json:"isdynamicallyscalable"`
+	Isodisplaytext        string                                                `json:"isodisplaytext"`
+	Isoid                 string                                                `json:"isoid"`
+	Isoname               string                                                `json:"isoname"`
+	Keypair               string                                                `json:"keypair"`
+	Memory                int                                                   `json:"memory"`
+	Memoryintfreekbs      int64                                                 `json:"memoryintfreekbs"`
+	Memorykbs             int64                                                 `json:"memorykbs"`
+	Memorytargetkbs       int64                                                 `json:"memorytargetkbs"`
+	Name                  string                                                `json:"name"`
+	Networkkbsread        int64                                                 `json:"networkkbsread"`
+	Networkkbswrite       int64                                                 `json:"networkkbswrite"`
+	Nic                   []Nic                                                 `json:"nic"`
+	Ostypeid              int64                                                 `json:"ostypeid"`
+	Password              string                                                `json:"password"`
+	Passwordenabled       bool                                                  `json:"passwordenabled"`
+	Project               string                                                `json:"project"`
+	Projectid             string                                                `json:"projectid"`
+	Publicip              string                                                `json:"publicip"`
+	Publicipid            string                                                `json:"publicipid"`
+	Rootdeviceid          int64                                                 `json:"rootdeviceid"`
+	Rootdevicetype        string                                                `json:"rootdevicetype"`
+	Securitygroup         []ChangeServiceForVirtualMachineResponseSecuritygroup `json:"securitygroup"`
+	Serviceofferingid     string                                                `json:"serviceofferingid"`
+	Serviceofferingname   string                                                `json:"serviceofferingname"`
+	Servicestate          string                                                `json:"servicestate"`
+	State                 string                                                `json:"state"`
+	Templatedisplaytext   string                                                `json:"templatedisplaytext"`
+	Templateid            string                                                `json:"templateid"`
+	Templatename          string                                                `json:"templatename"`
+	Userid                string                                                `json:"userid"`
+	Username              string                                                `json:"username"`
+	Vgpu                  string                                                `json:"vgpu"`
+	Zoneid                string                                                `json:"zoneid"`
+	Zonename              string                                                `json:"zonename"`
+}
+
+type ChangeServiceForVirtualMachineResponseSecuritygroup struct {
+	Account             string                                                    `json:"account"`
+	Description         string                                                    `json:"description"`
+	Domain              string                                                    `json:"domain"`
+	Domainid            string                                                    `json:"domainid"`
+	Egressrule          []ChangeServiceForVirtualMachineResponseSecuritygroupRule `json:"egressrule"`
+	Id                  string                                                    `json:"id"`
+	Ingressrule         []ChangeServiceForVirtualMachineResponseSecuritygroupRule `json:"ingressrule"`
+	Name                string                                                    `json:"name"`
+	Project             string                                                    `json:"project"`
+	Projectid           string                                                    `json:"projectid"`
+	Tags                []Tags                                                    `json:"tags"`
+	Virtualmachinecount int                                                       `json:"virtualmachinecount"`
+	Virtualmachineids   []interface{}                                             `json:"virtualmachineids"`
+}
+
+type ChangeServiceForVirtualMachineResponseSecuritygroupRule struct {
+	Account           string `json:"account"`
+	Cidr              string `json:"cidr"`
+	Endport           int    `json:"endport"`
+	Icmpcode          int    `json:"icmpcode"`
+	Icmptype          int    `json:"icmptype"`
+	Protocol          string `json:"protocol"`
+	Ruleid            string `json:"ruleid"`
+	Securitygroupname string `json:"securitygroupname"`
+	Startport         int    `json:"startport"`
+	Tags              []Tags `json:"tags"`
+}
+
+type ChangeServiceForVirtualMachineResponseAffinitygroup struct {
+	Account           string   `json:"account"`
+	Description       string   `json:"description"`
+	Domain            string   `json:"domain"`
+	Domainid          string   `json:"domainid"`
+	Id                string   `json:"id"`
+	Name              string   `json:"name"`
+	Project           string   `json:"project"`
+	Projectid         string   `json:"projectid"`
+	Type              string   `json:"type"`
+	VirtualmachineIds []string `json:"virtualmachineIds"`
 }
 
 type CleanVMReservationsParams struct {
@@ -870,6 +720,14 @@ func (p *DeployVirtualMachineParams) toURLValues() url.Values {
 	if v, found := p.p["customid"]; found {
 		u.Set("customid", v.(string))
 	}
+	if v, found := p.p["datadiskofferinglist"]; found {
+		i := 0
+		for k, vv := range v.(map[string]string) {
+			u.Set(fmt.Sprintf("datadiskofferinglist[%d].key", i), k)
+			u.Set(fmt.Sprintf("datadiskofferinglist[%d].value", i), vv)
+			i++
+		}
+	}
 	if v, found := p.p["deploymentplanner"]; found {
 		u.Set("deploymentplanner", v.(string))
 	}
@@ -877,6 +735,14 @@ func (p *DeployVirtualMachineParams) toURLValues() url.Values {
 		i := 0
 		for k, vv := range v.(map[string]string) {
 			u.Set(fmt.Sprintf("details[%d].%s", i, k), vv)
+			i++
+		}
+	}
+	if v, found := p.p["dhcpoptionsnetworklist"]; found {
+		i := 0
+		for k, vv := range v.(map[string]string) {
+			u.Set(fmt.Sprintf("dhcpoptionsnetworklist[%d].key", i), k)
+			u.Set(fmt.Sprintf("dhcpoptionsnetworklist[%d].value", i), vv)
 			i++
 		}
 	}
@@ -921,6 +787,9 @@ func (p *DeployVirtualMachineParams) toURLValues() url.Values {
 	}
 	if v, found := p.p["keypair"]; found {
 		u.Set("keypair", v.(string))
+	}
+	if v, found := p.p["macaddress"]; found {
+		u.Set("macaddress", v.(string))
 	}
 	if v, found := p.p["name"]; found {
 		u.Set("name", v.(string))
@@ -999,6 +868,14 @@ func (p *DeployVirtualMachineParams) SetCustomid(v string) {
 	return
 }
 
+func (p *DeployVirtualMachineParams) SetDatadiskofferinglist(v map[string]string) {
+	if p.p == nil {
+		p.p = make(map[string]interface{})
+	}
+	p.p["datadiskofferinglist"] = v
+	return
+}
+
 func (p *DeployVirtualMachineParams) SetDeploymentplanner(v string) {
 	if p.p == nil {
 		p.p = make(map[string]interface{})
@@ -1012,6 +889,14 @@ func (p *DeployVirtualMachineParams) SetDetails(v map[string]string) {
 		p.p = make(map[string]interface{})
 	}
 	p.p["details"] = v
+	return
+}
+
+func (p *DeployVirtualMachineParams) SetDhcpoptionsnetworklist(v map[string]string) {
+	if p.p == nil {
+		p.p = make(map[string]interface{})
+	}
+	p.p["dhcpoptionsnetworklist"] = v
 	return
 }
 
@@ -1108,6 +993,14 @@ func (p *DeployVirtualMachineParams) SetKeypair(v string) {
 		p.p = make(map[string]interface{})
 	}
 	p.p["keypair"] = v
+	return
+}
+
+func (p *DeployVirtualMachineParams) SetMacaddress(v string) {
+	if p.p == nil {
+		p.p = make(map[string]interface{})
+	}
+	p.p["macaddress"] = v
 	return
 }
 
@@ -1254,173 +1147,111 @@ func (s *VirtualMachineService) DeployVirtualMachine(p *DeployVirtualMachinePara
 }
 
 type DeployVirtualMachineResponse struct {
-	JobID         string `json:"jobid"`
-	Account       string `json:"account"`
-	Affinitygroup []struct {
-		Account           string   `json:"account"`
-		Description       string   `json:"description"`
-		Domain            string   `json:"domain"`
-		Domainid          string   `json:"domainid"`
-		Id                string   `json:"id"`
-		Name              string   `json:"name"`
-		Project           string   `json:"project"`
-		Projectid         string   `json:"projectid"`
-		Type              string   `json:"type"`
-		VirtualmachineIds []string `json:"virtualmachineIds"`
-	} `json:"affinitygroup"`
-	Cpunumber             int               `json:"cpunumber"`
-	Cpuspeed              int               `json:"cpuspeed"`
-	Cpuused               string            `json:"cpuused"`
-	Created               string            `json:"created"`
-	Details               map[string]string `json:"details"`
-	Diskioread            int64             `json:"diskioread"`
-	Diskiowrite           int64             `json:"diskiowrite"`
-	Diskkbsread           int64             `json:"diskkbsread"`
-	Diskkbswrite          int64             `json:"diskkbswrite"`
-	Diskofferingid        string            `json:"diskofferingid"`
-	Diskofferingname      string            `json:"diskofferingname"`
-	Displayname           string            `json:"displayname"`
-	Displayvm             bool              `json:"displayvm"`
-	Domain                string            `json:"domain"`
-	Domainid              string            `json:"domainid"`
-	Forvirtualnetwork     bool              `json:"forvirtualnetwork"`
-	Group                 string            `json:"group"`
-	Groupid               string            `json:"groupid"`
-	Guestosid             string            `json:"guestosid"`
-	Haenable              bool              `json:"haenable"`
-	Hostid                string            `json:"hostid"`
-	Hostname              string            `json:"hostname"`
-	Hypervisor            string            `json:"hypervisor"`
-	Id                    string            `json:"id"`
-	Instancename          string            `json:"instancename"`
-	Isdynamicallyscalable bool              `json:"isdynamicallyscalable"`
-	Isodisplaytext        string            `json:"isodisplaytext"`
-	Isoid                 string            `json:"isoid"`
-	Isoname               string            `json:"isoname"`
-	Keypair               string            `json:"keypair"`
-	Memory                int               `json:"memory"`
-	Memoryintfreekbs      int64             `json:"memoryintfreekbs"`
-	Memorykbs             int64             `json:"memorykbs"`
-	Memorytargetkbs       int64             `json:"memorytargetkbs"`
-	Name                  string            `json:"name"`
-	Networkkbsread        int64             `json:"networkkbsread"`
-	Networkkbswrite       int64             `json:"networkkbswrite"`
-	Nic                   []struct {
-		Broadcasturi         string `json:"broadcasturi"`
-		Deviceid             string `json:"deviceid"`
-		Gateway              string `json:"gateway"`
-		Id                   string `json:"id"`
-		Ip6address           string `json:"ip6address"`
-		Ip6cidr              string `json:"ip6cidr"`
-		Ip6gateway           string `json:"ip6gateway"`
-		Ipaddress            string `json:"ipaddress"`
-		Isdefault            bool   `json:"isdefault"`
-		Isolationuri         string `json:"isolationuri"`
-		Macaddress           string `json:"macaddress"`
-		Netmask              string `json:"netmask"`
-		Networkid            string `json:"networkid"`
-		Networkname          string `json:"networkname"`
-		Nsxlogicalswitch     string `json:"nsxlogicalswitch"`
-		Nsxlogicalswitchport string `json:"nsxlogicalswitchport"`
-		Secondaryip          []struct {
-			Id        string `json:"id"`
-			Ipaddress string `json:"ipaddress"`
-		} `json:"secondaryip"`
-		Traffictype      string `json:"traffictype"`
-		Type             string `json:"type"`
-		Virtualmachineid string `json:"virtualmachineid"`
-	} `json:"nic"`
-	Ostypeid        int64  `json:"ostypeid"`
-	Password        string `json:"password"`
-	Passwordenabled bool   `json:"passwordenabled"`
-	Project         string `json:"project"`
-	Projectid       string `json:"projectid"`
-	Publicip        string `json:"publicip"`
-	Publicipid      string `json:"publicipid"`
-	Rootdeviceid    int64  `json:"rootdeviceid"`
-	Rootdevicetype  string `json:"rootdevicetype"`
-	Securitygroup   []struct {
-		Account     string `json:"account"`
-		Description string `json:"description"`
-		Domain      string `json:"domain"`
-		Domainid    string `json:"domainid"`
-		Egressrule  []struct {
-			Account           string `json:"account"`
-			Cidr              string `json:"cidr"`
-			Endport           int    `json:"endport"`
-			Icmpcode          int    `json:"icmpcode"`
-			Icmptype          int    `json:"icmptype"`
-			Protocol          string `json:"protocol"`
-			Ruleid            string `json:"ruleid"`
-			Securitygroupname string `json:"securitygroupname"`
-			Startport         int    `json:"startport"`
-			Tags              []struct {
-				Account      string `json:"account"`
-				Customer     string `json:"customer"`
-				Domain       string `json:"domain"`
-				Domainid     string `json:"domainid"`
-				Key          string `json:"key"`
-				Project      string `json:"project"`
-				Projectid    string `json:"projectid"`
-				Resourceid   string `json:"resourceid"`
-				Resourcetype string `json:"resourcetype"`
-				Value        string `json:"value"`
-			} `json:"tags"`
-		} `json:"egressrule"`
-		Id          string `json:"id"`
-		Ingressrule []struct {
-			Account           string `json:"account"`
-			Cidr              string `json:"cidr"`
-			Endport           int    `json:"endport"`
-			Icmpcode          int    `json:"icmpcode"`
-			Icmptype          int    `json:"icmptype"`
-			Protocol          string `json:"protocol"`
-			Ruleid            string `json:"ruleid"`
-			Securitygroupname string `json:"securitygroupname"`
-			Startport         int    `json:"startport"`
-			Tags              []struct {
-				Account      string `json:"account"`
-				Customer     string `json:"customer"`
-				Domain       string `json:"domain"`
-				Domainid     string `json:"domainid"`
-				Key          string `json:"key"`
-				Project      string `json:"project"`
-				Projectid    string `json:"projectid"`
-				Resourceid   string `json:"resourceid"`
-				Resourcetype string `json:"resourcetype"`
-				Value        string `json:"value"`
-			} `json:"tags"`
-		} `json:"ingressrule"`
-		Name      string `json:"name"`
-		Project   string `json:"project"`
-		Projectid string `json:"projectid"`
-		Tags      []struct {
-			Account      string `json:"account"`
-			Customer     string `json:"customer"`
-			Domain       string `json:"domain"`
-			Domainid     string `json:"domainid"`
-			Key          string `json:"key"`
-			Project      string `json:"project"`
-			Projectid    string `json:"projectid"`
-			Resourceid   string `json:"resourceid"`
-			Resourcetype string `json:"resourcetype"`
-			Value        string `json:"value"`
-		} `json:"tags"`
-		Virtualmachinecount int           `json:"virtualmachinecount"`
-		Virtualmachineids   []interface{} `json:"virtualmachineids"`
-	} `json:"securitygroup"`
-	Serviceofferingid   string `json:"serviceofferingid"`
-	Serviceofferingname string `json:"serviceofferingname"`
-	Servicestate        string `json:"servicestate"`
-	State               string `json:"state"`
-	Templatedisplaytext string `json:"templatedisplaytext"`
-	Templateid          string `json:"templateid"`
-	Templatename        string `json:"templatename"`
-	Userid              string `json:"userid"`
-	Username            string `json:"username"`
-	Vgpu                string `json:"vgpu"`
-	Zoneid              string `json:"zoneid"`
-	Zonename            string `json:"zonename"`
+	JobID                 string                                      `json:"jobid"`
+	Account               string                                      `json:"account"`
+	Affinitygroup         []DeployVirtualMachineResponseAffinitygroup `json:"affinitygroup"`
+	Cpunumber             int                                         `json:"cpunumber"`
+	Cpuspeed              int                                         `json:"cpuspeed"`
+	Cpuused               string                                      `json:"cpuused"`
+	Created               string                                      `json:"created"`
+	Details               map[string]string                           `json:"details"`
+	Diskioread            int64                                       `json:"diskioread"`
+	Diskiowrite           int64                                       `json:"diskiowrite"`
+	Diskkbsread           int64                                       `json:"diskkbsread"`
+	Diskkbswrite          int64                                       `json:"diskkbswrite"`
+	Diskofferingid        string                                      `json:"diskofferingid"`
+	Diskofferingname      string                                      `json:"diskofferingname"`
+	Displayname           string                                      `json:"displayname"`
+	Displayvm             bool                                        `json:"displayvm"`
+	Domain                string                                      `json:"domain"`
+	Domainid              string                                      `json:"domainid"`
+	Forvirtualnetwork     bool                                        `json:"forvirtualnetwork"`
+	Group                 string                                      `json:"group"`
+	Groupid               string                                      `json:"groupid"`
+	Guestosid             string                                      `json:"guestosid"`
+	Haenable              bool                                        `json:"haenable"`
+	Hostid                string                                      `json:"hostid"`
+	Hostname              string                                      `json:"hostname"`
+	Hypervisor            string                                      `json:"hypervisor"`
+	Id                    string                                      `json:"id"`
+	Instancename          string                                      `json:"instancename"`
+	Isdynamicallyscalable bool                                        `json:"isdynamicallyscalable"`
+	Isodisplaytext        string                                      `json:"isodisplaytext"`
+	Isoid                 string                                      `json:"isoid"`
+	Isoname               string                                      `json:"isoname"`
+	Keypair               string                                      `json:"keypair"`
+	Memory                int                                         `json:"memory"`
+	Memoryintfreekbs      int64                                       `json:"memoryintfreekbs"`
+	Memorykbs             int64                                       `json:"memorykbs"`
+	Memorytargetkbs       int64                                       `json:"memorytargetkbs"`
+	Name                  string                                      `json:"name"`
+	Networkkbsread        int64                                       `json:"networkkbsread"`
+	Networkkbswrite       int64                                       `json:"networkkbswrite"`
+	Nic                   []Nic                                       `json:"nic"`
+	Ostypeid              int64                                       `json:"ostypeid"`
+	Password              string                                      `json:"password"`
+	Passwordenabled       bool                                        `json:"passwordenabled"`
+	Project               string                                      `json:"project"`
+	Projectid             string                                      `json:"projectid"`
+	Publicip              string                                      `json:"publicip"`
+	Publicipid            string                                      `json:"publicipid"`
+	Rootdeviceid          int64                                       `json:"rootdeviceid"`
+	Rootdevicetype        string                                      `json:"rootdevicetype"`
+	Securitygroup         []DeployVirtualMachineResponseSecuritygroup `json:"securitygroup"`
+	Serviceofferingid     string                                      `json:"serviceofferingid"`
+	Serviceofferingname   string                                      `json:"serviceofferingname"`
+	Servicestate          string                                      `json:"servicestate"`
+	State                 string                                      `json:"state"`
+	Templatedisplaytext   string                                      `json:"templatedisplaytext"`
+	Templateid            string                                      `json:"templateid"`
+	Templatename          string                                      `json:"templatename"`
+	Userid                string                                      `json:"userid"`
+	Username              string                                      `json:"username"`
+	Vgpu                  string                                      `json:"vgpu"`
+	Zoneid                string                                      `json:"zoneid"`
+	Zonename              string                                      `json:"zonename"`
+}
+
+type DeployVirtualMachineResponseSecuritygroup struct {
+	Account             string                                          `json:"account"`
+	Description         string                                          `json:"description"`
+	Domain              string                                          `json:"domain"`
+	Domainid            string                                          `json:"domainid"`
+	Egressrule          []DeployVirtualMachineResponseSecuritygroupRule `json:"egressrule"`
+	Id                  string                                          `json:"id"`
+	Ingressrule         []DeployVirtualMachineResponseSecuritygroupRule `json:"ingressrule"`
+	Name                string                                          `json:"name"`
+	Project             string                                          `json:"project"`
+	Projectid           string                                          `json:"projectid"`
+	Tags                []Tags                                          `json:"tags"`
+	Virtualmachinecount int                                             `json:"virtualmachinecount"`
+	Virtualmachineids   []interface{}                                   `json:"virtualmachineids"`
+}
+
+type DeployVirtualMachineResponseSecuritygroupRule struct {
+	Account           string `json:"account"`
+	Cidr              string `json:"cidr"`
+	Endport           int    `json:"endport"`
+	Icmpcode          int    `json:"icmpcode"`
+	Icmptype          int    `json:"icmptype"`
+	Protocol          string `json:"protocol"`
+	Ruleid            string `json:"ruleid"`
+	Securitygroupname string `json:"securitygroupname"`
+	Startport         int    `json:"startport"`
+	Tags              []Tags `json:"tags"`
+}
+
+type DeployVirtualMachineResponseAffinitygroup struct {
+	Account           string   `json:"account"`
+	Description       string   `json:"description"`
+	Domain            string   `json:"domain"`
+	Domainid          string   `json:"domainid"`
+	Id                string   `json:"id"`
+	Name              string   `json:"name"`
+	Project           string   `json:"project"`
+	Projectid         string   `json:"projectid"`
+	Type              string   `json:"type"`
+	VirtualmachineIds []string `json:"virtualmachineIds"`
 }
 
 type DestroyVirtualMachineParams struct {
@@ -1503,173 +1334,111 @@ func (s *VirtualMachineService) DestroyVirtualMachine(p *DestroyVirtualMachinePa
 }
 
 type DestroyVirtualMachineResponse struct {
-	JobID         string `json:"jobid"`
-	Account       string `json:"account"`
-	Affinitygroup []struct {
-		Account           string   `json:"account"`
-		Description       string   `json:"description"`
-		Domain            string   `json:"domain"`
-		Domainid          string   `json:"domainid"`
-		Id                string   `json:"id"`
-		Name              string   `json:"name"`
-		Project           string   `json:"project"`
-		Projectid         string   `json:"projectid"`
-		Type              string   `json:"type"`
-		VirtualmachineIds []string `json:"virtualmachineIds"`
-	} `json:"affinitygroup"`
-	Cpunumber             int               `json:"cpunumber"`
-	Cpuspeed              int               `json:"cpuspeed"`
-	Cpuused               string            `json:"cpuused"`
-	Created               string            `json:"created"`
-	Details               map[string]string `json:"details"`
-	Diskioread            int64             `json:"diskioread"`
-	Diskiowrite           int64             `json:"diskiowrite"`
-	Diskkbsread           int64             `json:"diskkbsread"`
-	Diskkbswrite          int64             `json:"diskkbswrite"`
-	Diskofferingid        string            `json:"diskofferingid"`
-	Diskofferingname      string            `json:"diskofferingname"`
-	Displayname           string            `json:"displayname"`
-	Displayvm             bool              `json:"displayvm"`
-	Domain                string            `json:"domain"`
-	Domainid              string            `json:"domainid"`
-	Forvirtualnetwork     bool              `json:"forvirtualnetwork"`
-	Group                 string            `json:"group"`
-	Groupid               string            `json:"groupid"`
-	Guestosid             string            `json:"guestosid"`
-	Haenable              bool              `json:"haenable"`
-	Hostid                string            `json:"hostid"`
-	Hostname              string            `json:"hostname"`
-	Hypervisor            string            `json:"hypervisor"`
-	Id                    string            `json:"id"`
-	Instancename          string            `json:"instancename"`
-	Isdynamicallyscalable bool              `json:"isdynamicallyscalable"`
-	Isodisplaytext        string            `json:"isodisplaytext"`
-	Isoid                 string            `json:"isoid"`
-	Isoname               string            `json:"isoname"`
-	Keypair               string            `json:"keypair"`
-	Memory                int               `json:"memory"`
-	Memoryintfreekbs      int64             `json:"memoryintfreekbs"`
-	Memorykbs             int64             `json:"memorykbs"`
-	Memorytargetkbs       int64             `json:"memorytargetkbs"`
-	Name                  string            `json:"name"`
-	Networkkbsread        int64             `json:"networkkbsread"`
-	Networkkbswrite       int64             `json:"networkkbswrite"`
-	Nic                   []struct {
-		Broadcasturi         string `json:"broadcasturi"`
-		Deviceid             string `json:"deviceid"`
-		Gateway              string `json:"gateway"`
-		Id                   string `json:"id"`
-		Ip6address           string `json:"ip6address"`
-		Ip6cidr              string `json:"ip6cidr"`
-		Ip6gateway           string `json:"ip6gateway"`
-		Ipaddress            string `json:"ipaddress"`
-		Isdefault            bool   `json:"isdefault"`
-		Isolationuri         string `json:"isolationuri"`
-		Macaddress           string `json:"macaddress"`
-		Netmask              string `json:"netmask"`
-		Networkid            string `json:"networkid"`
-		Networkname          string `json:"networkname"`
-		Nsxlogicalswitch     string `json:"nsxlogicalswitch"`
-		Nsxlogicalswitchport string `json:"nsxlogicalswitchport"`
-		Secondaryip          []struct {
-			Id        string `json:"id"`
-			Ipaddress string `json:"ipaddress"`
-		} `json:"secondaryip"`
-		Traffictype      string `json:"traffictype"`
-		Type             string `json:"type"`
-		Virtualmachineid string `json:"virtualmachineid"`
-	} `json:"nic"`
-	Ostypeid        int64  `json:"ostypeid"`
-	Password        string `json:"password"`
-	Passwordenabled bool   `json:"passwordenabled"`
-	Project         string `json:"project"`
-	Projectid       string `json:"projectid"`
-	Publicip        string `json:"publicip"`
-	Publicipid      string `json:"publicipid"`
-	Rootdeviceid    int64  `json:"rootdeviceid"`
-	Rootdevicetype  string `json:"rootdevicetype"`
-	Securitygroup   []struct {
-		Account     string `json:"account"`
-		Description string `json:"description"`
-		Domain      string `json:"domain"`
-		Domainid    string `json:"domainid"`
-		Egressrule  []struct {
-			Account           string `json:"account"`
-			Cidr              string `json:"cidr"`
-			Endport           int    `json:"endport"`
-			Icmpcode          int    `json:"icmpcode"`
-			Icmptype          int    `json:"icmptype"`
-			Protocol          string `json:"protocol"`
-			Ruleid            string `json:"ruleid"`
-			Securitygroupname string `json:"securitygroupname"`
-			Startport         int    `json:"startport"`
-			Tags              []struct {
-				Account      string `json:"account"`
-				Customer     string `json:"customer"`
-				Domain       string `json:"domain"`
-				Domainid     string `json:"domainid"`
-				Key          string `json:"key"`
-				Project      string `json:"project"`
-				Projectid    string `json:"projectid"`
-				Resourceid   string `json:"resourceid"`
-				Resourcetype string `json:"resourcetype"`
-				Value        string `json:"value"`
-			} `json:"tags"`
-		} `json:"egressrule"`
-		Id          string `json:"id"`
-		Ingressrule []struct {
-			Account           string `json:"account"`
-			Cidr              string `json:"cidr"`
-			Endport           int    `json:"endport"`
-			Icmpcode          int    `json:"icmpcode"`
-			Icmptype          int    `json:"icmptype"`
-			Protocol          string `json:"protocol"`
-			Ruleid            string `json:"ruleid"`
-			Securitygroupname string `json:"securitygroupname"`
-			Startport         int    `json:"startport"`
-			Tags              []struct {
-				Account      string `json:"account"`
-				Customer     string `json:"customer"`
-				Domain       string `json:"domain"`
-				Domainid     string `json:"domainid"`
-				Key          string `json:"key"`
-				Project      string `json:"project"`
-				Projectid    string `json:"projectid"`
-				Resourceid   string `json:"resourceid"`
-				Resourcetype string `json:"resourcetype"`
-				Value        string `json:"value"`
-			} `json:"tags"`
-		} `json:"ingressrule"`
-		Name      string `json:"name"`
-		Project   string `json:"project"`
-		Projectid string `json:"projectid"`
-		Tags      []struct {
-			Account      string `json:"account"`
-			Customer     string `json:"customer"`
-			Domain       string `json:"domain"`
-			Domainid     string `json:"domainid"`
-			Key          string `json:"key"`
-			Project      string `json:"project"`
-			Projectid    string `json:"projectid"`
-			Resourceid   string `json:"resourceid"`
-			Resourcetype string `json:"resourcetype"`
-			Value        string `json:"value"`
-		} `json:"tags"`
-		Virtualmachinecount int           `json:"virtualmachinecount"`
-		Virtualmachineids   []interface{} `json:"virtualmachineids"`
-	} `json:"securitygroup"`
-	Serviceofferingid   string `json:"serviceofferingid"`
-	Serviceofferingname string `json:"serviceofferingname"`
-	Servicestate        string `json:"servicestate"`
-	State               string `json:"state"`
-	Templatedisplaytext string `json:"templatedisplaytext"`
-	Templateid          string `json:"templateid"`
-	Templatename        string `json:"templatename"`
-	Userid              string `json:"userid"`
-	Username            string `json:"username"`
-	Vgpu                string `json:"vgpu"`
-	Zoneid              string `json:"zoneid"`
-	Zonename            string `json:"zonename"`
+	JobID                 string                                       `json:"jobid"`
+	Account               string                                       `json:"account"`
+	Affinitygroup         []DestroyVirtualMachineResponseAffinitygroup `json:"affinitygroup"`
+	Cpunumber             int                                          `json:"cpunumber"`
+	Cpuspeed              int                                          `json:"cpuspeed"`
+	Cpuused               string                                       `json:"cpuused"`
+	Created               string                                       `json:"created"`
+	Details               map[string]string                            `json:"details"`
+	Diskioread            int64                                        `json:"diskioread"`
+	Diskiowrite           int64                                        `json:"diskiowrite"`
+	Diskkbsread           int64                                        `json:"diskkbsread"`
+	Diskkbswrite          int64                                        `json:"diskkbswrite"`
+	Diskofferingid        string                                       `json:"diskofferingid"`
+	Diskofferingname      string                                       `json:"diskofferingname"`
+	Displayname           string                                       `json:"displayname"`
+	Displayvm             bool                                         `json:"displayvm"`
+	Domain                string                                       `json:"domain"`
+	Domainid              string                                       `json:"domainid"`
+	Forvirtualnetwork     bool                                         `json:"forvirtualnetwork"`
+	Group                 string                                       `json:"group"`
+	Groupid               string                                       `json:"groupid"`
+	Guestosid             string                                       `json:"guestosid"`
+	Haenable              bool                                         `json:"haenable"`
+	Hostid                string                                       `json:"hostid"`
+	Hostname              string                                       `json:"hostname"`
+	Hypervisor            string                                       `json:"hypervisor"`
+	Id                    string                                       `json:"id"`
+	Instancename          string                                       `json:"instancename"`
+	Isdynamicallyscalable bool                                         `json:"isdynamicallyscalable"`
+	Isodisplaytext        string                                       `json:"isodisplaytext"`
+	Isoid                 string                                       `json:"isoid"`
+	Isoname               string                                       `json:"isoname"`
+	Keypair               string                                       `json:"keypair"`
+	Memory                int                                          `json:"memory"`
+	Memoryintfreekbs      int64                                        `json:"memoryintfreekbs"`
+	Memorykbs             int64                                        `json:"memorykbs"`
+	Memorytargetkbs       int64                                        `json:"memorytargetkbs"`
+	Name                  string                                       `json:"name"`
+	Networkkbsread        int64                                        `json:"networkkbsread"`
+	Networkkbswrite       int64                                        `json:"networkkbswrite"`
+	Nic                   []Nic                                        `json:"nic"`
+	Ostypeid              int64                                        `json:"ostypeid"`
+	Password              string                                       `json:"password"`
+	Passwordenabled       bool                                         `json:"passwordenabled"`
+	Project               string                                       `json:"project"`
+	Projectid             string                                       `json:"projectid"`
+	Publicip              string                                       `json:"publicip"`
+	Publicipid            string                                       `json:"publicipid"`
+	Rootdeviceid          int64                                        `json:"rootdeviceid"`
+	Rootdevicetype        string                                       `json:"rootdevicetype"`
+	Securitygroup         []DestroyVirtualMachineResponseSecuritygroup `json:"securitygroup"`
+	Serviceofferingid     string                                       `json:"serviceofferingid"`
+	Serviceofferingname   string                                       `json:"serviceofferingname"`
+	Servicestate          string                                       `json:"servicestate"`
+	State                 string                                       `json:"state"`
+	Templatedisplaytext   string                                       `json:"templatedisplaytext"`
+	Templateid            string                                       `json:"templateid"`
+	Templatename          string                                       `json:"templatename"`
+	Userid                string                                       `json:"userid"`
+	Username              string                                       `json:"username"`
+	Vgpu                  string                                       `json:"vgpu"`
+	Zoneid                string                                       `json:"zoneid"`
+	Zonename              string                                       `json:"zonename"`
+}
+
+type DestroyVirtualMachineResponseSecuritygroup struct {
+	Account             string                                           `json:"account"`
+	Description         string                                           `json:"description"`
+	Domain              string                                           `json:"domain"`
+	Domainid            string                                           `json:"domainid"`
+	Egressrule          []DestroyVirtualMachineResponseSecuritygroupRule `json:"egressrule"`
+	Id                  string                                           `json:"id"`
+	Ingressrule         []DestroyVirtualMachineResponseSecuritygroupRule `json:"ingressrule"`
+	Name                string                                           `json:"name"`
+	Project             string                                           `json:"project"`
+	Projectid           string                                           `json:"projectid"`
+	Tags                []Tags                                           `json:"tags"`
+	Virtualmachinecount int                                              `json:"virtualmachinecount"`
+	Virtualmachineids   []interface{}                                    `json:"virtualmachineids"`
+}
+
+type DestroyVirtualMachineResponseSecuritygroupRule struct {
+	Account           string `json:"account"`
+	Cidr              string `json:"cidr"`
+	Endport           int    `json:"endport"`
+	Icmpcode          int    `json:"icmpcode"`
+	Icmptype          int    `json:"icmptype"`
+	Protocol          string `json:"protocol"`
+	Ruleid            string `json:"ruleid"`
+	Securitygroupname string `json:"securitygroupname"`
+	Startport         int    `json:"startport"`
+	Tags              []Tags `json:"tags"`
+}
+
+type DestroyVirtualMachineResponseAffinitygroup struct {
+	Account           string   `json:"account"`
+	Description       string   `json:"description"`
+	Domain            string   `json:"domain"`
+	Domainid          string   `json:"domainid"`
+	Id                string   `json:"id"`
+	Name              string   `json:"name"`
+	Project           string   `json:"project"`
+	Projectid         string   `json:"projectid"`
+	Type              string   `json:"type"`
+	VirtualmachineIds []string `json:"virtualmachineIds"`
 }
 
 type ExpungeVirtualMachineParams struct {
@@ -1827,9 +1596,6 @@ func (p *ListVirtualMachinesParams) toURLValues() url.Values {
 	if v, found := p.p["hostid"]; found {
 		u.Set("hostid", v.(string))
 	}
-	if v, found := p.p["hostid"]; found {
-		u.Set("hostid", v.(string))
-	}
 	if v, found := p.p["hypervisor"]; found {
 		u.Set("hypervisor", v.(string))
 	}
@@ -1874,9 +1640,6 @@ func (p *ListVirtualMachinesParams) toURLValues() url.Values {
 	if v, found := p.p["podid"]; found {
 		u.Set("podid", v.(string))
 	}
-	if v, found := p.p["podid"]; found {
-		u.Set("podid", v.(string))
-	}
 	if v, found := p.p["projectid"]; found {
 		u.Set("projectid", v.(string))
 	}
@@ -1885,9 +1648,6 @@ func (p *ListVirtualMachinesParams) toURLValues() url.Values {
 	}
 	if v, found := p.p["state"]; found {
 		u.Set("state", v.(string))
-	}
-	if v, found := p.p["storageid"]; found {
-		u.Set("storageid", v.(string))
 	}
 	if v, found := p.p["storageid"]; found {
 		u.Set("storageid", v.(string))
@@ -2267,172 +2027,110 @@ type ListVirtualMachinesResponse struct {
 }
 
 type VirtualMachine struct {
-	Account       string `json:"account"`
-	Affinitygroup []struct {
-		Account           string   `json:"account"`
-		Description       string   `json:"description"`
-		Domain            string   `json:"domain"`
-		Domainid          string   `json:"domainid"`
-		Id                string   `json:"id"`
-		Name              string   `json:"name"`
-		Project           string   `json:"project"`
-		Projectid         string   `json:"projectid"`
-		Type              string   `json:"type"`
-		VirtualmachineIds []string `json:"virtualmachineIds"`
-	} `json:"affinitygroup"`
-	Cpunumber             int               `json:"cpunumber"`
-	Cpuspeed              int               `json:"cpuspeed"`
-	Cpuused               string            `json:"cpuused"`
-	Created               string            `json:"created"`
-	Details               map[string]string `json:"details"`
-	Diskioread            int64             `json:"diskioread"`
-	Diskiowrite           int64             `json:"diskiowrite"`
-	Diskkbsread           int64             `json:"diskkbsread"`
-	Diskkbswrite          int64             `json:"diskkbswrite"`
-	Diskofferingid        string            `json:"diskofferingid"`
-	Diskofferingname      string            `json:"diskofferingname"`
-	Displayname           string            `json:"displayname"`
-	Displayvm             bool              `json:"displayvm"`
-	Domain                string            `json:"domain"`
-	Domainid              string            `json:"domainid"`
-	Forvirtualnetwork     bool              `json:"forvirtualnetwork"`
-	Group                 string            `json:"group"`
-	Groupid               string            `json:"groupid"`
-	Guestosid             string            `json:"guestosid"`
-	Haenable              bool              `json:"haenable"`
-	Hostid                string            `json:"hostid"`
-	Hostname              string            `json:"hostname"`
-	Hypervisor            string            `json:"hypervisor"`
-	Id                    string            `json:"id"`
-	Instancename          string            `json:"instancename"`
-	Isdynamicallyscalable bool              `json:"isdynamicallyscalable"`
-	Isodisplaytext        string            `json:"isodisplaytext"`
-	Isoid                 string            `json:"isoid"`
-	Isoname               string            `json:"isoname"`
-	Keypair               string            `json:"keypair"`
-	Memory                int               `json:"memory"`
-	Memoryintfreekbs      int64             `json:"memoryintfreekbs"`
-	Memorykbs             int64             `json:"memorykbs"`
-	Memorytargetkbs       int64             `json:"memorytargetkbs"`
-	Name                  string            `json:"name"`
-	Networkkbsread        int64             `json:"networkkbsread"`
-	Networkkbswrite       int64             `json:"networkkbswrite"`
-	Nic                   []struct {
-		Broadcasturi         string `json:"broadcasturi"`
-		Deviceid             string `json:"deviceid"`
-		Gateway              string `json:"gateway"`
-		Id                   string `json:"id"`
-		Ip6address           string `json:"ip6address"`
-		Ip6cidr              string `json:"ip6cidr"`
-		Ip6gateway           string `json:"ip6gateway"`
-		Ipaddress            string `json:"ipaddress"`
-		Isdefault            bool   `json:"isdefault"`
-		Isolationuri         string `json:"isolationuri"`
-		Macaddress           string `json:"macaddress"`
-		Netmask              string `json:"netmask"`
-		Networkid            string `json:"networkid"`
-		Networkname          string `json:"networkname"`
-		Nsxlogicalswitch     string `json:"nsxlogicalswitch"`
-		Nsxlogicalswitchport string `json:"nsxlogicalswitchport"`
-		Secondaryip          []struct {
-			Id        string `json:"id"`
-			Ipaddress string `json:"ipaddress"`
-		} `json:"secondaryip"`
-		Traffictype      string `json:"traffictype"`
-		Type             string `json:"type"`
-		Virtualmachineid string `json:"virtualmachineid"`
-	} `json:"nic"`
-	Ostypeid        int64  `json:"ostypeid"`
-	Password        string `json:"password"`
-	Passwordenabled bool   `json:"passwordenabled"`
-	Project         string `json:"project"`
-	Projectid       string `json:"projectid"`
-	Publicip        string `json:"publicip"`
-	Publicipid      string `json:"publicipid"`
-	Rootdeviceid    int64  `json:"rootdeviceid"`
-	Rootdevicetype  string `json:"rootdevicetype"`
-	Securitygroup   []struct {
-		Account     string `json:"account"`
-		Description string `json:"description"`
-		Domain      string `json:"domain"`
-		Domainid    string `json:"domainid"`
-		Egressrule  []struct {
-			Account           string `json:"account"`
-			Cidr              string `json:"cidr"`
-			Endport           int    `json:"endport"`
-			Icmpcode          int    `json:"icmpcode"`
-			Icmptype          int    `json:"icmptype"`
-			Protocol          string `json:"protocol"`
-			Ruleid            string `json:"ruleid"`
-			Securitygroupname string `json:"securitygroupname"`
-			Startport         int    `json:"startport"`
-			Tags              []struct {
-				Account      string `json:"account"`
-				Customer     string `json:"customer"`
-				Domain       string `json:"domain"`
-				Domainid     string `json:"domainid"`
-				Key          string `json:"key"`
-				Project      string `json:"project"`
-				Projectid    string `json:"projectid"`
-				Resourceid   string `json:"resourceid"`
-				Resourcetype string `json:"resourcetype"`
-				Value        string `json:"value"`
-			} `json:"tags"`
-		} `json:"egressrule"`
-		Id          string `json:"id"`
-		Ingressrule []struct {
-			Account           string `json:"account"`
-			Cidr              string `json:"cidr"`
-			Endport           int    `json:"endport"`
-			Icmpcode          int    `json:"icmpcode"`
-			Icmptype          int    `json:"icmptype"`
-			Protocol          string `json:"protocol"`
-			Ruleid            string `json:"ruleid"`
-			Securitygroupname string `json:"securitygroupname"`
-			Startport         int    `json:"startport"`
-			Tags              []struct {
-				Account      string `json:"account"`
-				Customer     string `json:"customer"`
-				Domain       string `json:"domain"`
-				Domainid     string `json:"domainid"`
-				Key          string `json:"key"`
-				Project      string `json:"project"`
-				Projectid    string `json:"projectid"`
-				Resourceid   string `json:"resourceid"`
-				Resourcetype string `json:"resourcetype"`
-				Value        string `json:"value"`
-			} `json:"tags"`
-		} `json:"ingressrule"`
-		Name      string `json:"name"`
-		Project   string `json:"project"`
-		Projectid string `json:"projectid"`
-		Tags      []struct {
-			Account      string `json:"account"`
-			Customer     string `json:"customer"`
-			Domain       string `json:"domain"`
-			Domainid     string `json:"domainid"`
-			Key          string `json:"key"`
-			Project      string `json:"project"`
-			Projectid    string `json:"projectid"`
-			Resourceid   string `json:"resourceid"`
-			Resourcetype string `json:"resourcetype"`
-			Value        string `json:"value"`
-		} `json:"tags"`
-		Virtualmachinecount int           `json:"virtualmachinecount"`
-		Virtualmachineids   []interface{} `json:"virtualmachineids"`
-	} `json:"securitygroup"`
-	Serviceofferingid   string `json:"serviceofferingid"`
-	Serviceofferingname string `json:"serviceofferingname"`
-	Servicestate        string `json:"servicestate"`
-	State               string `json:"state"`
-	Templatedisplaytext string `json:"templatedisplaytext"`
-	Templateid          string `json:"templateid"`
-	Templatename        string `json:"templatename"`
-	Userid              string `json:"userid"`
-	Username            string `json:"username"`
-	Vgpu                string `json:"vgpu"`
-	Zoneid              string `json:"zoneid"`
-	Zonename            string `json:"zonename"`
+	Account               string                        `json:"account"`
+	Affinitygroup         []VirtualMachineAffinitygroup `json:"affinitygroup"`
+	Cpunumber             int                           `json:"cpunumber"`
+	Cpuspeed              int                           `json:"cpuspeed"`
+	Cpuused               string                        `json:"cpuused"`
+	Created               string                        `json:"created"`
+	Details               map[string]string             `json:"details"`
+	Diskioread            int64                         `json:"diskioread"`
+	Diskiowrite           int64                         `json:"diskiowrite"`
+	Diskkbsread           int64                         `json:"diskkbsread"`
+	Diskkbswrite          int64                         `json:"diskkbswrite"`
+	Diskofferingid        string                        `json:"diskofferingid"`
+	Diskofferingname      string                        `json:"diskofferingname"`
+	Displayname           string                        `json:"displayname"`
+	Displayvm             bool                          `json:"displayvm"`
+	Domain                string                        `json:"domain"`
+	Domainid              string                        `json:"domainid"`
+	Forvirtualnetwork     bool                          `json:"forvirtualnetwork"`
+	Group                 string                        `json:"group"`
+	Groupid               string                        `json:"groupid"`
+	Guestosid             string                        `json:"guestosid"`
+	Haenable              bool                          `json:"haenable"`
+	Hostid                string                        `json:"hostid"`
+	Hostname              string                        `json:"hostname"`
+	Hypervisor            string                        `json:"hypervisor"`
+	Id                    string                        `json:"id"`
+	Instancename          string                        `json:"instancename"`
+	Isdynamicallyscalable bool                          `json:"isdynamicallyscalable"`
+	Isodisplaytext        string                        `json:"isodisplaytext"`
+	Isoid                 string                        `json:"isoid"`
+	Isoname               string                        `json:"isoname"`
+	Keypair               string                        `json:"keypair"`
+	Memory                int                           `json:"memory"`
+	Memoryintfreekbs      int64                         `json:"memoryintfreekbs"`
+	Memorykbs             int64                         `json:"memorykbs"`
+	Memorytargetkbs       int64                         `json:"memorytargetkbs"`
+	Name                  string                        `json:"name"`
+	Networkkbsread        int64                         `json:"networkkbsread"`
+	Networkkbswrite       int64                         `json:"networkkbswrite"`
+	Nic                   []Nic                         `json:"nic"`
+	Ostypeid              int64                         `json:"ostypeid"`
+	Password              string                        `json:"password"`
+	Passwordenabled       bool                          `json:"passwordenabled"`
+	Project               string                        `json:"project"`
+	Projectid             string                        `json:"projectid"`
+	Publicip              string                        `json:"publicip"`
+	Publicipid            string                        `json:"publicipid"`
+	Rootdeviceid          int64                         `json:"rootdeviceid"`
+	Rootdevicetype        string                        `json:"rootdevicetype"`
+	Securitygroup         []VirtualMachineSecuritygroup `json:"securitygroup"`
+	Serviceofferingid     string                        `json:"serviceofferingid"`
+	Serviceofferingname   string                        `json:"serviceofferingname"`
+	Servicestate          string                        `json:"servicestate"`
+	State                 string                        `json:"state"`
+	Templatedisplaytext   string                        `json:"templatedisplaytext"`
+	Templateid            string                        `json:"templateid"`
+	Templatename          string                        `json:"templatename"`
+	Userid                string                        `json:"userid"`
+	Username              string                        `json:"username"`
+	Vgpu                  string                        `json:"vgpu"`
+	Zoneid                string                        `json:"zoneid"`
+	Zonename              string                        `json:"zonename"`
+}
+
+type VirtualMachineSecuritygroup struct {
+	Account             string                            `json:"account"`
+	Description         string                            `json:"description"`
+	Domain              string                            `json:"domain"`
+	Domainid            string                            `json:"domainid"`
+	Egressrule          []VirtualMachineSecuritygroupRule `json:"egressrule"`
+	Id                  string                            `json:"id"`
+	Ingressrule         []VirtualMachineSecuritygroupRule `json:"ingressrule"`
+	Name                string                            `json:"name"`
+	Project             string                            `json:"project"`
+	Projectid           string                            `json:"projectid"`
+	Tags                []Tags                            `json:"tags"`
+	Virtualmachinecount int                               `json:"virtualmachinecount"`
+	Virtualmachineids   []interface{}                     `json:"virtualmachineids"`
+}
+
+type VirtualMachineSecuritygroupRule struct {
+	Account           string `json:"account"`
+	Cidr              string `json:"cidr"`
+	Endport           int    `json:"endport"`
+	Icmpcode          int    `json:"icmpcode"`
+	Icmptype          int    `json:"icmptype"`
+	Protocol          string `json:"protocol"`
+	Ruleid            string `json:"ruleid"`
+	Securitygroupname string `json:"securitygroupname"`
+	Startport         int    `json:"startport"`
+	Tags              []Tags `json:"tags"`
+}
+
+type VirtualMachineAffinitygroup struct {
+	Account           string   `json:"account"`
+	Description       string   `json:"description"`
+	Domain            string   `json:"domain"`
+	Domainid          string   `json:"domainid"`
+	Id                string   `json:"id"`
+	Name              string   `json:"name"`
+	Project           string   `json:"project"`
+	Projectid         string   `json:"projectid"`
+	Type              string   `json:"type"`
+	VirtualmachineIds []string `json:"virtualmachineIds"`
 }
 
 type MigrateVirtualMachineParams struct {
@@ -2525,173 +2223,111 @@ func (s *VirtualMachineService) MigrateVirtualMachine(p *MigrateVirtualMachinePa
 }
 
 type MigrateVirtualMachineResponse struct {
-	JobID         string `json:"jobid"`
-	Account       string `json:"account"`
-	Affinitygroup []struct {
-		Account           string   `json:"account"`
-		Description       string   `json:"description"`
-		Domain            string   `json:"domain"`
-		Domainid          string   `json:"domainid"`
-		Id                string   `json:"id"`
-		Name              string   `json:"name"`
-		Project           string   `json:"project"`
-		Projectid         string   `json:"projectid"`
-		Type              string   `json:"type"`
-		VirtualmachineIds []string `json:"virtualmachineIds"`
-	} `json:"affinitygroup"`
-	Cpunumber             int               `json:"cpunumber"`
-	Cpuspeed              int               `json:"cpuspeed"`
-	Cpuused               string            `json:"cpuused"`
-	Created               string            `json:"created"`
-	Details               map[string]string `json:"details"`
-	Diskioread            int64             `json:"diskioread"`
-	Diskiowrite           int64             `json:"diskiowrite"`
-	Diskkbsread           int64             `json:"diskkbsread"`
-	Diskkbswrite          int64             `json:"diskkbswrite"`
-	Diskofferingid        string            `json:"diskofferingid"`
-	Diskofferingname      string            `json:"diskofferingname"`
-	Displayname           string            `json:"displayname"`
-	Displayvm             bool              `json:"displayvm"`
-	Domain                string            `json:"domain"`
-	Domainid              string            `json:"domainid"`
-	Forvirtualnetwork     bool              `json:"forvirtualnetwork"`
-	Group                 string            `json:"group"`
-	Groupid               string            `json:"groupid"`
-	Guestosid             string            `json:"guestosid"`
-	Haenable              bool              `json:"haenable"`
-	Hostid                string            `json:"hostid"`
-	Hostname              string            `json:"hostname"`
-	Hypervisor            string            `json:"hypervisor"`
-	Id                    string            `json:"id"`
-	Instancename          string            `json:"instancename"`
-	Isdynamicallyscalable bool              `json:"isdynamicallyscalable"`
-	Isodisplaytext        string            `json:"isodisplaytext"`
-	Isoid                 string            `json:"isoid"`
-	Isoname               string            `json:"isoname"`
-	Keypair               string            `json:"keypair"`
-	Memory                int               `json:"memory"`
-	Memoryintfreekbs      int64             `json:"memoryintfreekbs"`
-	Memorykbs             int64             `json:"memorykbs"`
-	Memorytargetkbs       int64             `json:"memorytargetkbs"`
-	Name                  string            `json:"name"`
-	Networkkbsread        int64             `json:"networkkbsread"`
-	Networkkbswrite       int64             `json:"networkkbswrite"`
-	Nic                   []struct {
-		Broadcasturi         string `json:"broadcasturi"`
-		Deviceid             string `json:"deviceid"`
-		Gateway              string `json:"gateway"`
-		Id                   string `json:"id"`
-		Ip6address           string `json:"ip6address"`
-		Ip6cidr              string `json:"ip6cidr"`
-		Ip6gateway           string `json:"ip6gateway"`
-		Ipaddress            string `json:"ipaddress"`
-		Isdefault            bool   `json:"isdefault"`
-		Isolationuri         string `json:"isolationuri"`
-		Macaddress           string `json:"macaddress"`
-		Netmask              string `json:"netmask"`
-		Networkid            string `json:"networkid"`
-		Networkname          string `json:"networkname"`
-		Nsxlogicalswitch     string `json:"nsxlogicalswitch"`
-		Nsxlogicalswitchport string `json:"nsxlogicalswitchport"`
-		Secondaryip          []struct {
-			Id        string `json:"id"`
-			Ipaddress string `json:"ipaddress"`
-		} `json:"secondaryip"`
-		Traffictype      string `json:"traffictype"`
-		Type             string `json:"type"`
-		Virtualmachineid string `json:"virtualmachineid"`
-	} `json:"nic"`
-	Ostypeid        int64  `json:"ostypeid"`
-	Password        string `json:"password"`
-	Passwordenabled bool   `json:"passwordenabled"`
-	Project         string `json:"project"`
-	Projectid       string `json:"projectid"`
-	Publicip        string `json:"publicip"`
-	Publicipid      string `json:"publicipid"`
-	Rootdeviceid    int64  `json:"rootdeviceid"`
-	Rootdevicetype  string `json:"rootdevicetype"`
-	Securitygroup   []struct {
-		Account     string `json:"account"`
-		Description string `json:"description"`
-		Domain      string `json:"domain"`
-		Domainid    string `json:"domainid"`
-		Egressrule  []struct {
-			Account           string `json:"account"`
-			Cidr              string `json:"cidr"`
-			Endport           int    `json:"endport"`
-			Icmpcode          int    `json:"icmpcode"`
-			Icmptype          int    `json:"icmptype"`
-			Protocol          string `json:"protocol"`
-			Ruleid            string `json:"ruleid"`
-			Securitygroupname string `json:"securitygroupname"`
-			Startport         int    `json:"startport"`
-			Tags              []struct {
-				Account      string `json:"account"`
-				Customer     string `json:"customer"`
-				Domain       string `json:"domain"`
-				Domainid     string `json:"domainid"`
-				Key          string `json:"key"`
-				Project      string `json:"project"`
-				Projectid    string `json:"projectid"`
-				Resourceid   string `json:"resourceid"`
-				Resourcetype string `json:"resourcetype"`
-				Value        string `json:"value"`
-			} `json:"tags"`
-		} `json:"egressrule"`
-		Id          string `json:"id"`
-		Ingressrule []struct {
-			Account           string `json:"account"`
-			Cidr              string `json:"cidr"`
-			Endport           int    `json:"endport"`
-			Icmpcode          int    `json:"icmpcode"`
-			Icmptype          int    `json:"icmptype"`
-			Protocol          string `json:"protocol"`
-			Ruleid            string `json:"ruleid"`
-			Securitygroupname string `json:"securitygroupname"`
-			Startport         int    `json:"startport"`
-			Tags              []struct {
-				Account      string `json:"account"`
-				Customer     string `json:"customer"`
-				Domain       string `json:"domain"`
-				Domainid     string `json:"domainid"`
-				Key          string `json:"key"`
-				Project      string `json:"project"`
-				Projectid    string `json:"projectid"`
-				Resourceid   string `json:"resourceid"`
-				Resourcetype string `json:"resourcetype"`
-				Value        string `json:"value"`
-			} `json:"tags"`
-		} `json:"ingressrule"`
-		Name      string `json:"name"`
-		Project   string `json:"project"`
-		Projectid string `json:"projectid"`
-		Tags      []struct {
-			Account      string `json:"account"`
-			Customer     string `json:"customer"`
-			Domain       string `json:"domain"`
-			Domainid     string `json:"domainid"`
-			Key          string `json:"key"`
-			Project      string `json:"project"`
-			Projectid    string `json:"projectid"`
-			Resourceid   string `json:"resourceid"`
-			Resourcetype string `json:"resourcetype"`
-			Value        string `json:"value"`
-		} `json:"tags"`
-		Virtualmachinecount int           `json:"virtualmachinecount"`
-		Virtualmachineids   []interface{} `json:"virtualmachineids"`
-	} `json:"securitygroup"`
-	Serviceofferingid   string `json:"serviceofferingid"`
-	Serviceofferingname string `json:"serviceofferingname"`
-	Servicestate        string `json:"servicestate"`
-	State               string `json:"state"`
-	Templatedisplaytext string `json:"templatedisplaytext"`
-	Templateid          string `json:"templateid"`
-	Templatename        string `json:"templatename"`
-	Userid              string `json:"userid"`
-	Username            string `json:"username"`
-	Vgpu                string `json:"vgpu"`
-	Zoneid              string `json:"zoneid"`
-	Zonename            string `json:"zonename"`
+	JobID                 string                                       `json:"jobid"`
+	Account               string                                       `json:"account"`
+	Affinitygroup         []MigrateVirtualMachineResponseAffinitygroup `json:"affinitygroup"`
+	Cpunumber             int                                          `json:"cpunumber"`
+	Cpuspeed              int                                          `json:"cpuspeed"`
+	Cpuused               string                                       `json:"cpuused"`
+	Created               string                                       `json:"created"`
+	Details               map[string]string                            `json:"details"`
+	Diskioread            int64                                        `json:"diskioread"`
+	Diskiowrite           int64                                        `json:"diskiowrite"`
+	Diskkbsread           int64                                        `json:"diskkbsread"`
+	Diskkbswrite          int64                                        `json:"diskkbswrite"`
+	Diskofferingid        string                                       `json:"diskofferingid"`
+	Diskofferingname      string                                       `json:"diskofferingname"`
+	Displayname           string                                       `json:"displayname"`
+	Displayvm             bool                                         `json:"displayvm"`
+	Domain                string                                       `json:"domain"`
+	Domainid              string                                       `json:"domainid"`
+	Forvirtualnetwork     bool                                         `json:"forvirtualnetwork"`
+	Group                 string                                       `json:"group"`
+	Groupid               string                                       `json:"groupid"`
+	Guestosid             string                                       `json:"guestosid"`
+	Haenable              bool                                         `json:"haenable"`
+	Hostid                string                                       `json:"hostid"`
+	Hostname              string                                       `json:"hostname"`
+	Hypervisor            string                                       `json:"hypervisor"`
+	Id                    string                                       `json:"id"`
+	Instancename          string                                       `json:"instancename"`
+	Isdynamicallyscalable bool                                         `json:"isdynamicallyscalable"`
+	Isodisplaytext        string                                       `json:"isodisplaytext"`
+	Isoid                 string                                       `json:"isoid"`
+	Isoname               string                                       `json:"isoname"`
+	Keypair               string                                       `json:"keypair"`
+	Memory                int                                          `json:"memory"`
+	Memoryintfreekbs      int64                                        `json:"memoryintfreekbs"`
+	Memorykbs             int64                                        `json:"memorykbs"`
+	Memorytargetkbs       int64                                        `json:"memorytargetkbs"`
+	Name                  string                                       `json:"name"`
+	Networkkbsread        int64                                        `json:"networkkbsread"`
+	Networkkbswrite       int64                                        `json:"networkkbswrite"`
+	Nic                   []Nic                                        `json:"nic"`
+	Ostypeid              int64                                        `json:"ostypeid"`
+	Password              string                                       `json:"password"`
+	Passwordenabled       bool                                         `json:"passwordenabled"`
+	Project               string                                       `json:"project"`
+	Projectid             string                                       `json:"projectid"`
+	Publicip              string                                       `json:"publicip"`
+	Publicipid            string                                       `json:"publicipid"`
+	Rootdeviceid          int64                                        `json:"rootdeviceid"`
+	Rootdevicetype        string                                       `json:"rootdevicetype"`
+	Securitygroup         []MigrateVirtualMachineResponseSecuritygroup `json:"securitygroup"`
+	Serviceofferingid     string                                       `json:"serviceofferingid"`
+	Serviceofferingname   string                                       `json:"serviceofferingname"`
+	Servicestate          string                                       `json:"servicestate"`
+	State                 string                                       `json:"state"`
+	Templatedisplaytext   string                                       `json:"templatedisplaytext"`
+	Templateid            string                                       `json:"templateid"`
+	Templatename          string                                       `json:"templatename"`
+	Userid                string                                       `json:"userid"`
+	Username              string                                       `json:"username"`
+	Vgpu                  string                                       `json:"vgpu"`
+	Zoneid                string                                       `json:"zoneid"`
+	Zonename              string                                       `json:"zonename"`
+}
+
+type MigrateVirtualMachineResponseSecuritygroup struct {
+	Account             string                                           `json:"account"`
+	Description         string                                           `json:"description"`
+	Domain              string                                           `json:"domain"`
+	Domainid            string                                           `json:"domainid"`
+	Egressrule          []MigrateVirtualMachineResponseSecuritygroupRule `json:"egressrule"`
+	Id                  string                                           `json:"id"`
+	Ingressrule         []MigrateVirtualMachineResponseSecuritygroupRule `json:"ingressrule"`
+	Name                string                                           `json:"name"`
+	Project             string                                           `json:"project"`
+	Projectid           string                                           `json:"projectid"`
+	Tags                []Tags                                           `json:"tags"`
+	Virtualmachinecount int                                              `json:"virtualmachinecount"`
+	Virtualmachineids   []interface{}                                    `json:"virtualmachineids"`
+}
+
+type MigrateVirtualMachineResponseSecuritygroupRule struct {
+	Account           string `json:"account"`
+	Cidr              string `json:"cidr"`
+	Endport           int    `json:"endport"`
+	Icmpcode          int    `json:"icmpcode"`
+	Icmptype          int    `json:"icmptype"`
+	Protocol          string `json:"protocol"`
+	Ruleid            string `json:"ruleid"`
+	Securitygroupname string `json:"securitygroupname"`
+	Startport         int    `json:"startport"`
+	Tags              []Tags `json:"tags"`
+}
+
+type MigrateVirtualMachineResponseAffinitygroup struct {
+	Account           string   `json:"account"`
+	Description       string   `json:"description"`
+	Domain            string   `json:"domain"`
+	Domainid          string   `json:"domainid"`
+	Id                string   `json:"id"`
+	Name              string   `json:"name"`
+	Project           string   `json:"project"`
+	Projectid         string   `json:"projectid"`
+	Type              string   `json:"type"`
+	VirtualmachineIds []string `json:"virtualmachineIds"`
 }
 
 type MigrateVirtualMachineWithVolumeParams struct {
@@ -2790,173 +2426,111 @@ func (s *VirtualMachineService) MigrateVirtualMachineWithVolume(p *MigrateVirtua
 }
 
 type MigrateVirtualMachineWithVolumeResponse struct {
-	JobID         string `json:"jobid"`
-	Account       string `json:"account"`
-	Affinitygroup []struct {
-		Account           string   `json:"account"`
-		Description       string   `json:"description"`
-		Domain            string   `json:"domain"`
-		Domainid          string   `json:"domainid"`
-		Id                string   `json:"id"`
-		Name              string   `json:"name"`
-		Project           string   `json:"project"`
-		Projectid         string   `json:"projectid"`
-		Type              string   `json:"type"`
-		VirtualmachineIds []string `json:"virtualmachineIds"`
-	} `json:"affinitygroup"`
-	Cpunumber             int               `json:"cpunumber"`
-	Cpuspeed              int               `json:"cpuspeed"`
-	Cpuused               string            `json:"cpuused"`
-	Created               string            `json:"created"`
-	Details               map[string]string `json:"details"`
-	Diskioread            int64             `json:"diskioread"`
-	Diskiowrite           int64             `json:"diskiowrite"`
-	Diskkbsread           int64             `json:"diskkbsread"`
-	Diskkbswrite          int64             `json:"diskkbswrite"`
-	Diskofferingid        string            `json:"diskofferingid"`
-	Diskofferingname      string            `json:"diskofferingname"`
-	Displayname           string            `json:"displayname"`
-	Displayvm             bool              `json:"displayvm"`
-	Domain                string            `json:"domain"`
-	Domainid              string            `json:"domainid"`
-	Forvirtualnetwork     bool              `json:"forvirtualnetwork"`
-	Group                 string            `json:"group"`
-	Groupid               string            `json:"groupid"`
-	Guestosid             string            `json:"guestosid"`
-	Haenable              bool              `json:"haenable"`
-	Hostid                string            `json:"hostid"`
-	Hostname              string            `json:"hostname"`
-	Hypervisor            string            `json:"hypervisor"`
-	Id                    string            `json:"id"`
-	Instancename          string            `json:"instancename"`
-	Isdynamicallyscalable bool              `json:"isdynamicallyscalable"`
-	Isodisplaytext        string            `json:"isodisplaytext"`
-	Isoid                 string            `json:"isoid"`
-	Isoname               string            `json:"isoname"`
-	Keypair               string            `json:"keypair"`
-	Memory                int               `json:"memory"`
-	Memoryintfreekbs      int64             `json:"memoryintfreekbs"`
-	Memorykbs             int64             `json:"memorykbs"`
-	Memorytargetkbs       int64             `json:"memorytargetkbs"`
-	Name                  string            `json:"name"`
-	Networkkbsread        int64             `json:"networkkbsread"`
-	Networkkbswrite       int64             `json:"networkkbswrite"`
-	Nic                   []struct {
-		Broadcasturi         string `json:"broadcasturi"`
-		Deviceid             string `json:"deviceid"`
-		Gateway              string `json:"gateway"`
-		Id                   string `json:"id"`
-		Ip6address           string `json:"ip6address"`
-		Ip6cidr              string `json:"ip6cidr"`
-		Ip6gateway           string `json:"ip6gateway"`
-		Ipaddress            string `json:"ipaddress"`
-		Isdefault            bool   `json:"isdefault"`
-		Isolationuri         string `json:"isolationuri"`
-		Macaddress           string `json:"macaddress"`
-		Netmask              string `json:"netmask"`
-		Networkid            string `json:"networkid"`
-		Networkname          string `json:"networkname"`
-		Nsxlogicalswitch     string `json:"nsxlogicalswitch"`
-		Nsxlogicalswitchport string `json:"nsxlogicalswitchport"`
-		Secondaryip          []struct {
-			Id        string `json:"id"`
-			Ipaddress string `json:"ipaddress"`
-		} `json:"secondaryip"`
-		Traffictype      string `json:"traffictype"`
-		Type             string `json:"type"`
-		Virtualmachineid string `json:"virtualmachineid"`
-	} `json:"nic"`
-	Ostypeid        int64  `json:"ostypeid"`
-	Password        string `json:"password"`
-	Passwordenabled bool   `json:"passwordenabled"`
-	Project         string `json:"project"`
-	Projectid       string `json:"projectid"`
-	Publicip        string `json:"publicip"`
-	Publicipid      string `json:"publicipid"`
-	Rootdeviceid    int64  `json:"rootdeviceid"`
-	Rootdevicetype  string `json:"rootdevicetype"`
-	Securitygroup   []struct {
-		Account     string `json:"account"`
-		Description string `json:"description"`
-		Domain      string `json:"domain"`
-		Domainid    string `json:"domainid"`
-		Egressrule  []struct {
-			Account           string `json:"account"`
-			Cidr              string `json:"cidr"`
-			Endport           int    `json:"endport"`
-			Icmpcode          int    `json:"icmpcode"`
-			Icmptype          int    `json:"icmptype"`
-			Protocol          string `json:"protocol"`
-			Ruleid            string `json:"ruleid"`
-			Securitygroupname string `json:"securitygroupname"`
-			Startport         int    `json:"startport"`
-			Tags              []struct {
-				Account      string `json:"account"`
-				Customer     string `json:"customer"`
-				Domain       string `json:"domain"`
-				Domainid     string `json:"domainid"`
-				Key          string `json:"key"`
-				Project      string `json:"project"`
-				Projectid    string `json:"projectid"`
-				Resourceid   string `json:"resourceid"`
-				Resourcetype string `json:"resourcetype"`
-				Value        string `json:"value"`
-			} `json:"tags"`
-		} `json:"egressrule"`
-		Id          string `json:"id"`
-		Ingressrule []struct {
-			Account           string `json:"account"`
-			Cidr              string `json:"cidr"`
-			Endport           int    `json:"endport"`
-			Icmpcode          int    `json:"icmpcode"`
-			Icmptype          int    `json:"icmptype"`
-			Protocol          string `json:"protocol"`
-			Ruleid            string `json:"ruleid"`
-			Securitygroupname string `json:"securitygroupname"`
-			Startport         int    `json:"startport"`
-			Tags              []struct {
-				Account      string `json:"account"`
-				Customer     string `json:"customer"`
-				Domain       string `json:"domain"`
-				Domainid     string `json:"domainid"`
-				Key          string `json:"key"`
-				Project      string `json:"project"`
-				Projectid    string `json:"projectid"`
-				Resourceid   string `json:"resourceid"`
-				Resourcetype string `json:"resourcetype"`
-				Value        string `json:"value"`
-			} `json:"tags"`
-		} `json:"ingressrule"`
-		Name      string `json:"name"`
-		Project   string `json:"project"`
-		Projectid string `json:"projectid"`
-		Tags      []struct {
-			Account      string `json:"account"`
-			Customer     string `json:"customer"`
-			Domain       string `json:"domain"`
-			Domainid     string `json:"domainid"`
-			Key          string `json:"key"`
-			Project      string `json:"project"`
-			Projectid    string `json:"projectid"`
-			Resourceid   string `json:"resourceid"`
-			Resourcetype string `json:"resourcetype"`
-			Value        string `json:"value"`
-		} `json:"tags"`
-		Virtualmachinecount int           `json:"virtualmachinecount"`
-		Virtualmachineids   []interface{} `json:"virtualmachineids"`
-	} `json:"securitygroup"`
-	Serviceofferingid   string `json:"serviceofferingid"`
-	Serviceofferingname string `json:"serviceofferingname"`
-	Servicestate        string `json:"servicestate"`
-	State               string `json:"state"`
-	Templatedisplaytext string `json:"templatedisplaytext"`
-	Templateid          string `json:"templateid"`
-	Templatename        string `json:"templatename"`
-	Userid              string `json:"userid"`
-	Username            string `json:"username"`
-	Vgpu                string `json:"vgpu"`
-	Zoneid              string `json:"zoneid"`
-	Zonename            string `json:"zonename"`
+	JobID                 string                                                 `json:"jobid"`
+	Account               string                                                 `json:"account"`
+	Affinitygroup         []MigrateVirtualMachineWithVolumeResponseAffinitygroup `json:"affinitygroup"`
+	Cpunumber             int                                                    `json:"cpunumber"`
+	Cpuspeed              int                                                    `json:"cpuspeed"`
+	Cpuused               string                                                 `json:"cpuused"`
+	Created               string                                                 `json:"created"`
+	Details               map[string]string                                      `json:"details"`
+	Diskioread            int64                                                  `json:"diskioread"`
+	Diskiowrite           int64                                                  `json:"diskiowrite"`
+	Diskkbsread           int64                                                  `json:"diskkbsread"`
+	Diskkbswrite          int64                                                  `json:"diskkbswrite"`
+	Diskofferingid        string                                                 `json:"diskofferingid"`
+	Diskofferingname      string                                                 `json:"diskofferingname"`
+	Displayname           string                                                 `json:"displayname"`
+	Displayvm             bool                                                   `json:"displayvm"`
+	Domain                string                                                 `json:"domain"`
+	Domainid              string                                                 `json:"domainid"`
+	Forvirtualnetwork     bool                                                   `json:"forvirtualnetwork"`
+	Group                 string                                                 `json:"group"`
+	Groupid               string                                                 `json:"groupid"`
+	Guestosid             string                                                 `json:"guestosid"`
+	Haenable              bool                                                   `json:"haenable"`
+	Hostid                string                                                 `json:"hostid"`
+	Hostname              string                                                 `json:"hostname"`
+	Hypervisor            string                                                 `json:"hypervisor"`
+	Id                    string                                                 `json:"id"`
+	Instancename          string                                                 `json:"instancename"`
+	Isdynamicallyscalable bool                                                   `json:"isdynamicallyscalable"`
+	Isodisplaytext        string                                                 `json:"isodisplaytext"`
+	Isoid                 string                                                 `json:"isoid"`
+	Isoname               string                                                 `json:"isoname"`
+	Keypair               string                                                 `json:"keypair"`
+	Memory                int                                                    `json:"memory"`
+	Memoryintfreekbs      int64                                                  `json:"memoryintfreekbs"`
+	Memorykbs             int64                                                  `json:"memorykbs"`
+	Memorytargetkbs       int64                                                  `json:"memorytargetkbs"`
+	Name                  string                                                 `json:"name"`
+	Networkkbsread        int64                                                  `json:"networkkbsread"`
+	Networkkbswrite       int64                                                  `json:"networkkbswrite"`
+	Nic                   []Nic                                                  `json:"nic"`
+	Ostypeid              int64                                                  `json:"ostypeid"`
+	Password              string                                                 `json:"password"`
+	Passwordenabled       bool                                                   `json:"passwordenabled"`
+	Project               string                                                 `json:"project"`
+	Projectid             string                                                 `json:"projectid"`
+	Publicip              string                                                 `json:"publicip"`
+	Publicipid            string                                                 `json:"publicipid"`
+	Rootdeviceid          int64                                                  `json:"rootdeviceid"`
+	Rootdevicetype        string                                                 `json:"rootdevicetype"`
+	Securitygroup         []MigrateVirtualMachineWithVolumeResponseSecuritygroup `json:"securitygroup"`
+	Serviceofferingid     string                                                 `json:"serviceofferingid"`
+	Serviceofferingname   string                                                 `json:"serviceofferingname"`
+	Servicestate          string                                                 `json:"servicestate"`
+	State                 string                                                 `json:"state"`
+	Templatedisplaytext   string                                                 `json:"templatedisplaytext"`
+	Templateid            string                                                 `json:"templateid"`
+	Templatename          string                                                 `json:"templatename"`
+	Userid                string                                                 `json:"userid"`
+	Username              string                                                 `json:"username"`
+	Vgpu                  string                                                 `json:"vgpu"`
+	Zoneid                string                                                 `json:"zoneid"`
+	Zonename              string                                                 `json:"zonename"`
+}
+
+type MigrateVirtualMachineWithVolumeResponseSecuritygroup struct {
+	Account             string                                                     `json:"account"`
+	Description         string                                                     `json:"description"`
+	Domain              string                                                     `json:"domain"`
+	Domainid            string                                                     `json:"domainid"`
+	Egressrule          []MigrateVirtualMachineWithVolumeResponseSecuritygroupRule `json:"egressrule"`
+	Id                  string                                                     `json:"id"`
+	Ingressrule         []MigrateVirtualMachineWithVolumeResponseSecuritygroupRule `json:"ingressrule"`
+	Name                string                                                     `json:"name"`
+	Project             string                                                     `json:"project"`
+	Projectid           string                                                     `json:"projectid"`
+	Tags                []Tags                                                     `json:"tags"`
+	Virtualmachinecount int                                                        `json:"virtualmachinecount"`
+	Virtualmachineids   []interface{}                                              `json:"virtualmachineids"`
+}
+
+type MigrateVirtualMachineWithVolumeResponseSecuritygroupRule struct {
+	Account           string `json:"account"`
+	Cidr              string `json:"cidr"`
+	Endport           int    `json:"endport"`
+	Icmpcode          int    `json:"icmpcode"`
+	Icmptype          int    `json:"icmptype"`
+	Protocol          string `json:"protocol"`
+	Ruleid            string `json:"ruleid"`
+	Securitygroupname string `json:"securitygroupname"`
+	Startport         int    `json:"startport"`
+	Tags              []Tags `json:"tags"`
+}
+
+type MigrateVirtualMachineWithVolumeResponseAffinitygroup struct {
+	Account           string   `json:"account"`
+	Description       string   `json:"description"`
+	Domain            string   `json:"domain"`
+	Domainid          string   `json:"domainid"`
+	Id                string   `json:"id"`
+	Name              string   `json:"name"`
+	Project           string   `json:"project"`
+	Projectid         string   `json:"projectid"`
+	Type              string   `json:"type"`
+	VirtualmachineIds []string `json:"virtualmachineIds"`
 }
 
 type RebootVirtualMachineParams struct {
@@ -3027,173 +2601,111 @@ func (s *VirtualMachineService) RebootVirtualMachine(p *RebootVirtualMachinePara
 }
 
 type RebootVirtualMachineResponse struct {
-	JobID         string `json:"jobid"`
-	Account       string `json:"account"`
-	Affinitygroup []struct {
-		Account           string   `json:"account"`
-		Description       string   `json:"description"`
-		Domain            string   `json:"domain"`
-		Domainid          string   `json:"domainid"`
-		Id                string   `json:"id"`
-		Name              string   `json:"name"`
-		Project           string   `json:"project"`
-		Projectid         string   `json:"projectid"`
-		Type              string   `json:"type"`
-		VirtualmachineIds []string `json:"virtualmachineIds"`
-	} `json:"affinitygroup"`
-	Cpunumber             int               `json:"cpunumber"`
-	Cpuspeed              int               `json:"cpuspeed"`
-	Cpuused               string            `json:"cpuused"`
-	Created               string            `json:"created"`
-	Details               map[string]string `json:"details"`
-	Diskioread            int64             `json:"diskioread"`
-	Diskiowrite           int64             `json:"diskiowrite"`
-	Diskkbsread           int64             `json:"diskkbsread"`
-	Diskkbswrite          int64             `json:"diskkbswrite"`
-	Diskofferingid        string            `json:"diskofferingid"`
-	Diskofferingname      string            `json:"diskofferingname"`
-	Displayname           string            `json:"displayname"`
-	Displayvm             bool              `json:"displayvm"`
-	Domain                string            `json:"domain"`
-	Domainid              string            `json:"domainid"`
-	Forvirtualnetwork     bool              `json:"forvirtualnetwork"`
-	Group                 string            `json:"group"`
-	Groupid               string            `json:"groupid"`
-	Guestosid             string            `json:"guestosid"`
-	Haenable              bool              `json:"haenable"`
-	Hostid                string            `json:"hostid"`
-	Hostname              string            `json:"hostname"`
-	Hypervisor            string            `json:"hypervisor"`
-	Id                    string            `json:"id"`
-	Instancename          string            `json:"instancename"`
-	Isdynamicallyscalable bool              `json:"isdynamicallyscalable"`
-	Isodisplaytext        string            `json:"isodisplaytext"`
-	Isoid                 string            `json:"isoid"`
-	Isoname               string            `json:"isoname"`
-	Keypair               string            `json:"keypair"`
-	Memory                int               `json:"memory"`
-	Memoryintfreekbs      int64             `json:"memoryintfreekbs"`
-	Memorykbs             int64             `json:"memorykbs"`
-	Memorytargetkbs       int64             `json:"memorytargetkbs"`
-	Name                  string            `json:"name"`
-	Networkkbsread        int64             `json:"networkkbsread"`
-	Networkkbswrite       int64             `json:"networkkbswrite"`
-	Nic                   []struct {
-		Broadcasturi         string `json:"broadcasturi"`
-		Deviceid             string `json:"deviceid"`
-		Gateway              string `json:"gateway"`
-		Id                   string `json:"id"`
-		Ip6address           string `json:"ip6address"`
-		Ip6cidr              string `json:"ip6cidr"`
-		Ip6gateway           string `json:"ip6gateway"`
-		Ipaddress            string `json:"ipaddress"`
-		Isdefault            bool   `json:"isdefault"`
-		Isolationuri         string `json:"isolationuri"`
-		Macaddress           string `json:"macaddress"`
-		Netmask              string `json:"netmask"`
-		Networkid            string `json:"networkid"`
-		Networkname          string `json:"networkname"`
-		Nsxlogicalswitch     string `json:"nsxlogicalswitch"`
-		Nsxlogicalswitchport string `json:"nsxlogicalswitchport"`
-		Secondaryip          []struct {
-			Id        string `json:"id"`
-			Ipaddress string `json:"ipaddress"`
-		} `json:"secondaryip"`
-		Traffictype      string `json:"traffictype"`
-		Type             string `json:"type"`
-		Virtualmachineid string `json:"virtualmachineid"`
-	} `json:"nic"`
-	Ostypeid        int64  `json:"ostypeid"`
-	Password        string `json:"password"`
-	Passwordenabled bool   `json:"passwordenabled"`
-	Project         string `json:"project"`
-	Projectid       string `json:"projectid"`
-	Publicip        string `json:"publicip"`
-	Publicipid      string `json:"publicipid"`
-	Rootdeviceid    int64  `json:"rootdeviceid"`
-	Rootdevicetype  string `json:"rootdevicetype"`
-	Securitygroup   []struct {
-		Account     string `json:"account"`
-		Description string `json:"description"`
-		Domain      string `json:"domain"`
-		Domainid    string `json:"domainid"`
-		Egressrule  []struct {
-			Account           string `json:"account"`
-			Cidr              string `json:"cidr"`
-			Endport           int    `json:"endport"`
-			Icmpcode          int    `json:"icmpcode"`
-			Icmptype          int    `json:"icmptype"`
-			Protocol          string `json:"protocol"`
-			Ruleid            string `json:"ruleid"`
-			Securitygroupname string `json:"securitygroupname"`
-			Startport         int    `json:"startport"`
-			Tags              []struct {
-				Account      string `json:"account"`
-				Customer     string `json:"customer"`
-				Domain       string `json:"domain"`
-				Domainid     string `json:"domainid"`
-				Key          string `json:"key"`
-				Project      string `json:"project"`
-				Projectid    string `json:"projectid"`
-				Resourceid   string `json:"resourceid"`
-				Resourcetype string `json:"resourcetype"`
-				Value        string `json:"value"`
-			} `json:"tags"`
-		} `json:"egressrule"`
-		Id          string `json:"id"`
-		Ingressrule []struct {
-			Account           string `json:"account"`
-			Cidr              string `json:"cidr"`
-			Endport           int    `json:"endport"`
-			Icmpcode          int    `json:"icmpcode"`
-			Icmptype          int    `json:"icmptype"`
-			Protocol          string `json:"protocol"`
-			Ruleid            string `json:"ruleid"`
-			Securitygroupname string `json:"securitygroupname"`
-			Startport         int    `json:"startport"`
-			Tags              []struct {
-				Account      string `json:"account"`
-				Customer     string `json:"customer"`
-				Domain       string `json:"domain"`
-				Domainid     string `json:"domainid"`
-				Key          string `json:"key"`
-				Project      string `json:"project"`
-				Projectid    string `json:"projectid"`
-				Resourceid   string `json:"resourceid"`
-				Resourcetype string `json:"resourcetype"`
-				Value        string `json:"value"`
-			} `json:"tags"`
-		} `json:"ingressrule"`
-		Name      string `json:"name"`
-		Project   string `json:"project"`
-		Projectid string `json:"projectid"`
-		Tags      []struct {
-			Account      string `json:"account"`
-			Customer     string `json:"customer"`
-			Domain       string `json:"domain"`
-			Domainid     string `json:"domainid"`
-			Key          string `json:"key"`
-			Project      string `json:"project"`
-			Projectid    string `json:"projectid"`
-			Resourceid   string `json:"resourceid"`
-			Resourcetype string `json:"resourcetype"`
-			Value        string `json:"value"`
-		} `json:"tags"`
-		Virtualmachinecount int           `json:"virtualmachinecount"`
-		Virtualmachineids   []interface{} `json:"virtualmachineids"`
-	} `json:"securitygroup"`
-	Serviceofferingid   string `json:"serviceofferingid"`
-	Serviceofferingname string `json:"serviceofferingname"`
-	Servicestate        string `json:"servicestate"`
-	State               string `json:"state"`
-	Templatedisplaytext string `json:"templatedisplaytext"`
-	Templateid          string `json:"templateid"`
-	Templatename        string `json:"templatename"`
-	Userid              string `json:"userid"`
-	Username            string `json:"username"`
-	Vgpu                string `json:"vgpu"`
-	Zoneid              string `json:"zoneid"`
-	Zonename            string `json:"zonename"`
+	JobID                 string                                      `json:"jobid"`
+	Account               string                                      `json:"account"`
+	Affinitygroup         []RebootVirtualMachineResponseAffinitygroup `json:"affinitygroup"`
+	Cpunumber             int                                         `json:"cpunumber"`
+	Cpuspeed              int                                         `json:"cpuspeed"`
+	Cpuused               string                                      `json:"cpuused"`
+	Created               string                                      `json:"created"`
+	Details               map[string]string                           `json:"details"`
+	Diskioread            int64                                       `json:"diskioread"`
+	Diskiowrite           int64                                       `json:"diskiowrite"`
+	Diskkbsread           int64                                       `json:"diskkbsread"`
+	Diskkbswrite          int64                                       `json:"diskkbswrite"`
+	Diskofferingid        string                                      `json:"diskofferingid"`
+	Diskofferingname      string                                      `json:"diskofferingname"`
+	Displayname           string                                      `json:"displayname"`
+	Displayvm             bool                                        `json:"displayvm"`
+	Domain                string                                      `json:"domain"`
+	Domainid              string                                      `json:"domainid"`
+	Forvirtualnetwork     bool                                        `json:"forvirtualnetwork"`
+	Group                 string                                      `json:"group"`
+	Groupid               string                                      `json:"groupid"`
+	Guestosid             string                                      `json:"guestosid"`
+	Haenable              bool                                        `json:"haenable"`
+	Hostid                string                                      `json:"hostid"`
+	Hostname              string                                      `json:"hostname"`
+	Hypervisor            string                                      `json:"hypervisor"`
+	Id                    string                                      `json:"id"`
+	Instancename          string                                      `json:"instancename"`
+	Isdynamicallyscalable bool                                        `json:"isdynamicallyscalable"`
+	Isodisplaytext        string                                      `json:"isodisplaytext"`
+	Isoid                 string                                      `json:"isoid"`
+	Isoname               string                                      `json:"isoname"`
+	Keypair               string                                      `json:"keypair"`
+	Memory                int                                         `json:"memory"`
+	Memoryintfreekbs      int64                                       `json:"memoryintfreekbs"`
+	Memorykbs             int64                                       `json:"memorykbs"`
+	Memorytargetkbs       int64                                       `json:"memorytargetkbs"`
+	Name                  string                                      `json:"name"`
+	Networkkbsread        int64                                       `json:"networkkbsread"`
+	Networkkbswrite       int64                                       `json:"networkkbswrite"`
+	Nic                   []Nic                                       `json:"nic"`
+	Ostypeid              int64                                       `json:"ostypeid"`
+	Password              string                                      `json:"password"`
+	Passwordenabled       bool                                        `json:"passwordenabled"`
+	Project               string                                      `json:"project"`
+	Projectid             string                                      `json:"projectid"`
+	Publicip              string                                      `json:"publicip"`
+	Publicipid            string                                      `json:"publicipid"`
+	Rootdeviceid          int64                                       `json:"rootdeviceid"`
+	Rootdevicetype        string                                      `json:"rootdevicetype"`
+	Securitygroup         []RebootVirtualMachineResponseSecuritygroup `json:"securitygroup"`
+	Serviceofferingid     string                                      `json:"serviceofferingid"`
+	Serviceofferingname   string                                      `json:"serviceofferingname"`
+	Servicestate          string                                      `json:"servicestate"`
+	State                 string                                      `json:"state"`
+	Templatedisplaytext   string                                      `json:"templatedisplaytext"`
+	Templateid            string                                      `json:"templateid"`
+	Templatename          string                                      `json:"templatename"`
+	Userid                string                                      `json:"userid"`
+	Username              string                                      `json:"username"`
+	Vgpu                  string                                      `json:"vgpu"`
+	Zoneid                string                                      `json:"zoneid"`
+	Zonename              string                                      `json:"zonename"`
+}
+
+type RebootVirtualMachineResponseSecuritygroup struct {
+	Account             string                                          `json:"account"`
+	Description         string                                          `json:"description"`
+	Domain              string                                          `json:"domain"`
+	Domainid            string                                          `json:"domainid"`
+	Egressrule          []RebootVirtualMachineResponseSecuritygroupRule `json:"egressrule"`
+	Id                  string                                          `json:"id"`
+	Ingressrule         []RebootVirtualMachineResponseSecuritygroupRule `json:"ingressrule"`
+	Name                string                                          `json:"name"`
+	Project             string                                          `json:"project"`
+	Projectid           string                                          `json:"projectid"`
+	Tags                []Tags                                          `json:"tags"`
+	Virtualmachinecount int                                             `json:"virtualmachinecount"`
+	Virtualmachineids   []interface{}                                   `json:"virtualmachineids"`
+}
+
+type RebootVirtualMachineResponseSecuritygroupRule struct {
+	Account           string `json:"account"`
+	Cidr              string `json:"cidr"`
+	Endport           int    `json:"endport"`
+	Icmpcode          int    `json:"icmpcode"`
+	Icmptype          int    `json:"icmptype"`
+	Protocol          string `json:"protocol"`
+	Ruleid            string `json:"ruleid"`
+	Securitygroupname string `json:"securitygroupname"`
+	Startport         int    `json:"startport"`
+	Tags              []Tags `json:"tags"`
+}
+
+type RebootVirtualMachineResponseAffinitygroup struct {
+	Account           string   `json:"account"`
+	Description       string   `json:"description"`
+	Domain            string   `json:"domain"`
+	Domainid          string   `json:"domainid"`
+	Id                string   `json:"id"`
+	Name              string   `json:"name"`
+	Project           string   `json:"project"`
+	Projectid         string   `json:"projectid"`
+	Type              string   `json:"type"`
+	VirtualmachineIds []string `json:"virtualmachineIds"`
 }
 
 type RecoverVirtualMachineParams struct {
@@ -3244,172 +2756,110 @@ func (s *VirtualMachineService) RecoverVirtualMachine(p *RecoverVirtualMachinePa
 }
 
 type RecoverVirtualMachineResponse struct {
-	Account       string `json:"account"`
-	Affinitygroup []struct {
-		Account           string   `json:"account"`
-		Description       string   `json:"description"`
-		Domain            string   `json:"domain"`
-		Domainid          string   `json:"domainid"`
-		Id                string   `json:"id"`
-		Name              string   `json:"name"`
-		Project           string   `json:"project"`
-		Projectid         string   `json:"projectid"`
-		Type              string   `json:"type"`
-		VirtualmachineIds []string `json:"virtualmachineIds"`
-	} `json:"affinitygroup"`
-	Cpunumber             int               `json:"cpunumber"`
-	Cpuspeed              int               `json:"cpuspeed"`
-	Cpuused               string            `json:"cpuused"`
-	Created               string            `json:"created"`
-	Details               map[string]string `json:"details"`
-	Diskioread            int64             `json:"diskioread"`
-	Diskiowrite           int64             `json:"diskiowrite"`
-	Diskkbsread           int64             `json:"diskkbsread"`
-	Diskkbswrite          int64             `json:"diskkbswrite"`
-	Diskofferingid        string            `json:"diskofferingid"`
-	Diskofferingname      string            `json:"diskofferingname"`
-	Displayname           string            `json:"displayname"`
-	Displayvm             bool              `json:"displayvm"`
-	Domain                string            `json:"domain"`
-	Domainid              string            `json:"domainid"`
-	Forvirtualnetwork     bool              `json:"forvirtualnetwork"`
-	Group                 string            `json:"group"`
-	Groupid               string            `json:"groupid"`
-	Guestosid             string            `json:"guestosid"`
-	Haenable              bool              `json:"haenable"`
-	Hostid                string            `json:"hostid"`
-	Hostname              string            `json:"hostname"`
-	Hypervisor            string            `json:"hypervisor"`
-	Id                    string            `json:"id"`
-	Instancename          string            `json:"instancename"`
-	Isdynamicallyscalable bool              `json:"isdynamicallyscalable"`
-	Isodisplaytext        string            `json:"isodisplaytext"`
-	Isoid                 string            `json:"isoid"`
-	Isoname               string            `json:"isoname"`
-	Keypair               string            `json:"keypair"`
-	Memory                int               `json:"memory"`
-	Memoryintfreekbs      int64             `json:"memoryintfreekbs"`
-	Memorykbs             int64             `json:"memorykbs"`
-	Memorytargetkbs       int64             `json:"memorytargetkbs"`
-	Name                  string            `json:"name"`
-	Networkkbsread        int64             `json:"networkkbsread"`
-	Networkkbswrite       int64             `json:"networkkbswrite"`
-	Nic                   []struct {
-		Broadcasturi         string `json:"broadcasturi"`
-		Deviceid             string `json:"deviceid"`
-		Gateway              string `json:"gateway"`
-		Id                   string `json:"id"`
-		Ip6address           string `json:"ip6address"`
-		Ip6cidr              string `json:"ip6cidr"`
-		Ip6gateway           string `json:"ip6gateway"`
-		Ipaddress            string `json:"ipaddress"`
-		Isdefault            bool   `json:"isdefault"`
-		Isolationuri         string `json:"isolationuri"`
-		Macaddress           string `json:"macaddress"`
-		Netmask              string `json:"netmask"`
-		Networkid            string `json:"networkid"`
-		Networkname          string `json:"networkname"`
-		Nsxlogicalswitch     string `json:"nsxlogicalswitch"`
-		Nsxlogicalswitchport string `json:"nsxlogicalswitchport"`
-		Secondaryip          []struct {
-			Id        string `json:"id"`
-			Ipaddress string `json:"ipaddress"`
-		} `json:"secondaryip"`
-		Traffictype      string `json:"traffictype"`
-		Type             string `json:"type"`
-		Virtualmachineid string `json:"virtualmachineid"`
-	} `json:"nic"`
-	Ostypeid        int64  `json:"ostypeid"`
-	Password        string `json:"password"`
-	Passwordenabled bool   `json:"passwordenabled"`
-	Project         string `json:"project"`
-	Projectid       string `json:"projectid"`
-	Publicip        string `json:"publicip"`
-	Publicipid      string `json:"publicipid"`
-	Rootdeviceid    int64  `json:"rootdeviceid"`
-	Rootdevicetype  string `json:"rootdevicetype"`
-	Securitygroup   []struct {
-		Account     string `json:"account"`
-		Description string `json:"description"`
-		Domain      string `json:"domain"`
-		Domainid    string `json:"domainid"`
-		Egressrule  []struct {
-			Account           string `json:"account"`
-			Cidr              string `json:"cidr"`
-			Endport           int    `json:"endport"`
-			Icmpcode          int    `json:"icmpcode"`
-			Icmptype          int    `json:"icmptype"`
-			Protocol          string `json:"protocol"`
-			Ruleid            string `json:"ruleid"`
-			Securitygroupname string `json:"securitygroupname"`
-			Startport         int    `json:"startport"`
-			Tags              []struct {
-				Account      string `json:"account"`
-				Customer     string `json:"customer"`
-				Domain       string `json:"domain"`
-				Domainid     string `json:"domainid"`
-				Key          string `json:"key"`
-				Project      string `json:"project"`
-				Projectid    string `json:"projectid"`
-				Resourceid   string `json:"resourceid"`
-				Resourcetype string `json:"resourcetype"`
-				Value        string `json:"value"`
-			} `json:"tags"`
-		} `json:"egressrule"`
-		Id          string `json:"id"`
-		Ingressrule []struct {
-			Account           string `json:"account"`
-			Cidr              string `json:"cidr"`
-			Endport           int    `json:"endport"`
-			Icmpcode          int    `json:"icmpcode"`
-			Icmptype          int    `json:"icmptype"`
-			Protocol          string `json:"protocol"`
-			Ruleid            string `json:"ruleid"`
-			Securitygroupname string `json:"securitygroupname"`
-			Startport         int    `json:"startport"`
-			Tags              []struct {
-				Account      string `json:"account"`
-				Customer     string `json:"customer"`
-				Domain       string `json:"domain"`
-				Domainid     string `json:"domainid"`
-				Key          string `json:"key"`
-				Project      string `json:"project"`
-				Projectid    string `json:"projectid"`
-				Resourceid   string `json:"resourceid"`
-				Resourcetype string `json:"resourcetype"`
-				Value        string `json:"value"`
-			} `json:"tags"`
-		} `json:"ingressrule"`
-		Name      string `json:"name"`
-		Project   string `json:"project"`
-		Projectid string `json:"projectid"`
-		Tags      []struct {
-			Account      string `json:"account"`
-			Customer     string `json:"customer"`
-			Domain       string `json:"domain"`
-			Domainid     string `json:"domainid"`
-			Key          string `json:"key"`
-			Project      string `json:"project"`
-			Projectid    string `json:"projectid"`
-			Resourceid   string `json:"resourceid"`
-			Resourcetype string `json:"resourcetype"`
-			Value        string `json:"value"`
-		} `json:"tags"`
-		Virtualmachinecount int           `json:"virtualmachinecount"`
-		Virtualmachineids   []interface{} `json:"virtualmachineids"`
-	} `json:"securitygroup"`
-	Serviceofferingid   string `json:"serviceofferingid"`
-	Serviceofferingname string `json:"serviceofferingname"`
-	Servicestate        string `json:"servicestate"`
-	State               string `json:"state"`
-	Templatedisplaytext string `json:"templatedisplaytext"`
-	Templateid          string `json:"templateid"`
-	Templatename        string `json:"templatename"`
-	Userid              string `json:"userid"`
-	Username            string `json:"username"`
-	Vgpu                string `json:"vgpu"`
-	Zoneid              string `json:"zoneid"`
-	Zonename            string `json:"zonename"`
+	Account               string                                       `json:"account"`
+	Affinitygroup         []RecoverVirtualMachineResponseAffinitygroup `json:"affinitygroup"`
+	Cpunumber             int                                          `json:"cpunumber"`
+	Cpuspeed              int                                          `json:"cpuspeed"`
+	Cpuused               string                                       `json:"cpuused"`
+	Created               string                                       `json:"created"`
+	Details               map[string]string                            `json:"details"`
+	Diskioread            int64                                        `json:"diskioread"`
+	Diskiowrite           int64                                        `json:"diskiowrite"`
+	Diskkbsread           int64                                        `json:"diskkbsread"`
+	Diskkbswrite          int64                                        `json:"diskkbswrite"`
+	Diskofferingid        string                                       `json:"diskofferingid"`
+	Diskofferingname      string                                       `json:"diskofferingname"`
+	Displayname           string                                       `json:"displayname"`
+	Displayvm             bool                                         `json:"displayvm"`
+	Domain                string                                       `json:"domain"`
+	Domainid              string                                       `json:"domainid"`
+	Forvirtualnetwork     bool                                         `json:"forvirtualnetwork"`
+	Group                 string                                       `json:"group"`
+	Groupid               string                                       `json:"groupid"`
+	Guestosid             string                                       `json:"guestosid"`
+	Haenable              bool                                         `json:"haenable"`
+	Hostid                string                                       `json:"hostid"`
+	Hostname              string                                       `json:"hostname"`
+	Hypervisor            string                                       `json:"hypervisor"`
+	Id                    string                                       `json:"id"`
+	Instancename          string                                       `json:"instancename"`
+	Isdynamicallyscalable bool                                         `json:"isdynamicallyscalable"`
+	Isodisplaytext        string                                       `json:"isodisplaytext"`
+	Isoid                 string                                       `json:"isoid"`
+	Isoname               string                                       `json:"isoname"`
+	Keypair               string                                       `json:"keypair"`
+	Memory                int                                          `json:"memory"`
+	Memoryintfreekbs      int64                                        `json:"memoryintfreekbs"`
+	Memorykbs             int64                                        `json:"memorykbs"`
+	Memorytargetkbs       int64                                        `json:"memorytargetkbs"`
+	Name                  string                                       `json:"name"`
+	Networkkbsread        int64                                        `json:"networkkbsread"`
+	Networkkbswrite       int64                                        `json:"networkkbswrite"`
+	Nic                   []Nic                                        `json:"nic"`
+	Ostypeid              int64                                        `json:"ostypeid"`
+	Password              string                                       `json:"password"`
+	Passwordenabled       bool                                         `json:"passwordenabled"`
+	Project               string                                       `json:"project"`
+	Projectid             string                                       `json:"projectid"`
+	Publicip              string                                       `json:"publicip"`
+	Publicipid            string                                       `json:"publicipid"`
+	Rootdeviceid          int64                                        `json:"rootdeviceid"`
+	Rootdevicetype        string                                       `json:"rootdevicetype"`
+	Securitygroup         []RecoverVirtualMachineResponseSecuritygroup `json:"securitygroup"`
+	Serviceofferingid     string                                       `json:"serviceofferingid"`
+	Serviceofferingname   string                                       `json:"serviceofferingname"`
+	Servicestate          string                                       `json:"servicestate"`
+	State                 string                                       `json:"state"`
+	Templatedisplaytext   string                                       `json:"templatedisplaytext"`
+	Templateid            string                                       `json:"templateid"`
+	Templatename          string                                       `json:"templatename"`
+	Userid                string                                       `json:"userid"`
+	Username              string                                       `json:"username"`
+	Vgpu                  string                                       `json:"vgpu"`
+	Zoneid                string                                       `json:"zoneid"`
+	Zonename              string                                       `json:"zonename"`
+}
+
+type RecoverVirtualMachineResponseSecuritygroup struct {
+	Account             string                                           `json:"account"`
+	Description         string                                           `json:"description"`
+	Domain              string                                           `json:"domain"`
+	Domainid            string                                           `json:"domainid"`
+	Egressrule          []RecoverVirtualMachineResponseSecuritygroupRule `json:"egressrule"`
+	Id                  string                                           `json:"id"`
+	Ingressrule         []RecoverVirtualMachineResponseSecuritygroupRule `json:"ingressrule"`
+	Name                string                                           `json:"name"`
+	Project             string                                           `json:"project"`
+	Projectid           string                                           `json:"projectid"`
+	Tags                []Tags                                           `json:"tags"`
+	Virtualmachinecount int                                              `json:"virtualmachinecount"`
+	Virtualmachineids   []interface{}                                    `json:"virtualmachineids"`
+}
+
+type RecoverVirtualMachineResponseSecuritygroupRule struct {
+	Account           string `json:"account"`
+	Cidr              string `json:"cidr"`
+	Endport           int    `json:"endport"`
+	Icmpcode          int    `json:"icmpcode"`
+	Icmptype          int    `json:"icmptype"`
+	Protocol          string `json:"protocol"`
+	Ruleid            string `json:"ruleid"`
+	Securitygroupname string `json:"securitygroupname"`
+	Startport         int    `json:"startport"`
+	Tags              []Tags `json:"tags"`
+}
+
+type RecoverVirtualMachineResponseAffinitygroup struct {
+	Account           string   `json:"account"`
+	Description       string   `json:"description"`
+	Domain            string   `json:"domain"`
+	Domainid          string   `json:"domainid"`
+	Id                string   `json:"id"`
+	Name              string   `json:"name"`
+	Project           string   `json:"project"`
+	Projectid         string   `json:"projectid"`
+	Type              string   `json:"type"`
+	VirtualmachineIds []string `json:"virtualmachineIds"`
 }
 
 type RemoveNicFromVirtualMachineParams struct {
@@ -3492,173 +2942,111 @@ func (s *VirtualMachineService) RemoveNicFromVirtualMachine(p *RemoveNicFromVirt
 }
 
 type RemoveNicFromVirtualMachineResponse struct {
-	JobID         string `json:"jobid"`
-	Account       string `json:"account"`
-	Affinitygroup []struct {
-		Account           string   `json:"account"`
-		Description       string   `json:"description"`
-		Domain            string   `json:"domain"`
-		Domainid          string   `json:"domainid"`
-		Id                string   `json:"id"`
-		Name              string   `json:"name"`
-		Project           string   `json:"project"`
-		Projectid         string   `json:"projectid"`
-		Type              string   `json:"type"`
-		VirtualmachineIds []string `json:"virtualmachineIds"`
-	} `json:"affinitygroup"`
-	Cpunumber             int               `json:"cpunumber"`
-	Cpuspeed              int               `json:"cpuspeed"`
-	Cpuused               string            `json:"cpuused"`
-	Created               string            `json:"created"`
-	Details               map[string]string `json:"details"`
-	Diskioread            int64             `json:"diskioread"`
-	Diskiowrite           int64             `json:"diskiowrite"`
-	Diskkbsread           int64             `json:"diskkbsread"`
-	Diskkbswrite          int64             `json:"diskkbswrite"`
-	Diskofferingid        string            `json:"diskofferingid"`
-	Diskofferingname      string            `json:"diskofferingname"`
-	Displayname           string            `json:"displayname"`
-	Displayvm             bool              `json:"displayvm"`
-	Domain                string            `json:"domain"`
-	Domainid              string            `json:"domainid"`
-	Forvirtualnetwork     bool              `json:"forvirtualnetwork"`
-	Group                 string            `json:"group"`
-	Groupid               string            `json:"groupid"`
-	Guestosid             string            `json:"guestosid"`
-	Haenable              bool              `json:"haenable"`
-	Hostid                string            `json:"hostid"`
-	Hostname              string            `json:"hostname"`
-	Hypervisor            string            `json:"hypervisor"`
-	Id                    string            `json:"id"`
-	Instancename          string            `json:"instancename"`
-	Isdynamicallyscalable bool              `json:"isdynamicallyscalable"`
-	Isodisplaytext        string            `json:"isodisplaytext"`
-	Isoid                 string            `json:"isoid"`
-	Isoname               string            `json:"isoname"`
-	Keypair               string            `json:"keypair"`
-	Memory                int               `json:"memory"`
-	Memoryintfreekbs      int64             `json:"memoryintfreekbs"`
-	Memorykbs             int64             `json:"memorykbs"`
-	Memorytargetkbs       int64             `json:"memorytargetkbs"`
-	Name                  string            `json:"name"`
-	Networkkbsread        int64             `json:"networkkbsread"`
-	Networkkbswrite       int64             `json:"networkkbswrite"`
-	Nic                   []struct {
-		Broadcasturi         string `json:"broadcasturi"`
-		Deviceid             string `json:"deviceid"`
-		Gateway              string `json:"gateway"`
-		Id                   string `json:"id"`
-		Ip6address           string `json:"ip6address"`
-		Ip6cidr              string `json:"ip6cidr"`
-		Ip6gateway           string `json:"ip6gateway"`
-		Ipaddress            string `json:"ipaddress"`
-		Isdefault            bool   `json:"isdefault"`
-		Isolationuri         string `json:"isolationuri"`
-		Macaddress           string `json:"macaddress"`
-		Netmask              string `json:"netmask"`
-		Networkid            string `json:"networkid"`
-		Networkname          string `json:"networkname"`
-		Nsxlogicalswitch     string `json:"nsxlogicalswitch"`
-		Nsxlogicalswitchport string `json:"nsxlogicalswitchport"`
-		Secondaryip          []struct {
-			Id        string `json:"id"`
-			Ipaddress string `json:"ipaddress"`
-		} `json:"secondaryip"`
-		Traffictype      string `json:"traffictype"`
-		Type             string `json:"type"`
-		Virtualmachineid string `json:"virtualmachineid"`
-	} `json:"nic"`
-	Ostypeid        int64  `json:"ostypeid"`
-	Password        string `json:"password"`
-	Passwordenabled bool   `json:"passwordenabled"`
-	Project         string `json:"project"`
-	Projectid       string `json:"projectid"`
-	Publicip        string `json:"publicip"`
-	Publicipid      string `json:"publicipid"`
-	Rootdeviceid    int64  `json:"rootdeviceid"`
-	Rootdevicetype  string `json:"rootdevicetype"`
-	Securitygroup   []struct {
-		Account     string `json:"account"`
-		Description string `json:"description"`
-		Domain      string `json:"domain"`
-		Domainid    string `json:"domainid"`
-		Egressrule  []struct {
-			Account           string `json:"account"`
-			Cidr              string `json:"cidr"`
-			Endport           int    `json:"endport"`
-			Icmpcode          int    `json:"icmpcode"`
-			Icmptype          int    `json:"icmptype"`
-			Protocol          string `json:"protocol"`
-			Ruleid            string `json:"ruleid"`
-			Securitygroupname string `json:"securitygroupname"`
-			Startport         int    `json:"startport"`
-			Tags              []struct {
-				Account      string `json:"account"`
-				Customer     string `json:"customer"`
-				Domain       string `json:"domain"`
-				Domainid     string `json:"domainid"`
-				Key          string `json:"key"`
-				Project      string `json:"project"`
-				Projectid    string `json:"projectid"`
-				Resourceid   string `json:"resourceid"`
-				Resourcetype string `json:"resourcetype"`
-				Value        string `json:"value"`
-			} `json:"tags"`
-		} `json:"egressrule"`
-		Id          string `json:"id"`
-		Ingressrule []struct {
-			Account           string `json:"account"`
-			Cidr              string `json:"cidr"`
-			Endport           int    `json:"endport"`
-			Icmpcode          int    `json:"icmpcode"`
-			Icmptype          int    `json:"icmptype"`
-			Protocol          string `json:"protocol"`
-			Ruleid            string `json:"ruleid"`
-			Securitygroupname string `json:"securitygroupname"`
-			Startport         int    `json:"startport"`
-			Tags              []struct {
-				Account      string `json:"account"`
-				Customer     string `json:"customer"`
-				Domain       string `json:"domain"`
-				Domainid     string `json:"domainid"`
-				Key          string `json:"key"`
-				Project      string `json:"project"`
-				Projectid    string `json:"projectid"`
-				Resourceid   string `json:"resourceid"`
-				Resourcetype string `json:"resourcetype"`
-				Value        string `json:"value"`
-			} `json:"tags"`
-		} `json:"ingressrule"`
-		Name      string `json:"name"`
-		Project   string `json:"project"`
-		Projectid string `json:"projectid"`
-		Tags      []struct {
-			Account      string `json:"account"`
-			Customer     string `json:"customer"`
-			Domain       string `json:"domain"`
-			Domainid     string `json:"domainid"`
-			Key          string `json:"key"`
-			Project      string `json:"project"`
-			Projectid    string `json:"projectid"`
-			Resourceid   string `json:"resourceid"`
-			Resourcetype string `json:"resourcetype"`
-			Value        string `json:"value"`
-		} `json:"tags"`
-		Virtualmachinecount int           `json:"virtualmachinecount"`
-		Virtualmachineids   []interface{} `json:"virtualmachineids"`
-	} `json:"securitygroup"`
-	Serviceofferingid   string `json:"serviceofferingid"`
-	Serviceofferingname string `json:"serviceofferingname"`
-	Servicestate        string `json:"servicestate"`
-	State               string `json:"state"`
-	Templatedisplaytext string `json:"templatedisplaytext"`
-	Templateid          string `json:"templateid"`
-	Templatename        string `json:"templatename"`
-	Userid              string `json:"userid"`
-	Username            string `json:"username"`
-	Vgpu                string `json:"vgpu"`
-	Zoneid              string `json:"zoneid"`
-	Zonename            string `json:"zonename"`
+	JobID                 string                                             `json:"jobid"`
+	Account               string                                             `json:"account"`
+	Affinitygroup         []RemoveNicFromVirtualMachineResponseAffinitygroup `json:"affinitygroup"`
+	Cpunumber             int                                                `json:"cpunumber"`
+	Cpuspeed              int                                                `json:"cpuspeed"`
+	Cpuused               string                                             `json:"cpuused"`
+	Created               string                                             `json:"created"`
+	Details               map[string]string                                  `json:"details"`
+	Diskioread            int64                                              `json:"diskioread"`
+	Diskiowrite           int64                                              `json:"diskiowrite"`
+	Diskkbsread           int64                                              `json:"diskkbsread"`
+	Diskkbswrite          int64                                              `json:"diskkbswrite"`
+	Diskofferingid        string                                             `json:"diskofferingid"`
+	Diskofferingname      string                                             `json:"diskofferingname"`
+	Displayname           string                                             `json:"displayname"`
+	Displayvm             bool                                               `json:"displayvm"`
+	Domain                string                                             `json:"domain"`
+	Domainid              string                                             `json:"domainid"`
+	Forvirtualnetwork     bool                                               `json:"forvirtualnetwork"`
+	Group                 string                                             `json:"group"`
+	Groupid               string                                             `json:"groupid"`
+	Guestosid             string                                             `json:"guestosid"`
+	Haenable              bool                                               `json:"haenable"`
+	Hostid                string                                             `json:"hostid"`
+	Hostname              string                                             `json:"hostname"`
+	Hypervisor            string                                             `json:"hypervisor"`
+	Id                    string                                             `json:"id"`
+	Instancename          string                                             `json:"instancename"`
+	Isdynamicallyscalable bool                                               `json:"isdynamicallyscalable"`
+	Isodisplaytext        string                                             `json:"isodisplaytext"`
+	Isoid                 string                                             `json:"isoid"`
+	Isoname               string                                             `json:"isoname"`
+	Keypair               string                                             `json:"keypair"`
+	Memory                int                                                `json:"memory"`
+	Memoryintfreekbs      int64                                              `json:"memoryintfreekbs"`
+	Memorykbs             int64                                              `json:"memorykbs"`
+	Memorytargetkbs       int64                                              `json:"memorytargetkbs"`
+	Name                  string                                             `json:"name"`
+	Networkkbsread        int64                                              `json:"networkkbsread"`
+	Networkkbswrite       int64                                              `json:"networkkbswrite"`
+	Nic                   []Nic                                              `json:"nic"`
+	Ostypeid              int64                                              `json:"ostypeid"`
+	Password              string                                             `json:"password"`
+	Passwordenabled       bool                                               `json:"passwordenabled"`
+	Project               string                                             `json:"project"`
+	Projectid             string                                             `json:"projectid"`
+	Publicip              string                                             `json:"publicip"`
+	Publicipid            string                                             `json:"publicipid"`
+	Rootdeviceid          int64                                              `json:"rootdeviceid"`
+	Rootdevicetype        string                                             `json:"rootdevicetype"`
+	Securitygroup         []RemoveNicFromVirtualMachineResponseSecuritygroup `json:"securitygroup"`
+	Serviceofferingid     string                                             `json:"serviceofferingid"`
+	Serviceofferingname   string                                             `json:"serviceofferingname"`
+	Servicestate          string                                             `json:"servicestate"`
+	State                 string                                             `json:"state"`
+	Templatedisplaytext   string                                             `json:"templatedisplaytext"`
+	Templateid            string                                             `json:"templateid"`
+	Templatename          string                                             `json:"templatename"`
+	Userid                string                                             `json:"userid"`
+	Username              string                                             `json:"username"`
+	Vgpu                  string                                             `json:"vgpu"`
+	Zoneid                string                                             `json:"zoneid"`
+	Zonename              string                                             `json:"zonename"`
+}
+
+type RemoveNicFromVirtualMachineResponseSecuritygroup struct {
+	Account             string                                                 `json:"account"`
+	Description         string                                                 `json:"description"`
+	Domain              string                                                 `json:"domain"`
+	Domainid            string                                                 `json:"domainid"`
+	Egressrule          []RemoveNicFromVirtualMachineResponseSecuritygroupRule `json:"egressrule"`
+	Id                  string                                                 `json:"id"`
+	Ingressrule         []RemoveNicFromVirtualMachineResponseSecuritygroupRule `json:"ingressrule"`
+	Name                string                                                 `json:"name"`
+	Project             string                                                 `json:"project"`
+	Projectid           string                                                 `json:"projectid"`
+	Tags                []Tags                                                 `json:"tags"`
+	Virtualmachinecount int                                                    `json:"virtualmachinecount"`
+	Virtualmachineids   []interface{}                                          `json:"virtualmachineids"`
+}
+
+type RemoveNicFromVirtualMachineResponseSecuritygroupRule struct {
+	Account           string `json:"account"`
+	Cidr              string `json:"cidr"`
+	Endport           int    `json:"endport"`
+	Icmpcode          int    `json:"icmpcode"`
+	Icmptype          int    `json:"icmptype"`
+	Protocol          string `json:"protocol"`
+	Ruleid            string `json:"ruleid"`
+	Securitygroupname string `json:"securitygroupname"`
+	Startport         int    `json:"startport"`
+	Tags              []Tags `json:"tags"`
+}
+
+type RemoveNicFromVirtualMachineResponseAffinitygroup struct {
+	Account           string   `json:"account"`
+	Description       string   `json:"description"`
+	Domain            string   `json:"domain"`
+	Domainid          string   `json:"domainid"`
+	Id                string   `json:"id"`
+	Name              string   `json:"name"`
+	Project           string   `json:"project"`
+	Projectid         string   `json:"projectid"`
+	Type              string   `json:"type"`
+	VirtualmachineIds []string `json:"virtualmachineIds"`
 }
 
 type ResetPasswordForVirtualMachineParams struct {
@@ -3729,173 +3117,111 @@ func (s *VirtualMachineService) ResetPasswordForVirtualMachine(p *ResetPasswordF
 }
 
 type ResetPasswordForVirtualMachineResponse struct {
-	JobID         string `json:"jobid"`
-	Account       string `json:"account"`
-	Affinitygroup []struct {
-		Account           string   `json:"account"`
-		Description       string   `json:"description"`
-		Domain            string   `json:"domain"`
-		Domainid          string   `json:"domainid"`
-		Id                string   `json:"id"`
-		Name              string   `json:"name"`
-		Project           string   `json:"project"`
-		Projectid         string   `json:"projectid"`
-		Type              string   `json:"type"`
-		VirtualmachineIds []string `json:"virtualmachineIds"`
-	} `json:"affinitygroup"`
-	Cpunumber             int               `json:"cpunumber"`
-	Cpuspeed              int               `json:"cpuspeed"`
-	Cpuused               string            `json:"cpuused"`
-	Created               string            `json:"created"`
-	Details               map[string]string `json:"details"`
-	Diskioread            int64             `json:"diskioread"`
-	Diskiowrite           int64             `json:"diskiowrite"`
-	Diskkbsread           int64             `json:"diskkbsread"`
-	Diskkbswrite          int64             `json:"diskkbswrite"`
-	Diskofferingid        string            `json:"diskofferingid"`
-	Diskofferingname      string            `json:"diskofferingname"`
-	Displayname           string            `json:"displayname"`
-	Displayvm             bool              `json:"displayvm"`
-	Domain                string            `json:"domain"`
-	Domainid              string            `json:"domainid"`
-	Forvirtualnetwork     bool              `json:"forvirtualnetwork"`
-	Group                 string            `json:"group"`
-	Groupid               string            `json:"groupid"`
-	Guestosid             string            `json:"guestosid"`
-	Haenable              bool              `json:"haenable"`
-	Hostid                string            `json:"hostid"`
-	Hostname              string            `json:"hostname"`
-	Hypervisor            string            `json:"hypervisor"`
-	Id                    string            `json:"id"`
-	Instancename          string            `json:"instancename"`
-	Isdynamicallyscalable bool              `json:"isdynamicallyscalable"`
-	Isodisplaytext        string            `json:"isodisplaytext"`
-	Isoid                 string            `json:"isoid"`
-	Isoname               string            `json:"isoname"`
-	Keypair               string            `json:"keypair"`
-	Memory                int               `json:"memory"`
-	Memoryintfreekbs      int64             `json:"memoryintfreekbs"`
-	Memorykbs             int64             `json:"memorykbs"`
-	Memorytargetkbs       int64             `json:"memorytargetkbs"`
-	Name                  string            `json:"name"`
-	Networkkbsread        int64             `json:"networkkbsread"`
-	Networkkbswrite       int64             `json:"networkkbswrite"`
-	Nic                   []struct {
-		Broadcasturi         string `json:"broadcasturi"`
-		Deviceid             string `json:"deviceid"`
-		Gateway              string `json:"gateway"`
-		Id                   string `json:"id"`
-		Ip6address           string `json:"ip6address"`
-		Ip6cidr              string `json:"ip6cidr"`
-		Ip6gateway           string `json:"ip6gateway"`
-		Ipaddress            string `json:"ipaddress"`
-		Isdefault            bool   `json:"isdefault"`
-		Isolationuri         string `json:"isolationuri"`
-		Macaddress           string `json:"macaddress"`
-		Netmask              string `json:"netmask"`
-		Networkid            string `json:"networkid"`
-		Networkname          string `json:"networkname"`
-		Nsxlogicalswitch     string `json:"nsxlogicalswitch"`
-		Nsxlogicalswitchport string `json:"nsxlogicalswitchport"`
-		Secondaryip          []struct {
-			Id        string `json:"id"`
-			Ipaddress string `json:"ipaddress"`
-		} `json:"secondaryip"`
-		Traffictype      string `json:"traffictype"`
-		Type             string `json:"type"`
-		Virtualmachineid string `json:"virtualmachineid"`
-	} `json:"nic"`
-	Ostypeid        int64  `json:"ostypeid"`
-	Password        string `json:"password"`
-	Passwordenabled bool   `json:"passwordenabled"`
-	Project         string `json:"project"`
-	Projectid       string `json:"projectid"`
-	Publicip        string `json:"publicip"`
-	Publicipid      string `json:"publicipid"`
-	Rootdeviceid    int64  `json:"rootdeviceid"`
-	Rootdevicetype  string `json:"rootdevicetype"`
-	Securitygroup   []struct {
-		Account     string `json:"account"`
-		Description string `json:"description"`
-		Domain      string `json:"domain"`
-		Domainid    string `json:"domainid"`
-		Egressrule  []struct {
-			Account           string `json:"account"`
-			Cidr              string `json:"cidr"`
-			Endport           int    `json:"endport"`
-			Icmpcode          int    `json:"icmpcode"`
-			Icmptype          int    `json:"icmptype"`
-			Protocol          string `json:"protocol"`
-			Ruleid            string `json:"ruleid"`
-			Securitygroupname string `json:"securitygroupname"`
-			Startport         int    `json:"startport"`
-			Tags              []struct {
-				Account      string `json:"account"`
-				Customer     string `json:"customer"`
-				Domain       string `json:"domain"`
-				Domainid     string `json:"domainid"`
-				Key          string `json:"key"`
-				Project      string `json:"project"`
-				Projectid    string `json:"projectid"`
-				Resourceid   string `json:"resourceid"`
-				Resourcetype string `json:"resourcetype"`
-				Value        string `json:"value"`
-			} `json:"tags"`
-		} `json:"egressrule"`
-		Id          string `json:"id"`
-		Ingressrule []struct {
-			Account           string `json:"account"`
-			Cidr              string `json:"cidr"`
-			Endport           int    `json:"endport"`
-			Icmpcode          int    `json:"icmpcode"`
-			Icmptype          int    `json:"icmptype"`
-			Protocol          string `json:"protocol"`
-			Ruleid            string `json:"ruleid"`
-			Securitygroupname string `json:"securitygroupname"`
-			Startport         int    `json:"startport"`
-			Tags              []struct {
-				Account      string `json:"account"`
-				Customer     string `json:"customer"`
-				Domain       string `json:"domain"`
-				Domainid     string `json:"domainid"`
-				Key          string `json:"key"`
-				Project      string `json:"project"`
-				Projectid    string `json:"projectid"`
-				Resourceid   string `json:"resourceid"`
-				Resourcetype string `json:"resourcetype"`
-				Value        string `json:"value"`
-			} `json:"tags"`
-		} `json:"ingressrule"`
-		Name      string `json:"name"`
-		Project   string `json:"project"`
-		Projectid string `json:"projectid"`
-		Tags      []struct {
-			Account      string `json:"account"`
-			Customer     string `json:"customer"`
-			Domain       string `json:"domain"`
-			Domainid     string `json:"domainid"`
-			Key          string `json:"key"`
-			Project      string `json:"project"`
-			Projectid    string `json:"projectid"`
-			Resourceid   string `json:"resourceid"`
-			Resourcetype string `json:"resourcetype"`
-			Value        string `json:"value"`
-		} `json:"tags"`
-		Virtualmachinecount int           `json:"virtualmachinecount"`
-		Virtualmachineids   []interface{} `json:"virtualmachineids"`
-	} `json:"securitygroup"`
-	Serviceofferingid   string `json:"serviceofferingid"`
-	Serviceofferingname string `json:"serviceofferingname"`
-	Servicestate        string `json:"servicestate"`
-	State               string `json:"state"`
-	Templatedisplaytext string `json:"templatedisplaytext"`
-	Templateid          string `json:"templateid"`
-	Templatename        string `json:"templatename"`
-	Userid              string `json:"userid"`
-	Username            string `json:"username"`
-	Vgpu                string `json:"vgpu"`
-	Zoneid              string `json:"zoneid"`
-	Zonename            string `json:"zonename"`
+	JobID                 string                                                `json:"jobid"`
+	Account               string                                                `json:"account"`
+	Affinitygroup         []ResetPasswordForVirtualMachineResponseAffinitygroup `json:"affinitygroup"`
+	Cpunumber             int                                                   `json:"cpunumber"`
+	Cpuspeed              int                                                   `json:"cpuspeed"`
+	Cpuused               string                                                `json:"cpuused"`
+	Created               string                                                `json:"created"`
+	Details               map[string]string                                     `json:"details"`
+	Diskioread            int64                                                 `json:"diskioread"`
+	Diskiowrite           int64                                                 `json:"diskiowrite"`
+	Diskkbsread           int64                                                 `json:"diskkbsread"`
+	Diskkbswrite          int64                                                 `json:"diskkbswrite"`
+	Diskofferingid        string                                                `json:"diskofferingid"`
+	Diskofferingname      string                                                `json:"diskofferingname"`
+	Displayname           string                                                `json:"displayname"`
+	Displayvm             bool                                                  `json:"displayvm"`
+	Domain                string                                                `json:"domain"`
+	Domainid              string                                                `json:"domainid"`
+	Forvirtualnetwork     bool                                                  `json:"forvirtualnetwork"`
+	Group                 string                                                `json:"group"`
+	Groupid               string                                                `json:"groupid"`
+	Guestosid             string                                                `json:"guestosid"`
+	Haenable              bool                                                  `json:"haenable"`
+	Hostid                string                                                `json:"hostid"`
+	Hostname              string                                                `json:"hostname"`
+	Hypervisor            string                                                `json:"hypervisor"`
+	Id                    string                                                `json:"id"`
+	Instancename          string                                                `json:"instancename"`
+	Isdynamicallyscalable bool                                                  `json:"isdynamicallyscalable"`
+	Isodisplaytext        string                                                `json:"isodisplaytext"`
+	Isoid                 string                                                `json:"isoid"`
+	Isoname               string                                                `json:"isoname"`
+	Keypair               string                                                `json:"keypair"`
+	Memory                int                                                   `json:"memory"`
+	Memoryintfreekbs      int64                                                 `json:"memoryintfreekbs"`
+	Memorykbs             int64                                                 `json:"memorykbs"`
+	Memorytargetkbs       int64                                                 `json:"memorytargetkbs"`
+	Name                  string                                                `json:"name"`
+	Networkkbsread        int64                                                 `json:"networkkbsread"`
+	Networkkbswrite       int64                                                 `json:"networkkbswrite"`
+	Nic                   []Nic                                                 `json:"nic"`
+	Ostypeid              int64                                                 `json:"ostypeid"`
+	Password              string                                                `json:"password"`
+	Passwordenabled       bool                                                  `json:"passwordenabled"`
+	Project               string                                                `json:"project"`
+	Projectid             string                                                `json:"projectid"`
+	Publicip              string                                                `json:"publicip"`
+	Publicipid            string                                                `json:"publicipid"`
+	Rootdeviceid          int64                                                 `json:"rootdeviceid"`
+	Rootdevicetype        string                                                `json:"rootdevicetype"`
+	Securitygroup         []ResetPasswordForVirtualMachineResponseSecuritygroup `json:"securitygroup"`
+	Serviceofferingid     string                                                `json:"serviceofferingid"`
+	Serviceofferingname   string                                                `json:"serviceofferingname"`
+	Servicestate          string                                                `json:"servicestate"`
+	State                 string                                                `json:"state"`
+	Templatedisplaytext   string                                                `json:"templatedisplaytext"`
+	Templateid            string                                                `json:"templateid"`
+	Templatename          string                                                `json:"templatename"`
+	Userid                string                                                `json:"userid"`
+	Username              string                                                `json:"username"`
+	Vgpu                  string                                                `json:"vgpu"`
+	Zoneid                string                                                `json:"zoneid"`
+	Zonename              string                                                `json:"zonename"`
+}
+
+type ResetPasswordForVirtualMachineResponseSecuritygroup struct {
+	Account             string                                                    `json:"account"`
+	Description         string                                                    `json:"description"`
+	Domain              string                                                    `json:"domain"`
+	Domainid            string                                                    `json:"domainid"`
+	Egressrule          []ResetPasswordForVirtualMachineResponseSecuritygroupRule `json:"egressrule"`
+	Id                  string                                                    `json:"id"`
+	Ingressrule         []ResetPasswordForVirtualMachineResponseSecuritygroupRule `json:"ingressrule"`
+	Name                string                                                    `json:"name"`
+	Project             string                                                    `json:"project"`
+	Projectid           string                                                    `json:"projectid"`
+	Tags                []Tags                                                    `json:"tags"`
+	Virtualmachinecount int                                                       `json:"virtualmachinecount"`
+	Virtualmachineids   []interface{}                                             `json:"virtualmachineids"`
+}
+
+type ResetPasswordForVirtualMachineResponseSecuritygroupRule struct {
+	Account           string `json:"account"`
+	Cidr              string `json:"cidr"`
+	Endport           int    `json:"endport"`
+	Icmpcode          int    `json:"icmpcode"`
+	Icmptype          int    `json:"icmptype"`
+	Protocol          string `json:"protocol"`
+	Ruleid            string `json:"ruleid"`
+	Securitygroupname string `json:"securitygroupname"`
+	Startport         int    `json:"startport"`
+	Tags              []Tags `json:"tags"`
+}
+
+type ResetPasswordForVirtualMachineResponseAffinitygroup struct {
+	Account           string   `json:"account"`
+	Description       string   `json:"description"`
+	Domain            string   `json:"domain"`
+	Domainid          string   `json:"domainid"`
+	Id                string   `json:"id"`
+	Name              string   `json:"name"`
+	Project           string   `json:"project"`
+	Projectid         string   `json:"projectid"`
+	Type              string   `json:"type"`
+	VirtualmachineIds []string `json:"virtualmachineIds"`
 }
 
 type RestoreVirtualMachineParams struct {
@@ -3977,173 +3303,111 @@ func (s *VirtualMachineService) RestoreVirtualMachine(p *RestoreVirtualMachinePa
 }
 
 type RestoreVirtualMachineResponse struct {
-	JobID         string `json:"jobid"`
-	Account       string `json:"account"`
-	Affinitygroup []struct {
-		Account           string   `json:"account"`
-		Description       string   `json:"description"`
-		Domain            string   `json:"domain"`
-		Domainid          string   `json:"domainid"`
-		Id                string   `json:"id"`
-		Name              string   `json:"name"`
-		Project           string   `json:"project"`
-		Projectid         string   `json:"projectid"`
-		Type              string   `json:"type"`
-		VirtualmachineIds []string `json:"virtualmachineIds"`
-	} `json:"affinitygroup"`
-	Cpunumber             int               `json:"cpunumber"`
-	Cpuspeed              int               `json:"cpuspeed"`
-	Cpuused               string            `json:"cpuused"`
-	Created               string            `json:"created"`
-	Details               map[string]string `json:"details"`
-	Diskioread            int64             `json:"diskioread"`
-	Diskiowrite           int64             `json:"diskiowrite"`
-	Diskkbsread           int64             `json:"diskkbsread"`
-	Diskkbswrite          int64             `json:"diskkbswrite"`
-	Diskofferingid        string            `json:"diskofferingid"`
-	Diskofferingname      string            `json:"diskofferingname"`
-	Displayname           string            `json:"displayname"`
-	Displayvm             bool              `json:"displayvm"`
-	Domain                string            `json:"domain"`
-	Domainid              string            `json:"domainid"`
-	Forvirtualnetwork     bool              `json:"forvirtualnetwork"`
-	Group                 string            `json:"group"`
-	Groupid               string            `json:"groupid"`
-	Guestosid             string            `json:"guestosid"`
-	Haenable              bool              `json:"haenable"`
-	Hostid                string            `json:"hostid"`
-	Hostname              string            `json:"hostname"`
-	Hypervisor            string            `json:"hypervisor"`
-	Id                    string            `json:"id"`
-	Instancename          string            `json:"instancename"`
-	Isdynamicallyscalable bool              `json:"isdynamicallyscalable"`
-	Isodisplaytext        string            `json:"isodisplaytext"`
-	Isoid                 string            `json:"isoid"`
-	Isoname               string            `json:"isoname"`
-	Keypair               string            `json:"keypair"`
-	Memory                int               `json:"memory"`
-	Memoryintfreekbs      int64             `json:"memoryintfreekbs"`
-	Memorykbs             int64             `json:"memorykbs"`
-	Memorytargetkbs       int64             `json:"memorytargetkbs"`
-	Name                  string            `json:"name"`
-	Networkkbsread        int64             `json:"networkkbsread"`
-	Networkkbswrite       int64             `json:"networkkbswrite"`
-	Nic                   []struct {
-		Broadcasturi         string `json:"broadcasturi"`
-		Deviceid             string `json:"deviceid"`
-		Gateway              string `json:"gateway"`
-		Id                   string `json:"id"`
-		Ip6address           string `json:"ip6address"`
-		Ip6cidr              string `json:"ip6cidr"`
-		Ip6gateway           string `json:"ip6gateway"`
-		Ipaddress            string `json:"ipaddress"`
-		Isdefault            bool   `json:"isdefault"`
-		Isolationuri         string `json:"isolationuri"`
-		Macaddress           string `json:"macaddress"`
-		Netmask              string `json:"netmask"`
-		Networkid            string `json:"networkid"`
-		Networkname          string `json:"networkname"`
-		Nsxlogicalswitch     string `json:"nsxlogicalswitch"`
-		Nsxlogicalswitchport string `json:"nsxlogicalswitchport"`
-		Secondaryip          []struct {
-			Id        string `json:"id"`
-			Ipaddress string `json:"ipaddress"`
-		} `json:"secondaryip"`
-		Traffictype      string `json:"traffictype"`
-		Type             string `json:"type"`
-		Virtualmachineid string `json:"virtualmachineid"`
-	} `json:"nic"`
-	Ostypeid        int64  `json:"ostypeid"`
-	Password        string `json:"password"`
-	Passwordenabled bool   `json:"passwordenabled"`
-	Project         string `json:"project"`
-	Projectid       string `json:"projectid"`
-	Publicip        string `json:"publicip"`
-	Publicipid      string `json:"publicipid"`
-	Rootdeviceid    int64  `json:"rootdeviceid"`
-	Rootdevicetype  string `json:"rootdevicetype"`
-	Securitygroup   []struct {
-		Account     string `json:"account"`
-		Description string `json:"description"`
-		Domain      string `json:"domain"`
-		Domainid    string `json:"domainid"`
-		Egressrule  []struct {
-			Account           string `json:"account"`
-			Cidr              string `json:"cidr"`
-			Endport           int    `json:"endport"`
-			Icmpcode          int    `json:"icmpcode"`
-			Icmptype          int    `json:"icmptype"`
-			Protocol          string `json:"protocol"`
-			Ruleid            string `json:"ruleid"`
-			Securitygroupname string `json:"securitygroupname"`
-			Startport         int    `json:"startport"`
-			Tags              []struct {
-				Account      string `json:"account"`
-				Customer     string `json:"customer"`
-				Domain       string `json:"domain"`
-				Domainid     string `json:"domainid"`
-				Key          string `json:"key"`
-				Project      string `json:"project"`
-				Projectid    string `json:"projectid"`
-				Resourceid   string `json:"resourceid"`
-				Resourcetype string `json:"resourcetype"`
-				Value        string `json:"value"`
-			} `json:"tags"`
-		} `json:"egressrule"`
-		Id          string `json:"id"`
-		Ingressrule []struct {
-			Account           string `json:"account"`
-			Cidr              string `json:"cidr"`
-			Endport           int    `json:"endport"`
-			Icmpcode          int    `json:"icmpcode"`
-			Icmptype          int    `json:"icmptype"`
-			Protocol          string `json:"protocol"`
-			Ruleid            string `json:"ruleid"`
-			Securitygroupname string `json:"securitygroupname"`
-			Startport         int    `json:"startport"`
-			Tags              []struct {
-				Account      string `json:"account"`
-				Customer     string `json:"customer"`
-				Domain       string `json:"domain"`
-				Domainid     string `json:"domainid"`
-				Key          string `json:"key"`
-				Project      string `json:"project"`
-				Projectid    string `json:"projectid"`
-				Resourceid   string `json:"resourceid"`
-				Resourcetype string `json:"resourcetype"`
-				Value        string `json:"value"`
-			} `json:"tags"`
-		} `json:"ingressrule"`
-		Name      string `json:"name"`
-		Project   string `json:"project"`
-		Projectid string `json:"projectid"`
-		Tags      []struct {
-			Account      string `json:"account"`
-			Customer     string `json:"customer"`
-			Domain       string `json:"domain"`
-			Domainid     string `json:"domainid"`
-			Key          string `json:"key"`
-			Project      string `json:"project"`
-			Projectid    string `json:"projectid"`
-			Resourceid   string `json:"resourceid"`
-			Resourcetype string `json:"resourcetype"`
-			Value        string `json:"value"`
-		} `json:"tags"`
-		Virtualmachinecount int           `json:"virtualmachinecount"`
-		Virtualmachineids   []interface{} `json:"virtualmachineids"`
-	} `json:"securitygroup"`
-	Serviceofferingid   string `json:"serviceofferingid"`
-	Serviceofferingname string `json:"serviceofferingname"`
-	Servicestate        string `json:"servicestate"`
-	State               string `json:"state"`
-	Templatedisplaytext string `json:"templatedisplaytext"`
-	Templateid          string `json:"templateid"`
-	Templatename        string `json:"templatename"`
-	Userid              string `json:"userid"`
-	Username            string `json:"username"`
-	Vgpu                string `json:"vgpu"`
-	Zoneid              string `json:"zoneid"`
-	Zonename            string `json:"zonename"`
+	JobID                 string                                       `json:"jobid"`
+	Account               string                                       `json:"account"`
+	Affinitygroup         []RestoreVirtualMachineResponseAffinitygroup `json:"affinitygroup"`
+	Cpunumber             int                                          `json:"cpunumber"`
+	Cpuspeed              int                                          `json:"cpuspeed"`
+	Cpuused               string                                       `json:"cpuused"`
+	Created               string                                       `json:"created"`
+	Details               map[string]string                            `json:"details"`
+	Diskioread            int64                                        `json:"diskioread"`
+	Diskiowrite           int64                                        `json:"diskiowrite"`
+	Diskkbsread           int64                                        `json:"diskkbsread"`
+	Diskkbswrite          int64                                        `json:"diskkbswrite"`
+	Diskofferingid        string                                       `json:"diskofferingid"`
+	Diskofferingname      string                                       `json:"diskofferingname"`
+	Displayname           string                                       `json:"displayname"`
+	Displayvm             bool                                         `json:"displayvm"`
+	Domain                string                                       `json:"domain"`
+	Domainid              string                                       `json:"domainid"`
+	Forvirtualnetwork     bool                                         `json:"forvirtualnetwork"`
+	Group                 string                                       `json:"group"`
+	Groupid               string                                       `json:"groupid"`
+	Guestosid             string                                       `json:"guestosid"`
+	Haenable              bool                                         `json:"haenable"`
+	Hostid                string                                       `json:"hostid"`
+	Hostname              string                                       `json:"hostname"`
+	Hypervisor            string                                       `json:"hypervisor"`
+	Id                    string                                       `json:"id"`
+	Instancename          string                                       `json:"instancename"`
+	Isdynamicallyscalable bool                                         `json:"isdynamicallyscalable"`
+	Isodisplaytext        string                                       `json:"isodisplaytext"`
+	Isoid                 string                                       `json:"isoid"`
+	Isoname               string                                       `json:"isoname"`
+	Keypair               string                                       `json:"keypair"`
+	Memory                int                                          `json:"memory"`
+	Memoryintfreekbs      int64                                        `json:"memoryintfreekbs"`
+	Memorykbs             int64                                        `json:"memorykbs"`
+	Memorytargetkbs       int64                                        `json:"memorytargetkbs"`
+	Name                  string                                       `json:"name"`
+	Networkkbsread        int64                                        `json:"networkkbsread"`
+	Networkkbswrite       int64                                        `json:"networkkbswrite"`
+	Nic                   []Nic                                        `json:"nic"`
+	Ostypeid              int64                                        `json:"ostypeid"`
+	Password              string                                       `json:"password"`
+	Passwordenabled       bool                                         `json:"passwordenabled"`
+	Project               string                                       `json:"project"`
+	Projectid             string                                       `json:"projectid"`
+	Publicip              string                                       `json:"publicip"`
+	Publicipid            string                                       `json:"publicipid"`
+	Rootdeviceid          int64                                        `json:"rootdeviceid"`
+	Rootdevicetype        string                                       `json:"rootdevicetype"`
+	Securitygroup         []RestoreVirtualMachineResponseSecuritygroup `json:"securitygroup"`
+	Serviceofferingid     string                                       `json:"serviceofferingid"`
+	Serviceofferingname   string                                       `json:"serviceofferingname"`
+	Servicestate          string                                       `json:"servicestate"`
+	State                 string                                       `json:"state"`
+	Templatedisplaytext   string                                       `json:"templatedisplaytext"`
+	Templateid            string                                       `json:"templateid"`
+	Templatename          string                                       `json:"templatename"`
+	Userid                string                                       `json:"userid"`
+	Username              string                                       `json:"username"`
+	Vgpu                  string                                       `json:"vgpu"`
+	Zoneid                string                                       `json:"zoneid"`
+	Zonename              string                                       `json:"zonename"`
+}
+
+type RestoreVirtualMachineResponseSecuritygroup struct {
+	Account             string                                           `json:"account"`
+	Description         string                                           `json:"description"`
+	Domain              string                                           `json:"domain"`
+	Domainid            string                                           `json:"domainid"`
+	Egressrule          []RestoreVirtualMachineResponseSecuritygroupRule `json:"egressrule"`
+	Id                  string                                           `json:"id"`
+	Ingressrule         []RestoreVirtualMachineResponseSecuritygroupRule `json:"ingressrule"`
+	Name                string                                           `json:"name"`
+	Project             string                                           `json:"project"`
+	Projectid           string                                           `json:"projectid"`
+	Tags                []Tags                                           `json:"tags"`
+	Virtualmachinecount int                                              `json:"virtualmachinecount"`
+	Virtualmachineids   []interface{}                                    `json:"virtualmachineids"`
+}
+
+type RestoreVirtualMachineResponseSecuritygroupRule struct {
+	Account           string `json:"account"`
+	Cidr              string `json:"cidr"`
+	Endport           int    `json:"endport"`
+	Icmpcode          int    `json:"icmpcode"`
+	Icmptype          int    `json:"icmptype"`
+	Protocol          string `json:"protocol"`
+	Ruleid            string `json:"ruleid"`
+	Securitygroupname string `json:"securitygroupname"`
+	Startport         int    `json:"startport"`
+	Tags              []Tags `json:"tags"`
+}
+
+type RestoreVirtualMachineResponseAffinitygroup struct {
+	Account           string   `json:"account"`
+	Description       string   `json:"description"`
+	Domain            string   `json:"domain"`
+	Domainid          string   `json:"domainid"`
+	Id                string   `json:"id"`
+	Name              string   `json:"name"`
+	Project           string   `json:"project"`
+	Projectid         string   `json:"projectid"`
+	Type              string   `json:"type"`
+	VirtualmachineIds []string `json:"virtualmachineIds"`
 }
 
 type ScaleVirtualMachineParams struct {
@@ -4331,173 +3595,111 @@ func (s *VirtualMachineService) StartVirtualMachine(p *StartVirtualMachineParams
 }
 
 type StartVirtualMachineResponse struct {
-	JobID         string `json:"jobid"`
-	Account       string `json:"account"`
-	Affinitygroup []struct {
-		Account           string   `json:"account"`
-		Description       string   `json:"description"`
-		Domain            string   `json:"domain"`
-		Domainid          string   `json:"domainid"`
-		Id                string   `json:"id"`
-		Name              string   `json:"name"`
-		Project           string   `json:"project"`
-		Projectid         string   `json:"projectid"`
-		Type              string   `json:"type"`
-		VirtualmachineIds []string `json:"virtualmachineIds"`
-	} `json:"affinitygroup"`
-	Cpunumber             int               `json:"cpunumber"`
-	Cpuspeed              int               `json:"cpuspeed"`
-	Cpuused               string            `json:"cpuused"`
-	Created               string            `json:"created"`
-	Details               map[string]string `json:"details"`
-	Diskioread            int64             `json:"diskioread"`
-	Diskiowrite           int64             `json:"diskiowrite"`
-	Diskkbsread           int64             `json:"diskkbsread"`
-	Diskkbswrite          int64             `json:"diskkbswrite"`
-	Diskofferingid        string            `json:"diskofferingid"`
-	Diskofferingname      string            `json:"diskofferingname"`
-	Displayname           string            `json:"displayname"`
-	Displayvm             bool              `json:"displayvm"`
-	Domain                string            `json:"domain"`
-	Domainid              string            `json:"domainid"`
-	Forvirtualnetwork     bool              `json:"forvirtualnetwork"`
-	Group                 string            `json:"group"`
-	Groupid               string            `json:"groupid"`
-	Guestosid             string            `json:"guestosid"`
-	Haenable              bool              `json:"haenable"`
-	Hostid                string            `json:"hostid"`
-	Hostname              string            `json:"hostname"`
-	Hypervisor            string            `json:"hypervisor"`
-	Id                    string            `json:"id"`
-	Instancename          string            `json:"instancename"`
-	Isdynamicallyscalable bool              `json:"isdynamicallyscalable"`
-	Isodisplaytext        string            `json:"isodisplaytext"`
-	Isoid                 string            `json:"isoid"`
-	Isoname               string            `json:"isoname"`
-	Keypair               string            `json:"keypair"`
-	Memory                int               `json:"memory"`
-	Memoryintfreekbs      int64             `json:"memoryintfreekbs"`
-	Memorykbs             int64             `json:"memorykbs"`
-	Memorytargetkbs       int64             `json:"memorytargetkbs"`
-	Name                  string            `json:"name"`
-	Networkkbsread        int64             `json:"networkkbsread"`
-	Networkkbswrite       int64             `json:"networkkbswrite"`
-	Nic                   []struct {
-		Broadcasturi         string `json:"broadcasturi"`
-		Deviceid             string `json:"deviceid"`
-		Gateway              string `json:"gateway"`
-		Id                   string `json:"id"`
-		Ip6address           string `json:"ip6address"`
-		Ip6cidr              string `json:"ip6cidr"`
-		Ip6gateway           string `json:"ip6gateway"`
-		Ipaddress            string `json:"ipaddress"`
-		Isdefault            bool   `json:"isdefault"`
-		Isolationuri         string `json:"isolationuri"`
-		Macaddress           string `json:"macaddress"`
-		Netmask              string `json:"netmask"`
-		Networkid            string `json:"networkid"`
-		Networkname          string `json:"networkname"`
-		Nsxlogicalswitch     string `json:"nsxlogicalswitch"`
-		Nsxlogicalswitchport string `json:"nsxlogicalswitchport"`
-		Secondaryip          []struct {
-			Id        string `json:"id"`
-			Ipaddress string `json:"ipaddress"`
-		} `json:"secondaryip"`
-		Traffictype      string `json:"traffictype"`
-		Type             string `json:"type"`
-		Virtualmachineid string `json:"virtualmachineid"`
-	} `json:"nic"`
-	Ostypeid        int64  `json:"ostypeid"`
-	Password        string `json:"password"`
-	Passwordenabled bool   `json:"passwordenabled"`
-	Project         string `json:"project"`
-	Projectid       string `json:"projectid"`
-	Publicip        string `json:"publicip"`
-	Publicipid      string `json:"publicipid"`
-	Rootdeviceid    int64  `json:"rootdeviceid"`
-	Rootdevicetype  string `json:"rootdevicetype"`
-	Securitygroup   []struct {
-		Account     string `json:"account"`
-		Description string `json:"description"`
-		Domain      string `json:"domain"`
-		Domainid    string `json:"domainid"`
-		Egressrule  []struct {
-			Account           string `json:"account"`
-			Cidr              string `json:"cidr"`
-			Endport           int    `json:"endport"`
-			Icmpcode          int    `json:"icmpcode"`
-			Icmptype          int    `json:"icmptype"`
-			Protocol          string `json:"protocol"`
-			Ruleid            string `json:"ruleid"`
-			Securitygroupname string `json:"securitygroupname"`
-			Startport         int    `json:"startport"`
-			Tags              []struct {
-				Account      string `json:"account"`
-				Customer     string `json:"customer"`
-				Domain       string `json:"domain"`
-				Domainid     string `json:"domainid"`
-				Key          string `json:"key"`
-				Project      string `json:"project"`
-				Projectid    string `json:"projectid"`
-				Resourceid   string `json:"resourceid"`
-				Resourcetype string `json:"resourcetype"`
-				Value        string `json:"value"`
-			} `json:"tags"`
-		} `json:"egressrule"`
-		Id          string `json:"id"`
-		Ingressrule []struct {
-			Account           string `json:"account"`
-			Cidr              string `json:"cidr"`
-			Endport           int    `json:"endport"`
-			Icmpcode          int    `json:"icmpcode"`
-			Icmptype          int    `json:"icmptype"`
-			Protocol          string `json:"protocol"`
-			Ruleid            string `json:"ruleid"`
-			Securitygroupname string `json:"securitygroupname"`
-			Startport         int    `json:"startport"`
-			Tags              []struct {
-				Account      string `json:"account"`
-				Customer     string `json:"customer"`
-				Domain       string `json:"domain"`
-				Domainid     string `json:"domainid"`
-				Key          string `json:"key"`
-				Project      string `json:"project"`
-				Projectid    string `json:"projectid"`
-				Resourceid   string `json:"resourceid"`
-				Resourcetype string `json:"resourcetype"`
-				Value        string `json:"value"`
-			} `json:"tags"`
-		} `json:"ingressrule"`
-		Name      string `json:"name"`
-		Project   string `json:"project"`
-		Projectid string `json:"projectid"`
-		Tags      []struct {
-			Account      string `json:"account"`
-			Customer     string `json:"customer"`
-			Domain       string `json:"domain"`
-			Domainid     string `json:"domainid"`
-			Key          string `json:"key"`
-			Project      string `json:"project"`
-			Projectid    string `json:"projectid"`
-			Resourceid   string `json:"resourceid"`
-			Resourcetype string `json:"resourcetype"`
-			Value        string `json:"value"`
-		} `json:"tags"`
-		Virtualmachinecount int           `json:"virtualmachinecount"`
-		Virtualmachineids   []interface{} `json:"virtualmachineids"`
-	} `json:"securitygroup"`
-	Serviceofferingid   string `json:"serviceofferingid"`
-	Serviceofferingname string `json:"serviceofferingname"`
-	Servicestate        string `json:"servicestate"`
-	State               string `json:"state"`
-	Templatedisplaytext string `json:"templatedisplaytext"`
-	Templateid          string `json:"templateid"`
-	Templatename        string `json:"templatename"`
-	Userid              string `json:"userid"`
-	Username            string `json:"username"`
-	Vgpu                string `json:"vgpu"`
-	Zoneid              string `json:"zoneid"`
-	Zonename            string `json:"zonename"`
+	JobID                 string                                     `json:"jobid"`
+	Account               string                                     `json:"account"`
+	Affinitygroup         []StartVirtualMachineResponseAffinitygroup `json:"affinitygroup"`
+	Cpunumber             int                                        `json:"cpunumber"`
+	Cpuspeed              int                                        `json:"cpuspeed"`
+	Cpuused               string                                     `json:"cpuused"`
+	Created               string                                     `json:"created"`
+	Details               map[string]string                          `json:"details"`
+	Diskioread            int64                                      `json:"diskioread"`
+	Diskiowrite           int64                                      `json:"diskiowrite"`
+	Diskkbsread           int64                                      `json:"diskkbsread"`
+	Diskkbswrite          int64                                      `json:"diskkbswrite"`
+	Diskofferingid        string                                     `json:"diskofferingid"`
+	Diskofferingname      string                                     `json:"diskofferingname"`
+	Displayname           string                                     `json:"displayname"`
+	Displayvm             bool                                       `json:"displayvm"`
+	Domain                string                                     `json:"domain"`
+	Domainid              string                                     `json:"domainid"`
+	Forvirtualnetwork     bool                                       `json:"forvirtualnetwork"`
+	Group                 string                                     `json:"group"`
+	Groupid               string                                     `json:"groupid"`
+	Guestosid             string                                     `json:"guestosid"`
+	Haenable              bool                                       `json:"haenable"`
+	Hostid                string                                     `json:"hostid"`
+	Hostname              string                                     `json:"hostname"`
+	Hypervisor            string                                     `json:"hypervisor"`
+	Id                    string                                     `json:"id"`
+	Instancename          string                                     `json:"instancename"`
+	Isdynamicallyscalable bool                                       `json:"isdynamicallyscalable"`
+	Isodisplaytext        string                                     `json:"isodisplaytext"`
+	Isoid                 string                                     `json:"isoid"`
+	Isoname               string                                     `json:"isoname"`
+	Keypair               string                                     `json:"keypair"`
+	Memory                int                                        `json:"memory"`
+	Memoryintfreekbs      int64                                      `json:"memoryintfreekbs"`
+	Memorykbs             int64                                      `json:"memorykbs"`
+	Memorytargetkbs       int64                                      `json:"memorytargetkbs"`
+	Name                  string                                     `json:"name"`
+	Networkkbsread        int64                                      `json:"networkkbsread"`
+	Networkkbswrite       int64                                      `json:"networkkbswrite"`
+	Nic                   []Nic                                      `json:"nic"`
+	Ostypeid              int64                                      `json:"ostypeid"`
+	Password              string                                     `json:"password"`
+	Passwordenabled       bool                                       `json:"passwordenabled"`
+	Project               string                                     `json:"project"`
+	Projectid             string                                     `json:"projectid"`
+	Publicip              string                                     `json:"publicip"`
+	Publicipid            string                                     `json:"publicipid"`
+	Rootdeviceid          int64                                      `json:"rootdeviceid"`
+	Rootdevicetype        string                                     `json:"rootdevicetype"`
+	Securitygroup         []StartVirtualMachineResponseSecuritygroup `json:"securitygroup"`
+	Serviceofferingid     string                                     `json:"serviceofferingid"`
+	Serviceofferingname   string                                     `json:"serviceofferingname"`
+	Servicestate          string                                     `json:"servicestate"`
+	State                 string                                     `json:"state"`
+	Templatedisplaytext   string                                     `json:"templatedisplaytext"`
+	Templateid            string                                     `json:"templateid"`
+	Templatename          string                                     `json:"templatename"`
+	Userid                string                                     `json:"userid"`
+	Username              string                                     `json:"username"`
+	Vgpu                  string                                     `json:"vgpu"`
+	Zoneid                string                                     `json:"zoneid"`
+	Zonename              string                                     `json:"zonename"`
+}
+
+type StartVirtualMachineResponseSecuritygroup struct {
+	Account             string                                         `json:"account"`
+	Description         string                                         `json:"description"`
+	Domain              string                                         `json:"domain"`
+	Domainid            string                                         `json:"domainid"`
+	Egressrule          []StartVirtualMachineResponseSecuritygroupRule `json:"egressrule"`
+	Id                  string                                         `json:"id"`
+	Ingressrule         []StartVirtualMachineResponseSecuritygroupRule `json:"ingressrule"`
+	Name                string                                         `json:"name"`
+	Project             string                                         `json:"project"`
+	Projectid           string                                         `json:"projectid"`
+	Tags                []Tags                                         `json:"tags"`
+	Virtualmachinecount int                                            `json:"virtualmachinecount"`
+	Virtualmachineids   []interface{}                                  `json:"virtualmachineids"`
+}
+
+type StartVirtualMachineResponseSecuritygroupRule struct {
+	Account           string `json:"account"`
+	Cidr              string `json:"cidr"`
+	Endport           int    `json:"endport"`
+	Icmpcode          int    `json:"icmpcode"`
+	Icmptype          int    `json:"icmptype"`
+	Protocol          string `json:"protocol"`
+	Ruleid            string `json:"ruleid"`
+	Securitygroupname string `json:"securitygroupname"`
+	Startport         int    `json:"startport"`
+	Tags              []Tags `json:"tags"`
+}
+
+type StartVirtualMachineResponseAffinitygroup struct {
+	Account           string   `json:"account"`
+	Description       string   `json:"description"`
+	Domain            string   `json:"domain"`
+	Domainid          string   `json:"domainid"`
+	Id                string   `json:"id"`
+	Name              string   `json:"name"`
+	Project           string   `json:"project"`
+	Projectid         string   `json:"projectid"`
+	Type              string   `json:"type"`
+	VirtualmachineIds []string `json:"virtualmachineIds"`
 }
 
 type StopVirtualMachineParams struct {
@@ -4580,173 +3782,111 @@ func (s *VirtualMachineService) StopVirtualMachine(p *StopVirtualMachineParams) 
 }
 
 type StopVirtualMachineResponse struct {
-	JobID         string `json:"jobid"`
-	Account       string `json:"account"`
-	Affinitygroup []struct {
-		Account           string   `json:"account"`
-		Description       string   `json:"description"`
-		Domain            string   `json:"domain"`
-		Domainid          string   `json:"domainid"`
-		Id                string   `json:"id"`
-		Name              string   `json:"name"`
-		Project           string   `json:"project"`
-		Projectid         string   `json:"projectid"`
-		Type              string   `json:"type"`
-		VirtualmachineIds []string `json:"virtualmachineIds"`
-	} `json:"affinitygroup"`
-	Cpunumber             int               `json:"cpunumber"`
-	Cpuspeed              int               `json:"cpuspeed"`
-	Cpuused               string            `json:"cpuused"`
-	Created               string            `json:"created"`
-	Details               map[string]string `json:"details"`
-	Diskioread            int64             `json:"diskioread"`
-	Diskiowrite           int64             `json:"diskiowrite"`
-	Diskkbsread           int64             `json:"diskkbsread"`
-	Diskkbswrite          int64             `json:"diskkbswrite"`
-	Diskofferingid        string            `json:"diskofferingid"`
-	Diskofferingname      string            `json:"diskofferingname"`
-	Displayname           string            `json:"displayname"`
-	Displayvm             bool              `json:"displayvm"`
-	Domain                string            `json:"domain"`
-	Domainid              string            `json:"domainid"`
-	Forvirtualnetwork     bool              `json:"forvirtualnetwork"`
-	Group                 string            `json:"group"`
-	Groupid               string            `json:"groupid"`
-	Guestosid             string            `json:"guestosid"`
-	Haenable              bool              `json:"haenable"`
-	Hostid                string            `json:"hostid"`
-	Hostname              string            `json:"hostname"`
-	Hypervisor            string            `json:"hypervisor"`
-	Id                    string            `json:"id"`
-	Instancename          string            `json:"instancename"`
-	Isdynamicallyscalable bool              `json:"isdynamicallyscalable"`
-	Isodisplaytext        string            `json:"isodisplaytext"`
-	Isoid                 string            `json:"isoid"`
-	Isoname               string            `json:"isoname"`
-	Keypair               string            `json:"keypair"`
-	Memory                int               `json:"memory"`
-	Memoryintfreekbs      int64             `json:"memoryintfreekbs"`
-	Memorykbs             int64             `json:"memorykbs"`
-	Memorytargetkbs       int64             `json:"memorytargetkbs"`
-	Name                  string            `json:"name"`
-	Networkkbsread        int64             `json:"networkkbsread"`
-	Networkkbswrite       int64             `json:"networkkbswrite"`
-	Nic                   []struct {
-		Broadcasturi         string `json:"broadcasturi"`
-		Deviceid             string `json:"deviceid"`
-		Gateway              string `json:"gateway"`
-		Id                   string `json:"id"`
-		Ip6address           string `json:"ip6address"`
-		Ip6cidr              string `json:"ip6cidr"`
-		Ip6gateway           string `json:"ip6gateway"`
-		Ipaddress            string `json:"ipaddress"`
-		Isdefault            bool   `json:"isdefault"`
-		Isolationuri         string `json:"isolationuri"`
-		Macaddress           string `json:"macaddress"`
-		Netmask              string `json:"netmask"`
-		Networkid            string `json:"networkid"`
-		Networkname          string `json:"networkname"`
-		Nsxlogicalswitch     string `json:"nsxlogicalswitch"`
-		Nsxlogicalswitchport string `json:"nsxlogicalswitchport"`
-		Secondaryip          []struct {
-			Id        string `json:"id"`
-			Ipaddress string `json:"ipaddress"`
-		} `json:"secondaryip"`
-		Traffictype      string `json:"traffictype"`
-		Type             string `json:"type"`
-		Virtualmachineid string `json:"virtualmachineid"`
-	} `json:"nic"`
-	Ostypeid        int64  `json:"ostypeid"`
-	Password        string `json:"password"`
-	Passwordenabled bool   `json:"passwordenabled"`
-	Project         string `json:"project"`
-	Projectid       string `json:"projectid"`
-	Publicip        string `json:"publicip"`
-	Publicipid      string `json:"publicipid"`
-	Rootdeviceid    int64  `json:"rootdeviceid"`
-	Rootdevicetype  string `json:"rootdevicetype"`
-	Securitygroup   []struct {
-		Account     string `json:"account"`
-		Description string `json:"description"`
-		Domain      string `json:"domain"`
-		Domainid    string `json:"domainid"`
-		Egressrule  []struct {
-			Account           string `json:"account"`
-			Cidr              string `json:"cidr"`
-			Endport           int    `json:"endport"`
-			Icmpcode          int    `json:"icmpcode"`
-			Icmptype          int    `json:"icmptype"`
-			Protocol          string `json:"protocol"`
-			Ruleid            string `json:"ruleid"`
-			Securitygroupname string `json:"securitygroupname"`
-			Startport         int    `json:"startport"`
-			Tags              []struct {
-				Account      string `json:"account"`
-				Customer     string `json:"customer"`
-				Domain       string `json:"domain"`
-				Domainid     string `json:"domainid"`
-				Key          string `json:"key"`
-				Project      string `json:"project"`
-				Projectid    string `json:"projectid"`
-				Resourceid   string `json:"resourceid"`
-				Resourcetype string `json:"resourcetype"`
-				Value        string `json:"value"`
-			} `json:"tags"`
-		} `json:"egressrule"`
-		Id          string `json:"id"`
-		Ingressrule []struct {
-			Account           string `json:"account"`
-			Cidr              string `json:"cidr"`
-			Endport           int    `json:"endport"`
-			Icmpcode          int    `json:"icmpcode"`
-			Icmptype          int    `json:"icmptype"`
-			Protocol          string `json:"protocol"`
-			Ruleid            string `json:"ruleid"`
-			Securitygroupname string `json:"securitygroupname"`
-			Startport         int    `json:"startport"`
-			Tags              []struct {
-				Account      string `json:"account"`
-				Customer     string `json:"customer"`
-				Domain       string `json:"domain"`
-				Domainid     string `json:"domainid"`
-				Key          string `json:"key"`
-				Project      string `json:"project"`
-				Projectid    string `json:"projectid"`
-				Resourceid   string `json:"resourceid"`
-				Resourcetype string `json:"resourcetype"`
-				Value        string `json:"value"`
-			} `json:"tags"`
-		} `json:"ingressrule"`
-		Name      string `json:"name"`
-		Project   string `json:"project"`
-		Projectid string `json:"projectid"`
-		Tags      []struct {
-			Account      string `json:"account"`
-			Customer     string `json:"customer"`
-			Domain       string `json:"domain"`
-			Domainid     string `json:"domainid"`
-			Key          string `json:"key"`
-			Project      string `json:"project"`
-			Projectid    string `json:"projectid"`
-			Resourceid   string `json:"resourceid"`
-			Resourcetype string `json:"resourcetype"`
-			Value        string `json:"value"`
-		} `json:"tags"`
-		Virtualmachinecount int           `json:"virtualmachinecount"`
-		Virtualmachineids   []interface{} `json:"virtualmachineids"`
-	} `json:"securitygroup"`
-	Serviceofferingid   string `json:"serviceofferingid"`
-	Serviceofferingname string `json:"serviceofferingname"`
-	Servicestate        string `json:"servicestate"`
-	State               string `json:"state"`
-	Templatedisplaytext string `json:"templatedisplaytext"`
-	Templateid          string `json:"templateid"`
-	Templatename        string `json:"templatename"`
-	Userid              string `json:"userid"`
-	Username            string `json:"username"`
-	Vgpu                string `json:"vgpu"`
-	Zoneid              string `json:"zoneid"`
-	Zonename            string `json:"zonename"`
+	JobID                 string                                    `json:"jobid"`
+	Account               string                                    `json:"account"`
+	Affinitygroup         []StopVirtualMachineResponseAffinitygroup `json:"affinitygroup"`
+	Cpunumber             int                                       `json:"cpunumber"`
+	Cpuspeed              int                                       `json:"cpuspeed"`
+	Cpuused               string                                    `json:"cpuused"`
+	Created               string                                    `json:"created"`
+	Details               map[string]string                         `json:"details"`
+	Diskioread            int64                                     `json:"diskioread"`
+	Diskiowrite           int64                                     `json:"diskiowrite"`
+	Diskkbsread           int64                                     `json:"diskkbsread"`
+	Diskkbswrite          int64                                     `json:"diskkbswrite"`
+	Diskofferingid        string                                    `json:"diskofferingid"`
+	Diskofferingname      string                                    `json:"diskofferingname"`
+	Displayname           string                                    `json:"displayname"`
+	Displayvm             bool                                      `json:"displayvm"`
+	Domain                string                                    `json:"domain"`
+	Domainid              string                                    `json:"domainid"`
+	Forvirtualnetwork     bool                                      `json:"forvirtualnetwork"`
+	Group                 string                                    `json:"group"`
+	Groupid               string                                    `json:"groupid"`
+	Guestosid             string                                    `json:"guestosid"`
+	Haenable              bool                                      `json:"haenable"`
+	Hostid                string                                    `json:"hostid"`
+	Hostname              string                                    `json:"hostname"`
+	Hypervisor            string                                    `json:"hypervisor"`
+	Id                    string                                    `json:"id"`
+	Instancename          string                                    `json:"instancename"`
+	Isdynamicallyscalable bool                                      `json:"isdynamicallyscalable"`
+	Isodisplaytext        string                                    `json:"isodisplaytext"`
+	Isoid                 string                                    `json:"isoid"`
+	Isoname               string                                    `json:"isoname"`
+	Keypair               string                                    `json:"keypair"`
+	Memory                int                                       `json:"memory"`
+	Memoryintfreekbs      int64                                     `json:"memoryintfreekbs"`
+	Memorykbs             int64                                     `json:"memorykbs"`
+	Memorytargetkbs       int64                                     `json:"memorytargetkbs"`
+	Name                  string                                    `json:"name"`
+	Networkkbsread        int64                                     `json:"networkkbsread"`
+	Networkkbswrite       int64                                     `json:"networkkbswrite"`
+	Nic                   []Nic                                     `json:"nic"`
+	Ostypeid              int64                                     `json:"ostypeid"`
+	Password              string                                    `json:"password"`
+	Passwordenabled       bool                                      `json:"passwordenabled"`
+	Project               string                                    `json:"project"`
+	Projectid             string                                    `json:"projectid"`
+	Publicip              string                                    `json:"publicip"`
+	Publicipid            string                                    `json:"publicipid"`
+	Rootdeviceid          int64                                     `json:"rootdeviceid"`
+	Rootdevicetype        string                                    `json:"rootdevicetype"`
+	Securitygroup         []StopVirtualMachineResponseSecuritygroup `json:"securitygroup"`
+	Serviceofferingid     string                                    `json:"serviceofferingid"`
+	Serviceofferingname   string                                    `json:"serviceofferingname"`
+	Servicestate          string                                    `json:"servicestate"`
+	State                 string                                    `json:"state"`
+	Templatedisplaytext   string                                    `json:"templatedisplaytext"`
+	Templateid            string                                    `json:"templateid"`
+	Templatename          string                                    `json:"templatename"`
+	Userid                string                                    `json:"userid"`
+	Username              string                                    `json:"username"`
+	Vgpu                  string                                    `json:"vgpu"`
+	Zoneid                string                                    `json:"zoneid"`
+	Zonename              string                                    `json:"zonename"`
+}
+
+type StopVirtualMachineResponseSecuritygroup struct {
+	Account             string                                        `json:"account"`
+	Description         string                                        `json:"description"`
+	Domain              string                                        `json:"domain"`
+	Domainid            string                                        `json:"domainid"`
+	Egressrule          []StopVirtualMachineResponseSecuritygroupRule `json:"egressrule"`
+	Id                  string                                        `json:"id"`
+	Ingressrule         []StopVirtualMachineResponseSecuritygroupRule `json:"ingressrule"`
+	Name                string                                        `json:"name"`
+	Project             string                                        `json:"project"`
+	Projectid           string                                        `json:"projectid"`
+	Tags                []Tags                                        `json:"tags"`
+	Virtualmachinecount int                                           `json:"virtualmachinecount"`
+	Virtualmachineids   []interface{}                                 `json:"virtualmachineids"`
+}
+
+type StopVirtualMachineResponseSecuritygroupRule struct {
+	Account           string `json:"account"`
+	Cidr              string `json:"cidr"`
+	Endport           int    `json:"endport"`
+	Icmpcode          int    `json:"icmpcode"`
+	Icmptype          int    `json:"icmptype"`
+	Protocol          string `json:"protocol"`
+	Ruleid            string `json:"ruleid"`
+	Securitygroupname string `json:"securitygroupname"`
+	Startport         int    `json:"startport"`
+	Tags              []Tags `json:"tags"`
+}
+
+type StopVirtualMachineResponseAffinitygroup struct {
+	Account           string   `json:"account"`
+	Description       string   `json:"description"`
+	Domain            string   `json:"domain"`
+	Domainid          string   `json:"domainid"`
+	Id                string   `json:"id"`
+	Name              string   `json:"name"`
+	Project           string   `json:"project"`
+	Projectid         string   `json:"projectid"`
+	Type              string   `json:"type"`
+	VirtualmachineIds []string `json:"virtualmachineIds"`
 }
 
 type UpdateDefaultNicForVirtualMachineParams struct {
@@ -4829,173 +3969,111 @@ func (s *VirtualMachineService) UpdateDefaultNicForVirtualMachine(p *UpdateDefau
 }
 
 type UpdateDefaultNicForVirtualMachineResponse struct {
-	JobID         string `json:"jobid"`
-	Account       string `json:"account"`
-	Affinitygroup []struct {
-		Account           string   `json:"account"`
-		Description       string   `json:"description"`
-		Domain            string   `json:"domain"`
-		Domainid          string   `json:"domainid"`
-		Id                string   `json:"id"`
-		Name              string   `json:"name"`
-		Project           string   `json:"project"`
-		Projectid         string   `json:"projectid"`
-		Type              string   `json:"type"`
-		VirtualmachineIds []string `json:"virtualmachineIds"`
-	} `json:"affinitygroup"`
-	Cpunumber             int               `json:"cpunumber"`
-	Cpuspeed              int               `json:"cpuspeed"`
-	Cpuused               string            `json:"cpuused"`
-	Created               string            `json:"created"`
-	Details               map[string]string `json:"details"`
-	Diskioread            int64             `json:"diskioread"`
-	Diskiowrite           int64             `json:"diskiowrite"`
-	Diskkbsread           int64             `json:"diskkbsread"`
-	Diskkbswrite          int64             `json:"diskkbswrite"`
-	Diskofferingid        string            `json:"diskofferingid"`
-	Diskofferingname      string            `json:"diskofferingname"`
-	Displayname           string            `json:"displayname"`
-	Displayvm             bool              `json:"displayvm"`
-	Domain                string            `json:"domain"`
-	Domainid              string            `json:"domainid"`
-	Forvirtualnetwork     bool              `json:"forvirtualnetwork"`
-	Group                 string            `json:"group"`
-	Groupid               string            `json:"groupid"`
-	Guestosid             string            `json:"guestosid"`
-	Haenable              bool              `json:"haenable"`
-	Hostid                string            `json:"hostid"`
-	Hostname              string            `json:"hostname"`
-	Hypervisor            string            `json:"hypervisor"`
-	Id                    string            `json:"id"`
-	Instancename          string            `json:"instancename"`
-	Isdynamicallyscalable bool              `json:"isdynamicallyscalable"`
-	Isodisplaytext        string            `json:"isodisplaytext"`
-	Isoid                 string            `json:"isoid"`
-	Isoname               string            `json:"isoname"`
-	Keypair               string            `json:"keypair"`
-	Memory                int               `json:"memory"`
-	Memoryintfreekbs      int64             `json:"memoryintfreekbs"`
-	Memorykbs             int64             `json:"memorykbs"`
-	Memorytargetkbs       int64             `json:"memorytargetkbs"`
-	Name                  string            `json:"name"`
-	Networkkbsread        int64             `json:"networkkbsread"`
-	Networkkbswrite       int64             `json:"networkkbswrite"`
-	Nic                   []struct {
-		Broadcasturi         string `json:"broadcasturi"`
-		Deviceid             string `json:"deviceid"`
-		Gateway              string `json:"gateway"`
-		Id                   string `json:"id"`
-		Ip6address           string `json:"ip6address"`
-		Ip6cidr              string `json:"ip6cidr"`
-		Ip6gateway           string `json:"ip6gateway"`
-		Ipaddress            string `json:"ipaddress"`
-		Isdefault            bool   `json:"isdefault"`
-		Isolationuri         string `json:"isolationuri"`
-		Macaddress           string `json:"macaddress"`
-		Netmask              string `json:"netmask"`
-		Networkid            string `json:"networkid"`
-		Networkname          string `json:"networkname"`
-		Nsxlogicalswitch     string `json:"nsxlogicalswitch"`
-		Nsxlogicalswitchport string `json:"nsxlogicalswitchport"`
-		Secondaryip          []struct {
-			Id        string `json:"id"`
-			Ipaddress string `json:"ipaddress"`
-		} `json:"secondaryip"`
-		Traffictype      string `json:"traffictype"`
-		Type             string `json:"type"`
-		Virtualmachineid string `json:"virtualmachineid"`
-	} `json:"nic"`
-	Ostypeid        int64  `json:"ostypeid"`
-	Password        string `json:"password"`
-	Passwordenabled bool   `json:"passwordenabled"`
-	Project         string `json:"project"`
-	Projectid       string `json:"projectid"`
-	Publicip        string `json:"publicip"`
-	Publicipid      string `json:"publicipid"`
-	Rootdeviceid    int64  `json:"rootdeviceid"`
-	Rootdevicetype  string `json:"rootdevicetype"`
-	Securitygroup   []struct {
-		Account     string `json:"account"`
-		Description string `json:"description"`
-		Domain      string `json:"domain"`
-		Domainid    string `json:"domainid"`
-		Egressrule  []struct {
-			Account           string `json:"account"`
-			Cidr              string `json:"cidr"`
-			Endport           int    `json:"endport"`
-			Icmpcode          int    `json:"icmpcode"`
-			Icmptype          int    `json:"icmptype"`
-			Protocol          string `json:"protocol"`
-			Ruleid            string `json:"ruleid"`
-			Securitygroupname string `json:"securitygroupname"`
-			Startport         int    `json:"startport"`
-			Tags              []struct {
-				Account      string `json:"account"`
-				Customer     string `json:"customer"`
-				Domain       string `json:"domain"`
-				Domainid     string `json:"domainid"`
-				Key          string `json:"key"`
-				Project      string `json:"project"`
-				Projectid    string `json:"projectid"`
-				Resourceid   string `json:"resourceid"`
-				Resourcetype string `json:"resourcetype"`
-				Value        string `json:"value"`
-			} `json:"tags"`
-		} `json:"egressrule"`
-		Id          string `json:"id"`
-		Ingressrule []struct {
-			Account           string `json:"account"`
-			Cidr              string `json:"cidr"`
-			Endport           int    `json:"endport"`
-			Icmpcode          int    `json:"icmpcode"`
-			Icmptype          int    `json:"icmptype"`
-			Protocol          string `json:"protocol"`
-			Ruleid            string `json:"ruleid"`
-			Securitygroupname string `json:"securitygroupname"`
-			Startport         int    `json:"startport"`
-			Tags              []struct {
-				Account      string `json:"account"`
-				Customer     string `json:"customer"`
-				Domain       string `json:"domain"`
-				Domainid     string `json:"domainid"`
-				Key          string `json:"key"`
-				Project      string `json:"project"`
-				Projectid    string `json:"projectid"`
-				Resourceid   string `json:"resourceid"`
-				Resourcetype string `json:"resourcetype"`
-				Value        string `json:"value"`
-			} `json:"tags"`
-		} `json:"ingressrule"`
-		Name      string `json:"name"`
-		Project   string `json:"project"`
-		Projectid string `json:"projectid"`
-		Tags      []struct {
-			Account      string `json:"account"`
-			Customer     string `json:"customer"`
-			Domain       string `json:"domain"`
-			Domainid     string `json:"domainid"`
-			Key          string `json:"key"`
-			Project      string `json:"project"`
-			Projectid    string `json:"projectid"`
-			Resourceid   string `json:"resourceid"`
-			Resourcetype string `json:"resourcetype"`
-			Value        string `json:"value"`
-		} `json:"tags"`
-		Virtualmachinecount int           `json:"virtualmachinecount"`
-		Virtualmachineids   []interface{} `json:"virtualmachineids"`
-	} `json:"securitygroup"`
-	Serviceofferingid   string `json:"serviceofferingid"`
-	Serviceofferingname string `json:"serviceofferingname"`
-	Servicestate        string `json:"servicestate"`
-	State               string `json:"state"`
-	Templatedisplaytext string `json:"templatedisplaytext"`
-	Templateid          string `json:"templateid"`
-	Templatename        string `json:"templatename"`
-	Userid              string `json:"userid"`
-	Username            string `json:"username"`
-	Vgpu                string `json:"vgpu"`
-	Zoneid              string `json:"zoneid"`
-	Zonename            string `json:"zonename"`
+	JobID                 string                                                   `json:"jobid"`
+	Account               string                                                   `json:"account"`
+	Affinitygroup         []UpdateDefaultNicForVirtualMachineResponseAffinitygroup `json:"affinitygroup"`
+	Cpunumber             int                                                      `json:"cpunumber"`
+	Cpuspeed              int                                                      `json:"cpuspeed"`
+	Cpuused               string                                                   `json:"cpuused"`
+	Created               string                                                   `json:"created"`
+	Details               map[string]string                                        `json:"details"`
+	Diskioread            int64                                                    `json:"diskioread"`
+	Diskiowrite           int64                                                    `json:"diskiowrite"`
+	Diskkbsread           int64                                                    `json:"diskkbsread"`
+	Diskkbswrite          int64                                                    `json:"diskkbswrite"`
+	Diskofferingid        string                                                   `json:"diskofferingid"`
+	Diskofferingname      string                                                   `json:"diskofferingname"`
+	Displayname           string                                                   `json:"displayname"`
+	Displayvm             bool                                                     `json:"displayvm"`
+	Domain                string                                                   `json:"domain"`
+	Domainid              string                                                   `json:"domainid"`
+	Forvirtualnetwork     bool                                                     `json:"forvirtualnetwork"`
+	Group                 string                                                   `json:"group"`
+	Groupid               string                                                   `json:"groupid"`
+	Guestosid             string                                                   `json:"guestosid"`
+	Haenable              bool                                                     `json:"haenable"`
+	Hostid                string                                                   `json:"hostid"`
+	Hostname              string                                                   `json:"hostname"`
+	Hypervisor            string                                                   `json:"hypervisor"`
+	Id                    string                                                   `json:"id"`
+	Instancename          string                                                   `json:"instancename"`
+	Isdynamicallyscalable bool                                                     `json:"isdynamicallyscalable"`
+	Isodisplaytext        string                                                   `json:"isodisplaytext"`
+	Isoid                 string                                                   `json:"isoid"`
+	Isoname               string                                                   `json:"isoname"`
+	Keypair               string                                                   `json:"keypair"`
+	Memory                int                                                      `json:"memory"`
+	Memoryintfreekbs      int64                                                    `json:"memoryintfreekbs"`
+	Memorykbs             int64                                                    `json:"memorykbs"`
+	Memorytargetkbs       int64                                                    `json:"memorytargetkbs"`
+	Name                  string                                                   `json:"name"`
+	Networkkbsread        int64                                                    `json:"networkkbsread"`
+	Networkkbswrite       int64                                                    `json:"networkkbswrite"`
+	Nic                   []Nic                                                    `json:"nic"`
+	Ostypeid              int64                                                    `json:"ostypeid"`
+	Password              string                                                   `json:"password"`
+	Passwordenabled       bool                                                     `json:"passwordenabled"`
+	Project               string                                                   `json:"project"`
+	Projectid             string                                                   `json:"projectid"`
+	Publicip              string                                                   `json:"publicip"`
+	Publicipid            string                                                   `json:"publicipid"`
+	Rootdeviceid          int64                                                    `json:"rootdeviceid"`
+	Rootdevicetype        string                                                   `json:"rootdevicetype"`
+	Securitygroup         []UpdateDefaultNicForVirtualMachineResponseSecuritygroup `json:"securitygroup"`
+	Serviceofferingid     string                                                   `json:"serviceofferingid"`
+	Serviceofferingname   string                                                   `json:"serviceofferingname"`
+	Servicestate          string                                                   `json:"servicestate"`
+	State                 string                                                   `json:"state"`
+	Templatedisplaytext   string                                                   `json:"templatedisplaytext"`
+	Templateid            string                                                   `json:"templateid"`
+	Templatename          string                                                   `json:"templatename"`
+	Userid                string                                                   `json:"userid"`
+	Username              string                                                   `json:"username"`
+	Vgpu                  string                                                   `json:"vgpu"`
+	Zoneid                string                                                   `json:"zoneid"`
+	Zonename              string                                                   `json:"zonename"`
+}
+
+type UpdateDefaultNicForVirtualMachineResponseSecuritygroup struct {
+	Account             string                                                       `json:"account"`
+	Description         string                                                       `json:"description"`
+	Domain              string                                                       `json:"domain"`
+	Domainid            string                                                       `json:"domainid"`
+	Egressrule          []UpdateDefaultNicForVirtualMachineResponseSecuritygroupRule `json:"egressrule"`
+	Id                  string                                                       `json:"id"`
+	Ingressrule         []UpdateDefaultNicForVirtualMachineResponseSecuritygroupRule `json:"ingressrule"`
+	Name                string                                                       `json:"name"`
+	Project             string                                                       `json:"project"`
+	Projectid           string                                                       `json:"projectid"`
+	Tags                []Tags                                                       `json:"tags"`
+	Virtualmachinecount int                                                          `json:"virtualmachinecount"`
+	Virtualmachineids   []interface{}                                                `json:"virtualmachineids"`
+}
+
+type UpdateDefaultNicForVirtualMachineResponseSecuritygroupRule struct {
+	Account           string `json:"account"`
+	Cidr              string `json:"cidr"`
+	Endport           int    `json:"endport"`
+	Icmpcode          int    `json:"icmpcode"`
+	Icmptype          int    `json:"icmptype"`
+	Protocol          string `json:"protocol"`
+	Ruleid            string `json:"ruleid"`
+	Securitygroupname string `json:"securitygroupname"`
+	Startport         int    `json:"startport"`
+	Tags              []Tags `json:"tags"`
+}
+
+type UpdateDefaultNicForVirtualMachineResponseAffinitygroup struct {
+	Account           string   `json:"account"`
+	Description       string   `json:"description"`
+	Domain            string   `json:"domain"`
+	Domainid          string   `json:"domainid"`
+	Id                string   `json:"id"`
+	Name              string   `json:"name"`
+	Project           string   `json:"project"`
+	Projectid         string   `json:"projectid"`
+	Type              string   `json:"type"`
+	VirtualmachineIds []string `json:"virtualmachineIds"`
 }
 
 type UpdateVirtualMachineParams struct {
@@ -5007,6 +4085,10 @@ func (p *UpdateVirtualMachineParams) toURLValues() url.Values {
 	if p.p == nil {
 		return u
 	}
+	if v, found := p.p["cleanupdetails"]; found {
+		vv := strconv.FormatBool(v.(bool))
+		u.Set("cleanupdetails", vv)
+	}
 	if v, found := p.p["customid"]; found {
 		u.Set("customid", v.(string))
 	}
@@ -5014,6 +4096,14 @@ func (p *UpdateVirtualMachineParams) toURLValues() url.Values {
 		i := 0
 		for k, vv := range v.(map[string]string) {
 			u.Set(fmt.Sprintf("details[%d].%s", i, k), vv)
+			i++
+		}
+	}
+	if v, found := p.p["dhcpoptionsnetworklist"]; found {
+		i := 0
+		for k, vv := range v.(map[string]string) {
+			u.Set(fmt.Sprintf("dhcpoptionsnetworklist[%d].key", i), k)
+			u.Set(fmt.Sprintf("dhcpoptionsnetworklist[%d].value", i), vv)
 			i++
 		}
 	}
@@ -5061,6 +4151,14 @@ func (p *UpdateVirtualMachineParams) toURLValues() url.Values {
 	return u
 }
 
+func (p *UpdateVirtualMachineParams) SetCleanupdetails(v bool) {
+	if p.p == nil {
+		p.p = make(map[string]interface{})
+	}
+	p.p["cleanupdetails"] = v
+	return
+}
+
 func (p *UpdateVirtualMachineParams) SetCustomid(v string) {
 	if p.p == nil {
 		p.p = make(map[string]interface{})
@@ -5074,6 +4172,14 @@ func (p *UpdateVirtualMachineParams) SetDetails(v map[string]string) {
 		p.p = make(map[string]interface{})
 	}
 	p.p["details"] = v
+	return
+}
+
+func (p *UpdateVirtualMachineParams) SetDhcpoptionsnetworklist(v map[string]string) {
+	if p.p == nil {
+		p.p = make(map[string]interface{})
+	}
+	p.p["dhcpoptionsnetworklist"] = v
 	return
 }
 
@@ -5198,170 +4304,108 @@ func (s *VirtualMachineService) UpdateVirtualMachine(p *UpdateVirtualMachinePara
 }
 
 type UpdateVirtualMachineResponse struct {
-	Account       string `json:"account"`
-	Affinitygroup []struct {
-		Account           string   `json:"account"`
-		Description       string   `json:"description"`
-		Domain            string   `json:"domain"`
-		Domainid          string   `json:"domainid"`
-		Id                string   `json:"id"`
-		Name              string   `json:"name"`
-		Project           string   `json:"project"`
-		Projectid         string   `json:"projectid"`
-		Type              string   `json:"type"`
-		VirtualmachineIds []string `json:"virtualmachineIds"`
-	} `json:"affinitygroup"`
-	Cpunumber             int               `json:"cpunumber"`
-	Cpuspeed              int               `json:"cpuspeed"`
-	Cpuused               string            `json:"cpuused"`
-	Created               string            `json:"created"`
-	Details               map[string]string `json:"details"`
-	Diskioread            int64             `json:"diskioread"`
-	Diskiowrite           int64             `json:"diskiowrite"`
-	Diskkbsread           int64             `json:"diskkbsread"`
-	Diskkbswrite          int64             `json:"diskkbswrite"`
-	Diskofferingid        string            `json:"diskofferingid"`
-	Diskofferingname      string            `json:"diskofferingname"`
-	Displayname           string            `json:"displayname"`
-	Displayvm             bool              `json:"displayvm"`
-	Domain                string            `json:"domain"`
-	Domainid              string            `json:"domainid"`
-	Forvirtualnetwork     bool              `json:"forvirtualnetwork"`
-	Group                 string            `json:"group"`
-	Groupid               string            `json:"groupid"`
-	Guestosid             string            `json:"guestosid"`
-	Haenable              bool              `json:"haenable"`
-	Hostid                string            `json:"hostid"`
-	Hostname              string            `json:"hostname"`
-	Hypervisor            string            `json:"hypervisor"`
-	Id                    string            `json:"id"`
-	Instancename          string            `json:"instancename"`
-	Isdynamicallyscalable bool              `json:"isdynamicallyscalable"`
-	Isodisplaytext        string            `json:"isodisplaytext"`
-	Isoid                 string            `json:"isoid"`
-	Isoname               string            `json:"isoname"`
-	Keypair               string            `json:"keypair"`
-	Memory                int               `json:"memory"`
-	Memoryintfreekbs      int64             `json:"memoryintfreekbs"`
-	Memorykbs             int64             `json:"memorykbs"`
-	Memorytargetkbs       int64             `json:"memorytargetkbs"`
-	Name                  string            `json:"name"`
-	Networkkbsread        int64             `json:"networkkbsread"`
-	Networkkbswrite       int64             `json:"networkkbswrite"`
-	Nic                   []struct {
-		Broadcasturi         string `json:"broadcasturi"`
-		Deviceid             string `json:"deviceid"`
-		Gateway              string `json:"gateway"`
-		Id                   string `json:"id"`
-		Ip6address           string `json:"ip6address"`
-		Ip6cidr              string `json:"ip6cidr"`
-		Ip6gateway           string `json:"ip6gateway"`
-		Ipaddress            string `json:"ipaddress"`
-		Isdefault            bool   `json:"isdefault"`
-		Isolationuri         string `json:"isolationuri"`
-		Macaddress           string `json:"macaddress"`
-		Netmask              string `json:"netmask"`
-		Networkid            string `json:"networkid"`
-		Networkname          string `json:"networkname"`
-		Nsxlogicalswitch     string `json:"nsxlogicalswitch"`
-		Nsxlogicalswitchport string `json:"nsxlogicalswitchport"`
-		Secondaryip          []struct {
-			Id        string `json:"id"`
-			Ipaddress string `json:"ipaddress"`
-		} `json:"secondaryip"`
-		Traffictype      string `json:"traffictype"`
-		Type             string `json:"type"`
-		Virtualmachineid string `json:"virtualmachineid"`
-	} `json:"nic"`
-	Ostypeid        int64  `json:"ostypeid"`
-	Password        string `json:"password"`
-	Passwordenabled bool   `json:"passwordenabled"`
-	Project         string `json:"project"`
-	Projectid       string `json:"projectid"`
-	Publicip        string `json:"publicip"`
-	Publicipid      string `json:"publicipid"`
-	Rootdeviceid    int64  `json:"rootdeviceid"`
-	Rootdevicetype  string `json:"rootdevicetype"`
-	Securitygroup   []struct {
-		Account     string `json:"account"`
-		Description string `json:"description"`
-		Domain      string `json:"domain"`
-		Domainid    string `json:"domainid"`
-		Egressrule  []struct {
-			Account           string `json:"account"`
-			Cidr              string `json:"cidr"`
-			Endport           int    `json:"endport"`
-			Icmpcode          int    `json:"icmpcode"`
-			Icmptype          int    `json:"icmptype"`
-			Protocol          string `json:"protocol"`
-			Ruleid            string `json:"ruleid"`
-			Securitygroupname string `json:"securitygroupname"`
-			Startport         int    `json:"startport"`
-			Tags              []struct {
-				Account      string `json:"account"`
-				Customer     string `json:"customer"`
-				Domain       string `json:"domain"`
-				Domainid     string `json:"domainid"`
-				Key          string `json:"key"`
-				Project      string `json:"project"`
-				Projectid    string `json:"projectid"`
-				Resourceid   string `json:"resourceid"`
-				Resourcetype string `json:"resourcetype"`
-				Value        string `json:"value"`
-			} `json:"tags"`
-		} `json:"egressrule"`
-		Id          string `json:"id"`
-		Ingressrule []struct {
-			Account           string `json:"account"`
-			Cidr              string `json:"cidr"`
-			Endport           int    `json:"endport"`
-			Icmpcode          int    `json:"icmpcode"`
-			Icmptype          int    `json:"icmptype"`
-			Protocol          string `json:"protocol"`
-			Ruleid            string `json:"ruleid"`
-			Securitygroupname string `json:"securitygroupname"`
-			Startport         int    `json:"startport"`
-			Tags              []struct {
-				Account      string `json:"account"`
-				Customer     string `json:"customer"`
-				Domain       string `json:"domain"`
-				Domainid     string `json:"domainid"`
-				Key          string `json:"key"`
-				Project      string `json:"project"`
-				Projectid    string `json:"projectid"`
-				Resourceid   string `json:"resourceid"`
-				Resourcetype string `json:"resourcetype"`
-				Value        string `json:"value"`
-			} `json:"tags"`
-		} `json:"ingressrule"`
-		Name      string `json:"name"`
-		Project   string `json:"project"`
-		Projectid string `json:"projectid"`
-		Tags      []struct {
-			Account      string `json:"account"`
-			Customer     string `json:"customer"`
-			Domain       string `json:"domain"`
-			Domainid     string `json:"domainid"`
-			Key          string `json:"key"`
-			Project      string `json:"project"`
-			Projectid    string `json:"projectid"`
-			Resourceid   string `json:"resourceid"`
-			Resourcetype string `json:"resourcetype"`
-			Value        string `json:"value"`
-		} `json:"tags"`
-		Virtualmachinecount int           `json:"virtualmachinecount"`
-		Virtualmachineids   []interface{} `json:"virtualmachineids"`
-	} `json:"securitygroup"`
-	Serviceofferingid   string `json:"serviceofferingid"`
-	Serviceofferingname string `json:"serviceofferingname"`
-	Servicestate        string `json:"servicestate"`
-	State               string `json:"state"`
-	Templatedisplaytext string `json:"templatedisplaytext"`
-	Templateid          string `json:"templateid"`
-	Templatename        string `json:"templatename"`
-	Userid              string `json:"userid"`
-	Username            string `json:"username"`
-	Vgpu                string `json:"vgpu"`
-	Zoneid              string `json:"zoneid"`
-	Zonename            string `json:"zonename"`
+	Account               string                                      `json:"account"`
+	Affinitygroup         []UpdateVirtualMachineResponseAffinitygroup `json:"affinitygroup"`
+	Cpunumber             int                                         `json:"cpunumber"`
+	Cpuspeed              int                                         `json:"cpuspeed"`
+	Cpuused               string                                      `json:"cpuused"`
+	Created               string                                      `json:"created"`
+	Details               map[string]string                           `json:"details"`
+	Diskioread            int64                                       `json:"diskioread"`
+	Diskiowrite           int64                                       `json:"diskiowrite"`
+	Diskkbsread           int64                                       `json:"diskkbsread"`
+	Diskkbswrite          int64                                       `json:"diskkbswrite"`
+	Diskofferingid        string                                      `json:"diskofferingid"`
+	Diskofferingname      string                                      `json:"diskofferingname"`
+	Displayname           string                                      `json:"displayname"`
+	Displayvm             bool                                        `json:"displayvm"`
+	Domain                string                                      `json:"domain"`
+	Domainid              string                                      `json:"domainid"`
+	Forvirtualnetwork     bool                                        `json:"forvirtualnetwork"`
+	Group                 string                                      `json:"group"`
+	Groupid               string                                      `json:"groupid"`
+	Guestosid             string                                      `json:"guestosid"`
+	Haenable              bool                                        `json:"haenable"`
+	Hostid                string                                      `json:"hostid"`
+	Hostname              string                                      `json:"hostname"`
+	Hypervisor            string                                      `json:"hypervisor"`
+	Id                    string                                      `json:"id"`
+	Instancename          string                                      `json:"instancename"`
+	Isdynamicallyscalable bool                                        `json:"isdynamicallyscalable"`
+	Isodisplaytext        string                                      `json:"isodisplaytext"`
+	Isoid                 string                                      `json:"isoid"`
+	Isoname               string                                      `json:"isoname"`
+	Keypair               string                                      `json:"keypair"`
+	Memory                int                                         `json:"memory"`
+	Memoryintfreekbs      int64                                       `json:"memoryintfreekbs"`
+	Memorykbs             int64                                       `json:"memorykbs"`
+	Memorytargetkbs       int64                                       `json:"memorytargetkbs"`
+	Name                  string                                      `json:"name"`
+	Networkkbsread        int64                                       `json:"networkkbsread"`
+	Networkkbswrite       int64                                       `json:"networkkbswrite"`
+	Nic                   []Nic                                       `json:"nic"`
+	Ostypeid              int64                                       `json:"ostypeid"`
+	Password              string                                      `json:"password"`
+	Passwordenabled       bool                                        `json:"passwordenabled"`
+	Project               string                                      `json:"project"`
+	Projectid             string                                      `json:"projectid"`
+	Publicip              string                                      `json:"publicip"`
+	Publicipid            string                                      `json:"publicipid"`
+	Rootdeviceid          int64                                       `json:"rootdeviceid"`
+	Rootdevicetype        string                                      `json:"rootdevicetype"`
+	Securitygroup         []UpdateVirtualMachineResponseSecuritygroup `json:"securitygroup"`
+	Serviceofferingid     string                                      `json:"serviceofferingid"`
+	Serviceofferingname   string                                      `json:"serviceofferingname"`
+	Servicestate          string                                      `json:"servicestate"`
+	State                 string                                      `json:"state"`
+	Templatedisplaytext   string                                      `json:"templatedisplaytext"`
+	Templateid            string                                      `json:"templateid"`
+	Templatename          string                                      `json:"templatename"`
+	Userid                string                                      `json:"userid"`
+	Username              string                                      `json:"username"`
+	Vgpu                  string                                      `json:"vgpu"`
+	Zoneid                string                                      `json:"zoneid"`
+	Zonename              string                                      `json:"zonename"`
+}
+
+type UpdateVirtualMachineResponseSecuritygroup struct {
+	Account             string                                          `json:"account"`
+	Description         string                                          `json:"description"`
+	Domain              string                                          `json:"domain"`
+	Domainid            string                                          `json:"domainid"`
+	Egressrule          []UpdateVirtualMachineResponseSecuritygroupRule `json:"egressrule"`
+	Id                  string                                          `json:"id"`
+	Ingressrule         []UpdateVirtualMachineResponseSecuritygroupRule `json:"ingressrule"`
+	Name                string                                          `json:"name"`
+	Project             string                                          `json:"project"`
+	Projectid           string                                          `json:"projectid"`
+	Tags                []Tags                                          `json:"tags"`
+	Virtualmachinecount int                                             `json:"virtualmachinecount"`
+	Virtualmachineids   []interface{}                                   `json:"virtualmachineids"`
+}
+
+type UpdateVirtualMachineResponseSecuritygroupRule struct {
+	Account           string `json:"account"`
+	Cidr              string `json:"cidr"`
+	Endport           int    `json:"endport"`
+	Icmpcode          int    `json:"icmpcode"`
+	Icmptype          int    `json:"icmptype"`
+	Protocol          string `json:"protocol"`
+	Ruleid            string `json:"ruleid"`
+	Securitygroupname string `json:"securitygroupname"`
+	Startport         int    `json:"startport"`
+	Tags              []Tags `json:"tags"`
+}
+
+type UpdateVirtualMachineResponseAffinitygroup struct {
+	Account           string   `json:"account"`
+	Description       string   `json:"description"`
+	Domain            string   `json:"domain"`
+	Domainid          string   `json:"domainid"`
+	Id                string   `json:"id"`
+	Name              string   `json:"name"`
+	Project           string   `json:"project"`
+	Projectid         string   `json:"projectid"`
+	Type              string   `json:"type"`
+	VirtualmachineIds []string `json:"virtualmachineIds"`
 }

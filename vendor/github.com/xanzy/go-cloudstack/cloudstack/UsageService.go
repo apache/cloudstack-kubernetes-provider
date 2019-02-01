@@ -329,7 +329,26 @@ func (s *UsageService) DeleteTrafficMonitor(p *DeleteTrafficMonitorParams) (*Del
 
 type DeleteTrafficMonitorResponse struct {
 	Displaytext string `json:"displaytext"`
-	Success     string `json:"success"`
+	Success     bool   `json:"success"`
+}
+
+func (r *DeleteTrafficMonitorResponse) UnmarshalJSON(b []byte) error {
+	var m map[string]interface{}
+	err := json.Unmarshal(b, &m)
+	if err != nil {
+		return err
+	}
+
+	if success, ok := m["success"].(string); ok {
+		m["success"] = success == "true"
+		b, err = json.Marshal(m)
+		if err != nil {
+			return err
+		}
+	}
+
+	type alias DeleteTrafficMonitorResponse
+	return json.Unmarshal(b, (*alias)(r))
 }
 
 type DeleteTrafficTypeParams struct {
@@ -472,7 +491,26 @@ func (s *UsageService) GenerateUsageRecords(p *GenerateUsageRecordsParams) (*Gen
 
 type GenerateUsageRecordsResponse struct {
 	Displaytext string `json:"displaytext"`
-	Success     string `json:"success"`
+	Success     bool   `json:"success"`
+}
+
+func (r *GenerateUsageRecordsResponse) UnmarshalJSON(b []byte) error {
+	var m map[string]interface{}
+	err := json.Unmarshal(b, &m)
+	if err != nil {
+		return err
+	}
+
+	if success, ok := m["success"].(string); ok {
+		m["success"] = success == "true"
+		b, err = json.Marshal(m)
+		if err != nil {
+			return err
+		}
+	}
+
+	type alias GenerateUsageRecordsResponse
+	return json.Unmarshal(b, (*alias)(r))
 }
 
 type ListTrafficMonitorsParams struct {
@@ -816,6 +854,10 @@ func (p *ListUsageRecordsParams) toURLValues() url.Values {
 	if v, found := p.p["enddate"]; found {
 		u.Set("enddate", v.(string))
 	}
+	if v, found := p.p["includetags"]; found {
+		vv := strconv.FormatBool(v.(bool))
+		u.Set("includetags", vv)
+	}
 	if v, found := p.p["keyword"]; found {
 		u.Set("keyword", v.(string))
 	}
@@ -872,6 +914,14 @@ func (p *ListUsageRecordsParams) SetEnddate(v string) {
 		p.p = make(map[string]interface{})
 	}
 	p.p["enddate"] = v
+	return
+}
+
+func (p *ListUsageRecordsParams) SetIncludetags(v bool) {
+	if p.p == nil {
+		p.p = make(map[string]interface{})
+	}
+	p.p["includetags"] = v
 	return
 }
 
@@ -1087,7 +1137,26 @@ func (s *UsageService) RemoveRawUsageRecords(p *RemoveRawUsageRecordsParams) (*R
 
 type RemoveRawUsageRecordsResponse struct {
 	Displaytext string `json:"displaytext"`
-	Success     string `json:"success"`
+	Success     bool   `json:"success"`
+}
+
+func (r *RemoveRawUsageRecordsResponse) UnmarshalJSON(b []byte) error {
+	var m map[string]interface{}
+	err := json.Unmarshal(b, &m)
+	if err != nil {
+		return err
+	}
+
+	if success, ok := m["success"].(string); ok {
+		m["success"] = success == "true"
+		b, err = json.Marshal(m)
+		if err != nil {
+			return err
+		}
+	}
+
+	type alias RemoveRawUsageRecordsResponse
+	return json.Unmarshal(b, (*alias)(r))
 }
 
 type UpdateTrafficTypeParams struct {

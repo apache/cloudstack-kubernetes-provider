@@ -213,6 +213,7 @@ func (s *PoolService) CreateStoragePool(p *CreateStoragePoolParams) (*CreateStor
 }
 
 type CreateStoragePoolResponse struct {
+	Allocatediops        int64             `json:"allocatediops"`
 	Capacityiops         int64             `json:"capacityiops"`
 	Clusterid            string            `json:"clusterid"`
 	Clustername          string            `json:"clustername"`
@@ -228,6 +229,7 @@ type CreateStoragePoolResponse struct {
 	Path                 string            `json:"path"`
 	Podid                string            `json:"podid"`
 	Podname              string            `json:"podname"`
+	Provider             string            `json:"provider"`
 	Scope                string            `json:"scope"`
 	State                string            `json:"state"`
 	Storagecapabilities  map[string]string `json:"storagecapabilities"`
@@ -299,7 +301,26 @@ func (s *PoolService) DeleteStoragePool(p *DeleteStoragePoolParams) (*DeleteStor
 
 type DeleteStoragePoolResponse struct {
 	Displaytext string `json:"displaytext"`
-	Success     string `json:"success"`
+	Success     bool   `json:"success"`
+}
+
+func (r *DeleteStoragePoolResponse) UnmarshalJSON(b []byte) error {
+	var m map[string]interface{}
+	err := json.Unmarshal(b, &m)
+	if err != nil {
+		return err
+	}
+
+	if success, ok := m["success"].(string); ok {
+		m["success"] = success == "true"
+		b, err = json.Marshal(m)
+		if err != nil {
+			return err
+		}
+	}
+
+	type alias DeleteStoragePoolResponse
+	return json.Unmarshal(b, (*alias)(r))
 }
 
 type FindStoragePoolsForMigrationParams struct {
@@ -385,6 +406,7 @@ func (s *PoolService) FindStoragePoolsForMigration(p *FindStoragePoolsForMigrati
 }
 
 type FindStoragePoolsForMigrationResponse struct {
+	Allocatediops        int64             `json:"allocatediops"`
 	Capacityiops         int64             `json:"capacityiops"`
 	Clusterid            string            `json:"clusterid"`
 	Clustername          string            `json:"clustername"`
@@ -400,6 +422,7 @@ type FindStoragePoolsForMigrationResponse struct {
 	Path                 string            `json:"path"`
 	Podid                string            `json:"podid"`
 	Podname              string            `json:"podname"`
+	Provider             string            `json:"provider"`
 	Scope                string            `json:"scope"`
 	State                string            `json:"state"`
 	Storagecapabilities  map[string]string `json:"storagecapabilities"`
@@ -657,6 +680,7 @@ type ListStoragePoolsResponse struct {
 }
 
 type StoragePool struct {
+	Allocatediops        int64             `json:"allocatediops"`
 	Capacityiops         int64             `json:"capacityiops"`
 	Clusterid            string            `json:"clusterid"`
 	Clustername          string            `json:"clustername"`
@@ -672,6 +696,7 @@ type StoragePool struct {
 	Path                 string            `json:"path"`
 	Podid                string            `json:"podid"`
 	Podname              string            `json:"podname"`
+	Provider             string            `json:"provider"`
 	Scope                string            `json:"scope"`
 	State                string            `json:"state"`
 	Storagecapabilities  map[string]string `json:"storagecapabilities"`
@@ -778,6 +803,7 @@ func (s *PoolService) UpdateStoragePool(p *UpdateStoragePoolParams) (*UpdateStor
 }
 
 type UpdateStoragePoolResponse struct {
+	Allocatediops        int64             `json:"allocatediops"`
 	Capacityiops         int64             `json:"capacityiops"`
 	Clusterid            string            `json:"clusterid"`
 	Clustername          string            `json:"clustername"`
@@ -793,6 +819,7 @@ type UpdateStoragePoolResponse struct {
 	Path                 string            `json:"path"`
 	Podid                string            `json:"podid"`
 	Podname              string            `json:"podname"`
+	Provider             string            `json:"provider"`
 	Scope                string            `json:"scope"`
 	State                string            `json:"state"`
 	Storagecapabilities  map[string]string `json:"storagecapabilities"`

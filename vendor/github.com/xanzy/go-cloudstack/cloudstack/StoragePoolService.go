@@ -91,6 +91,7 @@ func (s *StoragePoolService) CancelStorageMaintenance(p *CancelStorageMaintenanc
 
 type CancelStorageMaintenanceResponse struct {
 	JobID                string            `json:"jobid"`
+	Allocatediops        int64             `json:"allocatediops"`
 	Capacityiops         int64             `json:"capacityiops"`
 	Clusterid            string            `json:"clusterid"`
 	Clustername          string            `json:"clustername"`
@@ -106,6 +107,7 @@ type CancelStorageMaintenanceResponse struct {
 	Path                 string            `json:"path"`
 	Podid                string            `json:"podid"`
 	Podname              string            `json:"podname"`
+	Provider             string            `json:"provider"`
 	Scope                string            `json:"scope"`
 	State                string            `json:"state"`
 	Storagecapabilities  map[string]string `json:"storagecapabilities"`
@@ -185,6 +187,7 @@ func (s *StoragePoolService) EnableStorageMaintenance(p *EnableStorageMaintenanc
 
 type EnableStorageMaintenanceResponse struct {
 	JobID                string            `json:"jobid"`
+	Allocatediops        int64             `json:"allocatediops"`
 	Capacityiops         int64             `json:"capacityiops"`
 	Clusterid            string            `json:"clusterid"`
 	Clustername          string            `json:"clustername"`
@@ -200,6 +203,7 @@ type EnableStorageMaintenanceResponse struct {
 	Path                 string            `json:"path"`
 	Podid                string            `json:"podid"`
 	Podname              string            `json:"podname"`
+	Provider             string            `json:"provider"`
 	Scope                string            `json:"scope"`
 	State                string            `json:"state"`
 	Storagecapabilities  map[string]string `json:"storagecapabilities"`

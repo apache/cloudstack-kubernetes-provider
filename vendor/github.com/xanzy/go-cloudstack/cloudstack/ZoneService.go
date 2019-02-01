@@ -24,106 +24,6 @@ import (
 	"strings"
 )
 
-type AddVmwareDcParams struct {
-	p map[string]interface{}
-}
-
-func (p *AddVmwareDcParams) toURLValues() url.Values {
-	u := url.Values{}
-	if p.p == nil {
-		return u
-	}
-	if v, found := p.p["name"]; found {
-		u.Set("name", v.(string))
-	}
-	if v, found := p.p["password"]; found {
-		u.Set("password", v.(string))
-	}
-	if v, found := p.p["username"]; found {
-		u.Set("username", v.(string))
-	}
-	if v, found := p.p["vcenter"]; found {
-		u.Set("vcenter", v.(string))
-	}
-	if v, found := p.p["zoneid"]; found {
-		u.Set("zoneid", v.(string))
-	}
-	return u
-}
-
-func (p *AddVmwareDcParams) SetName(v string) {
-	if p.p == nil {
-		p.p = make(map[string]interface{})
-	}
-	p.p["name"] = v
-	return
-}
-
-func (p *AddVmwareDcParams) SetPassword(v string) {
-	if p.p == nil {
-		p.p = make(map[string]interface{})
-	}
-	p.p["password"] = v
-	return
-}
-
-func (p *AddVmwareDcParams) SetUsername(v string) {
-	if p.p == nil {
-		p.p = make(map[string]interface{})
-	}
-	p.p["username"] = v
-	return
-}
-
-func (p *AddVmwareDcParams) SetVcenter(v string) {
-	if p.p == nil {
-		p.p = make(map[string]interface{})
-	}
-	p.p["vcenter"] = v
-	return
-}
-
-func (p *AddVmwareDcParams) SetZoneid(v string) {
-	if p.p == nil {
-		p.p = make(map[string]interface{})
-	}
-	p.p["zoneid"] = v
-	return
-}
-
-// You should always use this function to get a new AddVmwareDcParams instance,
-// as then you are sure you have configured all required params
-func (s *ZoneService) NewAddVmwareDcParams(name string, vcenter string, zoneid string) *AddVmwareDcParams {
-	p := &AddVmwareDcParams{}
-	p.p = make(map[string]interface{})
-	p.p["name"] = name
-	p.p["vcenter"] = vcenter
-	p.p["zoneid"] = zoneid
-	return p
-}
-
-// Adds a VMware datacenter to specified zone
-func (s *ZoneService) AddVmwareDc(p *AddVmwareDcParams) (*AddVmwareDcResponse, error) {
-	resp, err := s.cs.newRequest("addVmwareDc", p.toURLValues())
-	if err != nil {
-		return nil, err
-	}
-
-	var r AddVmwareDcResponse
-	if err := json.Unmarshal(resp, &r); err != nil {
-		return nil, err
-	}
-
-	return &r, nil
-}
-
-type AddVmwareDcResponse struct {
-	Id      string `json:"id"`
-	Name    string `json:"name"`
-	Vcenter string `json:"vcenter"`
-	Zoneid  int64  `json:"zoneid"`
-}
-
 type CreateZoneParams struct {
 	p map[string]interface{}
 }
@@ -320,51 +220,44 @@ func (s *ZoneService) CreateZone(p *CreateZoneParams) (*CreateZoneResponse, erro
 }
 
 type CreateZoneResponse struct {
-	Allocationstate string `json:"allocationstate"`
-	Capacity        []struct {
-		Capacitytotal int64  `json:"capacitytotal"`
-		Capacityused  int64  `json:"capacityused"`
-		Clusterid     string `json:"clusterid"`
-		Clustername   string `json:"clustername"`
-		Percentused   string `json:"percentused"`
-		Podid         string `json:"podid"`
-		Podname       string `json:"podname"`
-		Type          int    `json:"type"`
-		Zoneid        string `json:"zoneid"`
-		Zonename      string `json:"zonename"`
-	} `json:"capacity"`
-	Description           string            `json:"description"`
-	Dhcpprovider          string            `json:"dhcpprovider"`
-	Displaytext           string            `json:"displaytext"`
-	Dns1                  string            `json:"dns1"`
-	Dns2                  string            `json:"dns2"`
-	Domain                string            `json:"domain"`
-	Domainid              string            `json:"domainid"`
-	Domainname            string            `json:"domainname"`
-	Guestcidraddress      string            `json:"guestcidraddress"`
-	Id                    string            `json:"id"`
-	Internaldns1          string            `json:"internaldns1"`
-	Internaldns2          string            `json:"internaldns2"`
-	Ip6dns1               string            `json:"ip6dns1"`
-	Ip6dns2               string            `json:"ip6dns2"`
-	Localstorageenabled   bool              `json:"localstorageenabled"`
-	Name                  string            `json:"name"`
-	Networktype           string            `json:"networktype"`
-	Resourcedetails       map[string]string `json:"resourcedetails"`
-	Securitygroupsenabled bool              `json:"securitygroupsenabled"`
-	Tags                  []struct {
-		Account      string `json:"account"`
-		Customer     string `json:"customer"`
-		Domain       string `json:"domain"`
-		Domainid     string `json:"domainid"`
-		Key          string `json:"key"`
-		Project      string `json:"project"`
-		Projectid    string `json:"projectid"`
-		Resourceid   string `json:"resourceid"`
-		Resourcetype string `json:"resourcetype"`
-		Value        string `json:"value"`
-	} `json:"tags"`
-	Zonetoken string `json:"zonetoken"`
+	Allocationstate       string                       `json:"allocationstate"`
+	Capacity              []CreateZoneResponseCapacity `json:"capacity"`
+	Description           string                       `json:"description"`
+	Dhcpprovider          string                       `json:"dhcpprovider"`
+	Displaytext           string                       `json:"displaytext"`
+	Dns1                  string                       `json:"dns1"`
+	Dns2                  string                       `json:"dns2"`
+	Domain                string                       `json:"domain"`
+	Domainid              string                       `json:"domainid"`
+	Domainname            string                       `json:"domainname"`
+	Guestcidraddress      string                       `json:"guestcidraddress"`
+	Id                    string                       `json:"id"`
+	Internaldns1          string                       `json:"internaldns1"`
+	Internaldns2          string                       `json:"internaldns2"`
+	Ip6dns1               string                       `json:"ip6dns1"`
+	Ip6dns2               string                       `json:"ip6dns2"`
+	Localstorageenabled   bool                         `json:"localstorageenabled"`
+	Name                  string                       `json:"name"`
+	Networktype           string                       `json:"networktype"`
+	Resourcedetails       map[string]string            `json:"resourcedetails"`
+	Securitygroupsenabled bool                         `json:"securitygroupsenabled"`
+	Tags                  []Tags                       `json:"tags"`
+	Zonetoken             string                       `json:"zonetoken"`
+}
+
+type CreateZoneResponseCapacity struct {
+	Capacityallocated int64  `json:"capacityallocated"`
+	Capacitytotal     int64  `json:"capacitytotal"`
+	Capacityused      int64  `json:"capacityused"`
+	Clusterid         string `json:"clusterid"`
+	Clustername       string `json:"clustername"`
+	Name              string `json:"name"`
+	Percentused       string `json:"percentused"`
+	Podid             string `json:"podid"`
+	Podname           string `json:"podname"`
+	Type              int    `json:"type"`
+	Zoneid            string `json:"zoneid"`
+	Zonename          string `json:"zonename"`
 }
 
 type DedicateZoneParams struct {
@@ -516,7 +409,26 @@ func (s *ZoneService) DeleteZone(p *DeleteZoneParams) (*DeleteZoneResponse, erro
 
 type DeleteZoneResponse struct {
 	Displaytext string `json:"displaytext"`
-	Success     string `json:"success"`
+	Success     bool   `json:"success"`
+}
+
+func (r *DeleteZoneResponse) UnmarshalJSON(b []byte) error {
+	var m map[string]interface{}
+	err := json.Unmarshal(b, &m)
+	if err != nil {
+		return err
+	}
+
+	if success, ok := m["success"].(string); ok {
+		m["success"] = success == "true"
+		b, err = json.Marshal(m)
+		if err != nil {
+			return err
+		}
+	}
+
+	type alias DeleteZoneResponse
+	return json.Unmarshal(b, (*alias)(r))
 }
 
 type DisableOutOfBandManagementForZoneParams struct {
@@ -811,137 +723,6 @@ type DedicatedZone struct {
 	Zonename        string `json:"zonename"`
 }
 
-type ListVmwareDcsParams struct {
-	p map[string]interface{}
-}
-
-func (p *ListVmwareDcsParams) toURLValues() url.Values {
-	u := url.Values{}
-	if p.p == nil {
-		return u
-	}
-	if v, found := p.p["keyword"]; found {
-		u.Set("keyword", v.(string))
-	}
-	if v, found := p.p["page"]; found {
-		vv := strconv.Itoa(v.(int))
-		u.Set("page", vv)
-	}
-	if v, found := p.p["pagesize"]; found {
-		vv := strconv.Itoa(v.(int))
-		u.Set("pagesize", vv)
-	}
-	if v, found := p.p["zoneid"]; found {
-		u.Set("zoneid", v.(string))
-	}
-	return u
-}
-
-func (p *ListVmwareDcsParams) SetKeyword(v string) {
-	if p.p == nil {
-		p.p = make(map[string]interface{})
-	}
-	p.p["keyword"] = v
-	return
-}
-
-func (p *ListVmwareDcsParams) SetPage(v int) {
-	if p.p == nil {
-		p.p = make(map[string]interface{})
-	}
-	p.p["page"] = v
-	return
-}
-
-func (p *ListVmwareDcsParams) SetPagesize(v int) {
-	if p.p == nil {
-		p.p = make(map[string]interface{})
-	}
-	p.p["pagesize"] = v
-	return
-}
-
-func (p *ListVmwareDcsParams) SetZoneid(v string) {
-	if p.p == nil {
-		p.p = make(map[string]interface{})
-	}
-	p.p["zoneid"] = v
-	return
-}
-
-// You should always use this function to get a new ListVmwareDcsParams instance,
-// as then you are sure you have configured all required params
-func (s *ZoneService) NewListVmwareDcsParams(zoneid string) *ListVmwareDcsParams {
-	p := &ListVmwareDcsParams{}
-	p.p = make(map[string]interface{})
-	p.p["zoneid"] = zoneid
-	return p
-}
-
-// This is a courtesy helper function, which in some cases may not work as expected!
-func (s *ZoneService) GetVmwareDcID(keyword string, zoneid string, opts ...OptionFunc) (string, int, error) {
-	p := &ListVmwareDcsParams{}
-	p.p = make(map[string]interface{})
-
-	p.p["keyword"] = keyword
-	p.p["zoneid"] = zoneid
-
-	for _, fn := range append(s.cs.options, opts...) {
-		if err := fn(s.cs, p); err != nil {
-			return "", -1, err
-		}
-	}
-
-	l, err := s.ListVmwareDcs(p)
-	if err != nil {
-		return "", -1, err
-	}
-
-	if l.Count == 0 {
-		return "", l.Count, fmt.Errorf("No match found for %s: %+v", keyword, l)
-	}
-
-	if l.Count == 1 {
-		return l.VmwareDcs[0].Id, l.Count, nil
-	}
-
-	if l.Count > 1 {
-		for _, v := range l.VmwareDcs {
-			if v.Name == keyword {
-				return v.Id, l.Count, nil
-			}
-		}
-	}
-	return "", l.Count, fmt.Errorf("Could not find an exact match for %s: %+v", keyword, l)
-}
-
-// Retrieves VMware DC(s) associated with a zone.
-func (s *ZoneService) ListVmwareDcs(p *ListVmwareDcsParams) (*ListVmwareDcsResponse, error) {
-	resp, err := s.cs.newRequest("listVmwareDcs", p.toURLValues())
-	if err != nil {
-		return nil, err
-	}
-
-	var r ListVmwareDcsResponse
-	if err := json.Unmarshal(resp, &r); err != nil {
-		return nil, err
-	}
-
-	return &r, nil
-}
-
-type ListVmwareDcsResponse struct {
-	Count     int         `json:"count"`
-	VmwareDcs []*VmwareDc `json:"vmwaredc"`
-}
-
-type VmwareDc struct {
-	Id      string `json:"id"`
-	Name    string `json:"name"`
-	Vcenter string `json:"vcenter"`
-	Zoneid  int64  `json:"zoneid"`
-}
-
 type ListZonesParams struct {
 	p map[string]interface{}
 }
@@ -1185,19 +966,8 @@ type ListZonesResponse struct {
 }
 
 type Zone struct {
-	Allocationstate string `json:"allocationstate"`
-	Capacity        []struct {
-		Capacitytotal int64  `json:"capacitytotal"`
-		Capacityused  int64  `json:"capacityused"`
-		Clusterid     string `json:"clusterid"`
-		Clustername   string `json:"clustername"`
-		Percentused   string `json:"percentused"`
-		Podid         string `json:"podid"`
-		Podname       string `json:"podname"`
-		Type          int    `json:"type"`
-		Zoneid        string `json:"zoneid"`
-		Zonename      string `json:"zonename"`
-	} `json:"capacity"`
+	Allocationstate       string            `json:"allocationstate"`
+	Capacity              []ZoneCapacity    `json:"capacity"`
 	Description           string            `json:"description"`
 	Dhcpprovider          string            `json:"dhcpprovider"`
 	Displaytext           string            `json:"displaytext"`
@@ -1217,19 +987,23 @@ type Zone struct {
 	Networktype           string            `json:"networktype"`
 	Resourcedetails       map[string]string `json:"resourcedetails"`
 	Securitygroupsenabled bool              `json:"securitygroupsenabled"`
-	Tags                  []struct {
-		Account      string `json:"account"`
-		Customer     string `json:"customer"`
-		Domain       string `json:"domain"`
-		Domainid     string `json:"domainid"`
-		Key          string `json:"key"`
-		Project      string `json:"project"`
-		Projectid    string `json:"projectid"`
-		Resourceid   string `json:"resourceid"`
-		Resourcetype string `json:"resourcetype"`
-		Value        string `json:"value"`
-	} `json:"tags"`
-	Zonetoken string `json:"zonetoken"`
+	Tags                  []Tags            `json:"tags"`
+	Zonetoken             string            `json:"zonetoken"`
+}
+
+type ZoneCapacity struct {
+	Capacityallocated int64  `json:"capacityallocated"`
+	Capacitytotal     int64  `json:"capacitytotal"`
+	Capacityused      int64  `json:"capacityused"`
+	Clusterid         string `json:"clusterid"`
+	Clustername       string `json:"clustername"`
+	Name              string `json:"name"`
+	Percentused       string `json:"percentused"`
+	Podid             string `json:"podid"`
+	Podname           string `json:"podname"`
+	Type              int    `json:"type"`
+	Zoneid            string `json:"zoneid"`
+	Zonename          string `json:"zonename"`
 }
 
 type ReleaseDedicatedZoneParams struct {
@@ -1298,58 +1072,6 @@ type ReleaseDedicatedZoneResponse struct {
 	JobID       string `json:"jobid"`
 	Displaytext string `json:"displaytext"`
 	Success     bool   `json:"success"`
-}
-
-type RemoveVmwareDcParams struct {
-	p map[string]interface{}
-}
-
-func (p *RemoveVmwareDcParams) toURLValues() url.Values {
-	u := url.Values{}
-	if p.p == nil {
-		return u
-	}
-	if v, found := p.p["zoneid"]; found {
-		u.Set("zoneid", v.(string))
-	}
-	return u
-}
-
-func (p *RemoveVmwareDcParams) SetZoneid(v string) {
-	if p.p == nil {
-		p.p = make(map[string]interface{})
-	}
-	p.p["zoneid"] = v
-	return
-}
-
-// You should always use this function to get a new RemoveVmwareDcParams instance,
-// as then you are sure you have configured all required params
-func (s *ZoneService) NewRemoveVmwareDcParams(zoneid string) *RemoveVmwareDcParams {
-	p := &RemoveVmwareDcParams{}
-	p.p = make(map[string]interface{})
-	p.p["zoneid"] = zoneid
-	return p
-}
-
-// Remove a VMware datacenter from a zone.
-func (s *ZoneService) RemoveVmwareDc(p *RemoveVmwareDcParams) (*RemoveVmwareDcResponse, error) {
-	resp, err := s.cs.newRequest("removeVmwareDc", p.toURLValues())
-	if err != nil {
-		return nil, err
-	}
-
-	var r RemoveVmwareDcResponse
-	if err := json.Unmarshal(resp, &r); err != nil {
-		return nil, err
-	}
-
-	return &r, nil
-}
-
-type RemoveVmwareDcResponse struct {
-	Displaytext string `json:"displaytext"`
-	Success     string `json:"success"`
 }
 
 type UpdateZoneParams struct {
@@ -1572,49 +1294,42 @@ func (s *ZoneService) UpdateZone(p *UpdateZoneParams) (*UpdateZoneResponse, erro
 }
 
 type UpdateZoneResponse struct {
-	Allocationstate string `json:"allocationstate"`
-	Capacity        []struct {
-		Capacitytotal int64  `json:"capacitytotal"`
-		Capacityused  int64  `json:"capacityused"`
-		Clusterid     string `json:"clusterid"`
-		Clustername   string `json:"clustername"`
-		Percentused   string `json:"percentused"`
-		Podid         string `json:"podid"`
-		Podname       string `json:"podname"`
-		Type          int    `json:"type"`
-		Zoneid        string `json:"zoneid"`
-		Zonename      string `json:"zonename"`
-	} `json:"capacity"`
-	Description           string            `json:"description"`
-	Dhcpprovider          string            `json:"dhcpprovider"`
-	Displaytext           string            `json:"displaytext"`
-	Dns1                  string            `json:"dns1"`
-	Dns2                  string            `json:"dns2"`
-	Domain                string            `json:"domain"`
-	Domainid              string            `json:"domainid"`
-	Domainname            string            `json:"domainname"`
-	Guestcidraddress      string            `json:"guestcidraddress"`
-	Id                    string            `json:"id"`
-	Internaldns1          string            `json:"internaldns1"`
-	Internaldns2          string            `json:"internaldns2"`
-	Ip6dns1               string            `json:"ip6dns1"`
-	Ip6dns2               string            `json:"ip6dns2"`
-	Localstorageenabled   bool              `json:"localstorageenabled"`
-	Name                  string            `json:"name"`
-	Networktype           string            `json:"networktype"`
-	Resourcedetails       map[string]string `json:"resourcedetails"`
-	Securitygroupsenabled bool              `json:"securitygroupsenabled"`
-	Tags                  []struct {
-		Account      string `json:"account"`
-		Customer     string `json:"customer"`
-		Domain       string `json:"domain"`
-		Domainid     string `json:"domainid"`
-		Key          string `json:"key"`
-		Project      string `json:"project"`
-		Projectid    string `json:"projectid"`
-		Resourceid   string `json:"resourceid"`
-		Resourcetype string `json:"resourcetype"`
-		Value        string `json:"value"`
-	} `json:"tags"`
-	Zonetoken string `json:"zonetoken"`
+	Allocationstate       string                       `json:"allocationstate"`
+	Capacity              []UpdateZoneResponseCapacity `json:"capacity"`
+	Description           string                       `json:"description"`
+	Dhcpprovider          string                       `json:"dhcpprovider"`
+	Displaytext           string                       `json:"displaytext"`
+	Dns1                  string                       `json:"dns1"`
+	Dns2                  string                       `json:"dns2"`
+	Domain                string                       `json:"domain"`
+	Domainid              string                       `json:"domainid"`
+	Domainname            string                       `json:"domainname"`
+	Guestcidraddress      string                       `json:"guestcidraddress"`
+	Id                    string                       `json:"id"`
+	Internaldns1          string                       `json:"internaldns1"`
+	Internaldns2          string                       `json:"internaldns2"`
+	Ip6dns1               string                       `json:"ip6dns1"`
+	Ip6dns2               string                       `json:"ip6dns2"`
+	Localstorageenabled   bool                         `json:"localstorageenabled"`
+	Name                  string                       `json:"name"`
+	Networktype           string                       `json:"networktype"`
+	Resourcedetails       map[string]string            `json:"resourcedetails"`
+	Securitygroupsenabled bool                         `json:"securitygroupsenabled"`
+	Tags                  []Tags                       `json:"tags"`
+	Zonetoken             string                       `json:"zonetoken"`
+}
+
+type UpdateZoneResponseCapacity struct {
+	Capacityallocated int64  `json:"capacityallocated"`
+	Capacitytotal     int64  `json:"capacitytotal"`
+	Capacityused      int64  `json:"capacityused"`
+	Clusterid         string `json:"clusterid"`
+	Clustername       string `json:"clustername"`
+	Name              string `json:"name"`
+	Percentused       string `json:"percentused"`
+	Podid             string `json:"podid"`
+	Podname           string `json:"podname"`
+	Type              int    `json:"type"`
+	Zoneid            string `json:"zoneid"`
+	Zonename          string `json:"zonename"`
 }
