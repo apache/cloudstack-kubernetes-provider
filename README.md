@@ -7,7 +7,27 @@
 
 A Cloud Controller Manager to facilitate Kubernetes deployments on Cloudstack.
 
-Based on the old Cloudstack provider in kube-controller-manager.
+Based on the old Cloudstack provider in Kubernetes that will be removed soon.
+
+## Differences
+
+There are several notable differences from the old cloud provider that need to be taken into
+account when migrating to the standalone provider.
+
+### Load Balancer
+
+Load balancer rule names now include the protocol as well as the LB name and service port.
+This was added with full support for udp and tcp-proxy protocols to distinguish otherwise conflicting names.
+
+If you have existing rules, they need to be removed manually after deploying new ones.
+
+### Metadata
+
+When kubelet still contained cloud provider code, node metadata was fetched from the DHCP
+server on the instance's Virtual Router.
+
+This is no longer possible with the standalone cloud controller, so all metadata now comes from
+the Cloudstack API. Some metadata may be missing or wrong, please file bugs when this happens to you.
 
 ## Build
 
