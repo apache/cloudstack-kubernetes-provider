@@ -18,7 +18,7 @@ clean:
 	rm -f cloudstack-ccm
 
 cloudstack-ccm: ${CMD_SRC}
-	go build -ldflags ${LDFLAGS} -o $@ $^
+	go build -mod vendor -ldflags ${LDFLAGS} -o $@ $^
 
 docker:
 	docker build . -t cloudstack-cloud-controller-manager:${GIT_COMMIT_SHORT}
