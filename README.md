@@ -32,7 +32,10 @@ the Cloudstack API. Some metadata may be missing or wrong, please file bugs when
 ## Build
 
 All dependencies are vendored.
-You need GNU make, git and Go 1.10 to build cloudstack-ccm.
+You need GNU make, git and Go 1.11 to build cloudstack-ccm.
+
+It's still possible to build with Go 1.10, but you need to remove the option `-mod vendor` from the
+`cloudstack-ccm` compilation target in the `Makefile`.
 
 ```bash
 go get github.com/swisstxt/cloudstack-cloud-controller-manager
