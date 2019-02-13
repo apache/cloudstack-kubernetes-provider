@@ -20,9 +20,9 @@ Load balancer rule names now include the protocol as well as the LB name and ser
 This was added to distinguish tcp, udp and tcp-proxy service operating on the same port.
 Without this change, it would not be possible to map, for example, a service that runs on both TCP and UDP port 8000.
 
-:warning: **If you have existing rules, remove them before upgrading and them back afterwards.**
+:warning: **If you have existing rules, remove them before upgrading and add them back afterwards.**
 
-If you don't do this, you need to manually remove the rules in CloudStack later.
+If you don't do this, you need to manually remove the rules in CloudStack when they are replaced.
 
 ### Metadata
 
