@@ -29,6 +29,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	auditinternal "k8s.io/apiserver/pkg/apis/audit"
 	auditv1 "k8s.io/apiserver/pkg/apis/audit/v1"
 	auditv1alpha1 "k8s.io/apiserver/pkg/apis/audit/v1alpha1"
 	auditv1beta1 "k8s.io/apiserver/pkg/apis/audit/v1beta1"
@@ -89,12 +90,17 @@ const (
 	// a set of events. This causes requests to the API server to wait for the
 	// flush before sending a response.
 	ModeBlocking = "blocking"
+	// ModeBlockingStrict is the same as ModeBlocking, except when there is
+	// a failure during audit logging at RequestReceived stage, the whole
+	// request to apiserver will fail.
+	ModeBlockingStrict = "blocking-strict"
 )
 
 // AllowedModes is the modes known for audit backends.
 var AllowedModes = []string{
 	ModeBatch,
 	ModeBlocking,
+	ModeBlockingStrict,
 }
 
 type AuditBatchOptions struct {
@@ -142,9 +148,14 @@ type AuditWebhookOptions struct {
 	GroupVersionString string
 }
 
+// AuditDynamicOptions control the configuration of dynamic backends for audit events
 type AuditDynamicOptions struct {
 	// Enabled tells whether the dynamic audit capability is enabled.
 	Enabled bool
+
+	// Configuration for batching backend. This is currently only used as an override
+	// for integration tests
+	BatchConfig *pluginbuffered.BatchConfig
 }
 
 func NewAuditOptions() *AuditOptions {
@@ -168,7 +179,8 @@ func NewAuditOptions() *AuditOptions {
 			GroupVersionString: "audit.k8s.io/v1",
 		},
 		DynamicOptions: AuditDynamicOptions{
-			Enabled: false,
+			Enabled:     false,
+			BatchConfig: plugindynamic.NewDefaultWebhookBatchConfig(),
 		},
 	}
 }
@@ -393,9 +405,25 @@ func (o *AuditBatchOptions) AddFlags(pluginName string, fs *pflag.FlagSet) {
 			"moment if ThrottleQPS was not utilized before. Only used in batch mode.")
 }
 
+type ignoreErrorsBackend struct {
+	audit.Backend
+}
+
+func (i *ignoreErrorsBackend) ProcessEvents(ev ...*auditinternal.Event) bool {
+	i.Backend.ProcessEvents(ev...)
+	return true
+}
+
+func (i *ignoreErrorsBackend) String() string {
+	return fmt.Sprintf("ignoreErrors<%s>", i.Backend)
+}
+
 func (o *AuditBatchOptions) wrapBackend(delegate audit.Backend) audit.Backend {
-	if o.Mode == ModeBlocking {
+	if o.Mode == ModeBlockingStrict {
 		return delegate
+	}
+	if o.Mode == ModeBlocking {
+		return &ignoreErrorsBackend{Backend: delegate}
 	}
 	return pluginbuffered.NewBackend(delegate, o.BatchConfig)
 }
@@ -612,7 +640,7 @@ func (o *AuditDynamicOptions) newBackend(
 
 	dc := &plugindynamic.Config{
 		Informer:       informer,
-		BufferedConfig: plugindynamic.NewDefaultWebhookBatchConfig(),
+		BufferedConfig: o.BatchConfig,
 		EventConfig: plugindynamic.EventConfig{
 			Sink: eventSink,
 			Source: corev1.EventSource{
