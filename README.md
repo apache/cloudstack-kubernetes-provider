@@ -9,7 +9,7 @@ A Cloud Controller Manager to facilitate Kubernetes deployments on Cloudstack.
 
 Based on the old Cloudstack provider in Kubernetes that will be removed soon.
 
-## Differences
+## Migration
 
 There are several notable differences from the old cloud provider that need to be taken into
 account when migrating to the standalone provider.
@@ -17,9 +17,12 @@ account when migrating to the standalone provider.
 ### Load Balancer
 
 Load balancer rule names now include the protocol as well as the LB name and service port.
-This was added with full support for udp and tcp-proxy protocols to distinguish otherwise conflicting names.
+This was added to distinguish tcp, udp and tcp-proxy service operating on the same port.
+Without this change, it would not be possible to map, for example, a service that runs on both TCP and UDP port 8000.
 
-If you have existing rules, they need to be removed manually after deploying new ones.
+:warning: **If you have existing rules, remove them before upgrading and them back afterwards.**
+
+If you don't do this, you need to manually remove the rules in CloudStack later.
 
 ### Metadata
 
@@ -28,6 +31,14 @@ server on the instance's Virtual Router.
 
 This is no longer possible with the standalone cloud controller, so all metadata now comes from
 the Cloudstack API. Some metadata may be missing or wrong, please file bugs when this happens to you.
+
+### Node Labels
+
+When doing a seamless migration without installing new nodes, it may be possible that old nodes do have labels from the cloud provider set. To trigger reassignment, simply taint the old nodes with the "uninitialized" taint, and the cloud controller will assign the labels:
+
+```
+kubectl taint nodes my-old-node node.cloudprovider.kubernetes.io/uninitialized=true:NoSchedule
+```
 
 ## Build
 
