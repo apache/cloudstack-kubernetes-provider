@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 
 	"github.com/xanzy/go-cloudstack/cloudstack"
 	"k8s.io/api/core/v1"
@@ -27,6 +28,8 @@ import (
 	cloudprovider "k8s.io/cloud-provider"
 	"k8s.io/klog"
 )
+
+var labelInvalidCharsRegex *regexp.Regexp = regexp.MustCompile(`([^A-Za-z0-9][^-A-Za-z0-9_.]*)?[^A-Za-z0-9]`)
 
 // NodeAddresses returns the addresses of the specified instance.
 func (cs *CSCloud) NodeAddresses(ctx context.Context, name types.NodeName) ([]v1.NodeAddress, error) {
@@ -113,7 +116,7 @@ func (cs *CSCloud) InstanceType(ctx context.Context, name types.NodeName) (strin
 		return "", fmt.Errorf("error retrieving instance type: %v", err)
 	}
 
-	return instance.Serviceofferingname, nil
+	return labelInvalidCharsRegex.ReplaceAllString(instance.Serviceofferingname, ``), nil
 }
 
 // InstanceTypeByProviderID returns the type of the specified instance.
@@ -129,7 +132,7 @@ func (cs *CSCloud) InstanceTypeByProviderID(ctx context.Context, providerID stri
 		return "", fmt.Errorf("error retrieving instance type: %v", err)
 	}
 
-	return instance.Serviceofferingname, nil
+	return labelInvalidCharsRegex.ReplaceAllString(instance.Serviceofferingname, ``), nil
 }
 
 // AddSSHKeyToAllInstances is currently not implemented.
