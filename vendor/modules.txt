@@ -92,6 +92,10 @@ github.com/coreos/etcd/pkg/types
 github.com/coreos/etcd/pkg/tlsutil
 # github.com/coreos/go-systemd v0.0.0-20181031085051-9002847aa142
 github.com/coreos/go-systemd/daemon
+# github.com/d2g/dhcp4 v0.0.0-20170904100407-a1d1b6c41b1c
+github.com/d2g/dhcp4
+# github.com/d2g/dhcp4client v1.0.0
+github.com/d2g/dhcp4client
 # github.com/davecgh/go-spew v1.1.1
 github.com/davecgh/go-spew/spew
 # github.com/dgrijalva/jwt-go v3.2.0+incompatible
@@ -197,6 +201,8 @@ github.com/inconshreveable/mousetrap
 github.com/jmespath/go-jmespath
 # github.com/json-iterator/go v1.1.5
 github.com/json-iterator/go
+# github.com/kardianos/osext v0.0.0-20170510131534-ae77be60afb1
+github.com/kardianos/osext
 # github.com/konsorten/go-windows-terminal-sequences v1.0.1
 github.com/konsorten/go-windows-terminal-sequences
 # github.com/mailru/easyjson v0.0.0-20180823135443-60711f1a8329
