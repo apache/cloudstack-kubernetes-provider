@@ -22,9 +22,7 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 
-	"github.com/kardianos/osext"
 	"github.com/xanzy/go-cloudstack/cloudstack"
 	"gopkg.in/gcfg.v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -50,7 +48,6 @@ type CSConfig struct {
 // CSCloud is an implementation of Interface for CloudStack.
 type CSCloud struct {
 	client    *cloudstack.CloudStackClient
-	metadata  *metadata
 	projectID string // If non-"", all resources will be created within this project
 	zone      string
 }
@@ -87,34 +84,12 @@ func newCSCloud(cfg *CSConfig) (*CSCloud, error) {
 		zone:      cfg.Global.Zone,
 	}
 
-	exe, err := osext.Executable()
-	if err != nil {
-		return nil, fmt.Errorf("cloud not find the service executable: %v", err)
-	}
-
-	// When running the kubelet service it's fine to not specify a config file (or only a
-	// partial config file) as all needed info can be retrieved anonymously using metadata.
-	if filepath.Base(exe) == "kubelet" || filepath.Base(exe) == "kubelet.exe" {
-		// In CloudStack your metadata is always served by the DHCP server.
-		dhcpServer, err := findDHCPServer()
-		if err == nil {
-			klog.V(4).Infof("Found metadata server: %v", dhcpServer)
-			cs.metadata = &metadata{dhcpServer: dhcpServer, zone: cs.zone}
-		} else {
-			klog.Errorf("Error searching metadata server: %v", err)
-		}
-	}
-
 	if cfg.Global.APIURL != "" && cfg.Global.APIKey != "" && cfg.Global.SecretKey != "" {
 		cs.client = cloudstack.NewAsyncClient(cfg.Global.APIURL, cfg.Global.APIKey, cfg.Global.SecretKey, !cfg.Global.SSLNoVerify)
 	}
 
 	if cs.client == nil {
-		if cs.metadata != nil {
-			klog.V(2).Infof("No API URL, key and secret are provided, so only using metadata!")
-		} else {
-			return nil, errors.New("no cloud provider config given")
-		}
+		return nil, errors.New("no cloud provider config given")
 	}
 
 	return cs, nil
@@ -135,10 +110,6 @@ func (cs *CSCloud) LoadBalancer() (cloudprovider.LoadBalancer, bool) {
 
 // Instances returns an implementation of Instances for CloudStack.
 func (cs *CSCloud) Instances() (cloudprovider.Instances, bool) {
-	if cs.metadata != nil {
-		return cs.metadata, true
-	}
-
 	if cs.client == nil {
 		return nil, false
 	}
@@ -148,10 +119,6 @@ func (cs *CSCloud) Instances() (cloudprovider.Instances, bool) {
 
 // Zones returns an implementation of Zones for CloudStack.
 func (cs *CSCloud) Zones() (cloudprovider.Zones, bool) {
-	if cs.metadata != nil {
-		return cs.metadata, true
-	}
-
 	if cs.client == nil {
 		return nil, false
 	}
@@ -165,6 +132,7 @@ func (cs *CSCloud) Clusters() (cloudprovider.Clusters, bool) {
 		return nil, false
 	}
 
+	klog.Warning("This cloud provider doesn't support clusters")
 	return nil, false
 }
 
@@ -174,6 +142,7 @@ func (cs *CSCloud) Routes() (cloudprovider.Routes, bool) {
 		return nil, false
 	}
 
+	klog.Warning("This cloud provider doesn't support routes")
 	return nil, false
 }
 

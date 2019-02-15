@@ -15,8 +15,8 @@ require (
 	github.com/coreos/go-semver v0.2.0 // indirect
 	github.com/coreos/go-systemd v0.0.0-20181031085051-9002847aa142 // indirect
 	github.com/coreos/pkg v0.0.0-20180928190104-399ea9e2e55f // indirect
-	github.com/d2g/dhcp4 v0.0.0-20170904100407-a1d1b6c41b1c
-	github.com/d2g/dhcp4client v1.0.0
+	github.com/d2g/dhcp4 v0.0.0-20170904100407-a1d1b6c41b1c // indirect
+	github.com/d2g/dhcp4client v1.0.0 // indirect
 	github.com/dgrijalva/jwt-go v3.2.0+incompatible // indirect
 	github.com/dnaeon/go-vcr v1.0.1 // indirect
 	github.com/docker/distribution v0.0.0-20181024170156-93e082742a00 // indirect
@@ -43,7 +43,7 @@ require (
 	github.com/inconshreveable/mousetrap v1.0.0 // indirect
 	github.com/jonboulle/clockwork v0.1.0 // indirect
 	github.com/json-iterator/go v1.1.5 // indirect
-	github.com/kardianos/osext v0.0.0-20170510131534-ae77be60afb1
+	github.com/kardianos/osext v0.0.0-20170510131534-ae77be60afb1 // indirect
 	github.com/marstr/guid v1.1.0 // indirect
 	github.com/mitchellh/mapstructure v1.1.2 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
