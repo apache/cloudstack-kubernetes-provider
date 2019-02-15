@@ -34,10 +34,24 @@ the Cloudstack API. Some metadata may be missing or wrong, please file bugs when
 
 ### Node Labels
 
-When doing a seamless migration without installing new nodes, it may be possible that old nodes do have labels from the cloud provider set. To trigger reassignment, simply taint the old nodes with the "uninitialized" taint, and the cloud controller will assign the labels:
+It is recommended to launch `kubelet` with the following parameter:
 
 ```
-kubectl taint nodes my-old-node node.cloudprovider.kubernetes.io/uninitialized=true:NoSchedule
+--register-with-taints=node.cloudprovider.kubernetes.io/uninitialized=true:NoSchedule
+```
+
+This will treat the node as 'uninitialized' and cause the CCM to apply metadata labels from CloudStack automatically.
+
+Supported labels are:
+* kubernetes.io/hostname (= the instance name)
+* beta.kubernetes.io/instance-type (= the compute offering)
+* failure-domain.beta.kubernetes.io/zone (= the zone)
+* failure-domain.beta.kubernetes.io/region (also = the zone)
+
+It is also possible to trigger this process manually by issuing the following command:
+
+```
+kubectl taint nodes <my-node-without-labels> node.cloudprovider.kubernetes.io/uninitialized=true:NoSchedule
 ```
 
 ## Build
