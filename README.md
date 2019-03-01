@@ -11,23 +11,23 @@ Based on the old Cloudstack provider in Kubernetes that will be removed soon.
 
 ## Migration
 
-There are several notable differences from the old cloud provider that need to be taken into
-account when migrating to the standalone provider.
+There are several notable differences to the old Kubernetes CloudStack cloud provider that need to be taken into
+account when migrating to the standalone controller.
 
 ### Load Balancer
 
-Load balancer rule names now include the protocol as well as the LB name and service port.
-This was added to distinguish tcp, udp and tcp-proxy service operating on the same port.
-Without this change, it would not be possible to map, for example, a service that runs on both TCP and UDP port 8000.
+Load balancer rule names now include the protocol in addition to the LB name and service port.
+This was added to distinguish tcp, udp and tcp-proxy services operating on the same port.
+Without this change, it would not be possible to map a service that runs on both TCP and UDP port 8000, for example.
 
-:warning: **If you have existing rules, remove them before upgrading and add them back afterwards.**
+:warning: **If you have existing rules, remove them before the migration, and add them back afterwards.**
 
-If you don't do this, you need to manually remove the rules in CloudStack when they are replaced.
+If you don't do this, you will end up with duplicate rules for the same service, which won't work.
 
 ### Metadata
 
 When kubelet still contained cloud provider code, node metadata was fetched from the DHCP
-server on the instance's Virtual Router.
+server running on the Virtual Router.
 
 This is no longer possible with the standalone cloud controller, so all metadata now comes from
 the Cloudstack API. Some metadata may be missing or wrong, please file bugs when this happens to you.
@@ -80,7 +80,7 @@ Prebuilt containers are posted on [Docker Hub](https://hub.docker.com/r/swisstxt
 
 ### Kubernetes
 
-To deploy the ccm in the cluster see [deployment.yaml](/deployment.yaml) and configure your cloudstack and api server connection. See the comments.
+If you intend to deploy the CCM in a Kubernetes cluster, please see [deployment.yaml](/deployment.yaml) for an example configuration. The comments explain how to configure Cloudstack API access.
 
 ### Protocols
 
@@ -97,11 +97,17 @@ of a suitable configuration for an ingress controller.
 
 ### Development
 
-Make sure your apiserver is running locally and keep your cloudstack config ready:
+You need a local instance of the CloudStack Management Server or a 'real' one to connect to.
+The CCM supports the same cloudstack.ini configuration file format used by [the cs tool](https://github.com/exoscale/cs),
+so you can simply point it to that.
 
 ```bash
-./cloudstack-ccm --cloud-provider external-cloudstack --cloud-config cloud.config --master localhost
+./cloudstack-ccm --cloud-provider external-cloudstack --cloud-config ~/.cloudstack.ini --master k8s-apiserver
 ```
+
+Replace k8s-apiserver with the host name of your Kubernetes development clusters's API server.
+
+If you don't have a 'real' CloudStack installation, you can also launch a local [simulator instance](https://hub.docker.com/r/cloudstack/simulator) instead. This is very useful for dry-run testing.
 
 ## Copyright
 
