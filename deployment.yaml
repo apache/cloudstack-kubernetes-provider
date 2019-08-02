@@ -1,0 +1,79 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cloud-controller-manager
+  namespace: kube-system
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: system:cloud-controller-manager
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+- kind: ServiceAccount
+  name: cloud-controller-manager
+  namespace: kube-system
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cloud-controller-manager-config
+  namespace: kube-system
+data:
+  cloud-config: |
+    [Global]
+    api-url = #(CLOUDSTACK API URL)#
+    api-key = #(CLOUDSTACK API KEY)#
+    secret-key = #(CLOUDSTACK API SECRET)#
+    project-id = #(CLOUDSTACK PROJECT UUID optional)#
+    zone = #(CLOUDSTACK ZONE NAME)#
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    k8s-app: cloud-controller-manager
+  name: cloud-controller-manager
+  namespace: kube-system
+spec:
+  selector:
+    matchLabels:
+      k8s-app: cloud-controller-manager
+  template:
+    metadata:
+      labels:
+        k8s-app: cloud-controller-manager
+    spec:
+      serviceAccountName: cloud-controller-manager
+      containers:
+      - name: cloud-controller-manager
+        image: swisstxt/cloudstack-cloud-controller-manager:v0.0.1
+        # Command line arguments: https://kubernetes.io/docs/reference/command-line-tools-reference/cloud-controller-manager/
+        command:
+        - /root/cloudstack-ccm
+        - --cloud-provider=external-cloudstack
+        - --cloud-config=/config/cloud-config
+        - --kubeconfig=/var/lib/kubelet/kubeconfig # Connection Params
+        - --v=4
+        volumeMounts:
+        - name: config-volume
+          mountPath: /config
+        - name: kubeconfig-volume
+          mountPath: /var/lib/kubelet/kubeconfig
+        - name: kubernetes-config-volume
+          mountPath: /var/lib/kubernetes
+      volumes:
+      - name: config-volume
+        configMap:
+          name: cloud-controller-manager-config
+      - name: kubeconfig-volume
+        hostPath:
+          path: /var/lib/kubelet/kubeconfig
+      - name: kubernetes-config-volume
+        hostPath:
+          path: /var/lib/kubernetes
+
