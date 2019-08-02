@@ -1,22 +1,18 @@
 # CloudStack Kubernetes Provider
 
-[![](https://img.shields.io/github/release/swisstxt/cloudstack-cloud-controller-manager.svg?style=flat-square "Release")](https://github.com/swisstxt/cloudstack-cloud-controller-manager/releases)
+[![](https://img.shields.io/github/release/apache/cloudstack-kubernetes-provider.svg?style=flat-square "Release")](https://github.com/apache/cloudstack-kubernetes-provider/releases)
 [![](https://img.shields.io/badge/license-Apache%202.0-blue.svg?style=flat-square "Apache 2.0 license")](/LICENSE-2.0)
 [![](https://img.shields.io/badge/language-Go-%235adaff.svg?style=flat-square "Go language")](https://golang.org)
-[![](https://img.shields.io/docker/build/swisstxt/cloudstack-cloud-controller-manager.svg?style=flat-square "Docker build status")](https://hub.docker.com/r/swisstxt/cloudstack-cloud-controller-manager/)
----
-Old provider in v1.15:
-https://github.com/kubernetes/kubernetes/tree/release-1.15/pkg/cloudprovider/providers/cloudstack
+[![](https://img.shields.io/docker/build/apache/cloudstack-kubernetes-provider.svg?style=flat-square "Docker build status")](https://hub.docker.com/r/apache/cloudstack-kubernetes-provider/)
 
-Refer:
-https://github.com/kubernetes/enhancements/issues/672
-https://github.com/kubernetes/enhancements/issues/88
-https://github.com/swisstxt/cloudstack-cloud-controller-manager
-https://github.com/tsuru/custom-cloudstack-ccm
----
 A Cloud Controller Manager to facilitate Kubernetes deployments on Cloudstack.
 
 Based on the old Cloudstack provider in Kubernetes that will be removed soon.
+
+Refer:
+* https://github.com/kubernetes/kubernetes/tree/release-1.15/pkg/cloudprovider/providers/cloudstack
+* https://github.com/kubernetes/enhancements/issues/672
+* https://github.com/kubernetes/enhancements/issues/88
 
 ## Deployment
 
