@@ -18,7 +18,7 @@ Refer:
 
 ### Kubernetes
 
-Prebuilt containers are posted on [Docker Hub](https://hub.docker.com/r/swisstxt/cloudstack-cloud-controller-manager).
+Prebuilt containers are posted on [Docker Hub](https://hub.docker.com/r/apache/cloudstack-kubernetes-provider).
 
 The cloud controller is intended to be deployed as a daemon set, with on instance running on each node.
 
