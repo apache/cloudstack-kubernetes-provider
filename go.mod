@@ -4,12 +4,12 @@ require (
 	github.com/spf13/pflag v1.0.3
 	github.com/xanzy/go-cloudstack v2.4.1+incompatible
 	gopkg.in/gcfg.v1 v1.2.3
-	k8s.io/api v0.0.0-20190805141119-fdd30b57c827 // kubernetes-1.15.2
-	k8s.io/apimachinery v0.0.0-20190612205821-1799e75a0719 // kubernetes-1.15.2
-	k8s.io/apiserver v0.0.0-20190805142138-368b2058237c // kubernetes-1.15.2
-	k8s.io/cloud-provider v0.0.0-20190805144409-8484242760e7 // kubernetes-1.15.2
-	k8s.io/component-base v0.0.0-20190805141645-3a5e5ac800ae // kubernetes-1.15.2
+	k8s.io/api v0.0.0
+	k8s.io/apimachinery v0.0.0
+	k8s.io/cloud-provider v0.0.0
+	k8s.io/component-base v0.0.0
 	k8s.io/klog v0.3.1
+	k8s.io/kubernetes v1.15.2
 )
 
 replace (
