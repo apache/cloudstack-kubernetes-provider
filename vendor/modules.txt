@@ -249,8 +249,8 @@ k8s.io/apimachinery/pkg/apis/meta/v1
 k8s.io/apimachinery/pkg/runtime
 k8s.io/apimachinery/pkg/runtime/schema
 k8s.io/apimachinery/pkg/util/intstr
-k8s.io/apimachinery/pkg/util/wait
 k8s.io/apimachinery/pkg/util/sets
+k8s.io/apimachinery/pkg/util/wait
 k8s.io/apimachinery/pkg/util/uuid
 k8s.io/apimachinery/pkg/conversion
 k8s.io/apimachinery/pkg/fields
@@ -550,8 +550,8 @@ k8s.io/client-go/tools/clientcmd/api/v1
 k8s.io/cloud-provider
 k8s.io/cloud-provider/service/helpers
 # k8s.io/component-base v0.0.0 => k8s.io/component-base v0.0.0-20190805141645-3a5e5ac800ae
-k8s.io/component-base/logs
 k8s.io/component-base/cli/flag
+k8s.io/component-base/logs
 k8s.io/component-base/cli/globalflag
 k8s.io/component-base/config
 k8s.io/component-base/featuregate
