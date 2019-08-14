@@ -5,6 +5,78 @@ metadata:
   name: cloud-controller-manager
   namespace: kube-system
 ---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: system:cloud-controller-manager
+  annotations:
+    rbac.authorization.kubernetes.io/autoupdate: "true"
+  labels:
+    k8s-app: cloud-controller-manager
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+  - update
+- apiGroups:
+  - ""
+  resources:
+  - nodes
+  verbs:
+  - '*'
+- apiGroups:
+  - ""
+  resources:
+  - nodes/status
+  verbs:
+  - patch
+- apiGroups:
+  - ""
+  resources:
+  - services
+  verbs:
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - services/status
+  verbs:
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - serviceaccounts
+  verbs:
+  - create
+- apiGroups:
+  - ""
+  resources:
+  - endpoints
+  verbs:
+  - create
+  - get
+  - list
+  - watch
+  - update
+- apiGroups:
+  - ""
+  resources:
+  - persistentvolumes
+  verbs:
+  - list
+  - watch
+  - patch
+---
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
@@ -12,25 +84,25 @@ metadata:
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: cluster-admin
+  name: system:cloud-controller-manager
 subjects:
 - kind: ServiceAccount
   name: cloud-controller-manager
   namespace: kube-system
 ---
-apiVersion: v1
-kind: ConfigMap
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
 metadata:
-  name: cloud-controller-manager-config
+  name: system:cloud-controller-manager:extension-apiserver-authentication-reader
   namespace: kube-system
-data:
-  cloud-config: |
-    [Global]
-    api-url = #(CLOUDSTACK API URL)#
-    api-key = #(CLOUDSTACK API KEY)#
-    secret-key = #(CLOUDSTACK API SECRET)#
-    project-id = #(CLOUDSTACK PROJECT UUID optional)#
-    zone = #(CLOUDSTACK ZONE NAME)#
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: extension-apiserver-authentication-reader
+subjects:
+- kind: ServiceAccount
+  name: cloud-controller-manager
+  namespace: kube-system
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -40,40 +112,43 @@ metadata:
   name: cloud-controller-manager
   namespace: kube-system
 spec:
+  replicas: 3
   selector:
     matchLabels:
       k8s-app: cloud-controller-manager
+  strategy:
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+    type: RollingUpdate
   template:
     metadata:
       labels:
         k8s-app: cloud-controller-manager
     spec:
-      serviceAccountName: cloud-controller-manager
       containers:
       - name: cloud-controller-manager
-        image: swisstxt/cloudstack-cloud-controller-manager:v0.0.1
-        # Command line arguments: https://kubernetes.io/docs/reference/command-line-tools-reference/cloud-controller-manager/
+        image: swisstxt/cloudstack-cloud-controller-manager:master
+        imagePullPolicy: IfNotPresent
         command:
         - /root/cloudstack-ccm
+        - --leader-elect=true
         - --cloud-provider=external-cloudstack
         - --cloud-config=/config/cloud-config
-        - --kubeconfig=/var/lib/kubelet/kubeconfig # Connection Params
-        - --v=4
+        resources:
+          limits:
+            cpu: 50m
+            memory: 120Mi
+          requests:
+            cpu: 10m
+            memory: 60Mi
         volumeMounts:
         - name: config-volume
           mountPath: /config
-        - name: kubeconfig-volume
-          mountPath: /var/lib/kubelet/kubeconfig
-        - name: kubernetes-config-volume
-          mountPath: /var/lib/kubernetes
+      restartPolicy: Always
+      serviceAccountName: cloud-controller-manager
+      terminationGracePeriodSeconds: 30
       volumes:
       - name: config-volume
-        configMap:
-          name: cloud-controller-manager-config
-      - name: kubeconfig-volume
-        hostPath:
-          path: /var/lib/kubelet/kubeconfig
-      - name: kubernetes-config-volume
-        hostPath:
-          path: /var/lib/kubernetes
-
+        secret:
+          secretName: cloudstack-secret
