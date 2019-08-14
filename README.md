@@ -142,6 +142,7 @@ If you don't have a 'real' CloudStack installation, you can also launch a local 
 
 ## Copyright
 
-© 2018 SWISS TXT AG and the Kubernetes authors.
+© 2018-2019 Apache CloudStack project, SWISS TXT AG and the Kubernetes authors.
 
-See LICENSE-2.0 for permitted usage.
+This project is licensed under the Apache License, version 2.0.
+See the LICENSE file for details.
