@@ -22,10 +22,31 @@ Prebuilt containers are posted on [Docker Hub](https://hub.docker.com/r/apache/c
 
 The cloud controller is intended to be deployed as a daemon set, with on instance running on each node.
 
-Please see [deployment.yaml](/deployment.yaml) for an example deployment.
+To configure API access to your CloudStack management server, you need to create a secret containing a `cloudstack.ini`
+that is suitable for your environment.
 
-The comments explain how to configure Cloudstack API access.
-You need an access token that is allowed to fetch VM information and deploy load balancers in the project or domain where the nodes reside.
+`cloudstack.ini` should look like this:
+```ini
+[Global]
+api-url = <CloudStack API URL>
+api-key = <CloudStack API Key>
+secret-key = <CloudStack API Secret>
+project-id = <CloudStack Project UUID (optional)>
+zone = <CloudStack Zone Name (optional)>
+ssl-no-verify = <Disable SSL certificate validation: true or false (optional)>
+```
+
+The access token needs to be able to fetch VM information and deploy load balancers in the project or domain where the nodes reside.
+
+To create the secret, use the following command:
+```bash
+kubectl create secret generic cloudstack-secret --from-file=cloudstack.ini
+```
+
+You can then use the provided example [deployment.yaml](/deployment.yaml) to deploy the controller:
+```bash
+kubectl apply -f deployment.yaml
+```
 
 ### Protocols
 
