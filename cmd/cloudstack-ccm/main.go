@@ -32,7 +32,7 @@ import (
 
 	"github.com/spf13/pflag"
 
-	_ "github.com/swisstxt/cloudstack-cloud-controller-manager" // our cloud package
+	_ "github.com/apache/cloudstack-kubernetes-provider" // our cloud package
 )
 
 func main() {

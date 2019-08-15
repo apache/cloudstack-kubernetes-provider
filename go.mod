@@ -1,4 +1,4 @@
-module github.com/swisstxt/cloudstack-cloud-controller-manager
+module github.com/apache/cloudstack-kubernetes-provider
 
 go 1.12
 

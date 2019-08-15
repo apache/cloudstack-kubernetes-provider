@@ -8,7 +8,7 @@ GIT_VERSION?=$(patsubst v%,%,${GIT_TAG})-master+${GIT_COMMIT}
 else
 GIT_VERSION?=$(patsubst v%,%,${GIT_TAG})
 endif
-LDFLAGS="-X github.com/swisstxt/cloudstack-cloud-controller-manager/vendor/k8s.io/kubernetes/pkg/version.gitVersion=${GIT_VERSION} -X github.com/swisstxt/cloudstack-cloud-controller-manager/vendor/k8s.io/kubernetes/pkg/version.gitCommit=${GIT_COMMIT} -X github.com/swisstxt/cloudstack-cloud-controller-manager/vendor/k8s.io/kubernetes/pkg/version.buildDate=${BUILD_DATE}"
+LDFLAGS="-X github.com/apache/cloudstack-kubernetes-provider/vendor/k8s.io/kubernetes/pkg/version.gitVersion=${GIT_VERSION} -X github.com/apache/cloudstack-kubernetes-provider/vendor/k8s.io/kubernetes/pkg/version.gitCommit=${GIT_COMMIT} -X github.com/apache/cloudstack-kubernetes-provider/vendor/k8s.io/kubernetes/pkg/version.buildDate=${BUILD_DATE}"
 export CGO_ENABLED=0
 export GO111MODULE=on
 
@@ -26,8 +26,8 @@ cloudstack-ccm: ${CMD_SRC}
 	go build -mod vendor -ldflags ${LDFLAGS} -o $@ $^
 
 docker:
-	docker build . -t cloudstack-cloud-controller-manager:${GIT_COMMIT_SHORT}
-	docker tag cloudstack-cloud-controller-manager:${GIT_COMMIT_SHORT} cloudstack-cloud-controller-manager:latest
+	docker build . -t apache/cloudstack-kubernetes-provider:${GIT_COMMIT_SHORT}
+	docker tag apache/cloudstack-kubernetes-provider:${GIT_COMMIT_SHORT} apache/cloudstack-kubernetes-provider:latest
 ifneq (${GIT_IS_TAG},NOT_A_TAG)
-	docker tag cloudstack-cloud-controller-manager:${GIT_COMMIT_SHORT} cloudstack-cloud-controller-manager:${GIT_TAG}
+	docker tag apache/cloudstack-kubernetes-provider:${GIT_COMMIT_SHORT} apache/cloudstack-kubernetes-provider:${GIT_TAG}
 endif
