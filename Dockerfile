@@ -7,4 +7,4 @@ FROM alpine:latest
 RUN apk --no-cache add ca-certificates
 WORKDIR /root/
 COPY --from=builder /go/src/github.com/swisstxt/cloudstack-cloud-controller-manager/cloudstack-ccm .
-CMD ["./cloudstack-ccm"]
+CMD ["./cloudstack-ccm", "--cloud-provider", "external-cloudstack"]

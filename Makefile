@@ -27,3 +27,7 @@ cloudstack-ccm: ${CMD_SRC}
 
 docker:
 	docker build . -t cloudstack-cloud-controller-manager:${GIT_COMMIT_SHORT}
+	docker tag cloudstack-cloud-controller-manager:${GIT_COMMIT_SHORT} cloudstack-cloud-controller-manager:latest
+ifneq (${GIT_IS_TAG},NOT_A_TAG)
+	docker tag cloudstack-cloud-controller-manager:${GIT_COMMIT_SHORT} cloudstack-cloud-controller-manager:${GIT_TAG}
+endif

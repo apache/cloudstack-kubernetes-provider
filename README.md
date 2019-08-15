@@ -116,15 +116,16 @@ To build the controller with correct versioning, some build flags need to be pas
 A Makefile is provided that sets these build flags to values obtained from git.
 
 ```bash
-go get github.com/swisstxt/cloudstack-cloud-controller-manager
-cd ${GOPATH}/src/github.com/swisstxt/cloudstack-cloud-controller-manager
+go get github.com/apache/cloudstack-kubernetes-provider
+cd ${GOPATH}/src/github.com/apache/cloudstack-kubernetes-provider
 make
 ```
 
-To build the cloudstack-cloud-controller-manager container, please use the provided Docker file:
+To build the cloudstack-cloud-controller-manager container, please use the provided Dockerfile.
+The Makefile will also with that and properly tag the resulting container.
 
 ```bash
-docker build . -t swisstxt/cloudstack-cloud-controller-manager:latest
+make docker
 ```
 
 ### Testing
