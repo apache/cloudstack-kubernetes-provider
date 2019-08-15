@@ -108,11 +108,12 @@ Instead, it first obtains the name of the node from Kubernetes, then fetches inf
 
 ### Building
 
-All dependencies are vendored.
-You need GNU make, git and Go 1.11 to build cloudstack-ccm.
+Go 1.12 is required to build cloudstack-ccm.
 
-It's still possible to build with Go 1.10, but you need to remove the option `-mod vendor` from the
-`cloudstack-ccm` compilation target in the `Makefile`.
+It is recommended to build with Go module support, but dependencies are also vendored.
+
+To build the controller with correct versioning, some build flags need to be passed.
+A Makefile is provided that sets these build flags to values obtained from git.
 
 ```bash
 go get github.com/swisstxt/cloudstack-cloud-controller-manager

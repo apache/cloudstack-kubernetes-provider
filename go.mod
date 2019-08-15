@@ -1,5 +1,7 @@
 module github.com/swisstxt/cloudstack-cloud-controller-manager
 
+go 1.12
+
 require (
 	github.com/spf13/pflag v1.0.3
 	github.com/xanzy/go-cloudstack v2.4.1+incompatible

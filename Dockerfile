@@ -1,4 +1,4 @@
-FROM golang:1.11.2 as builder
+FROM golang:1.12 as builder
 COPY . /go/src/github.com/swisstxt/cloudstack-cloud-controller-manager
 WORKDIR /go/src/github.com/swisstxt/cloudstack-cloud-controller-manager
 RUN  make clean && CGO_ENABLED=0 GOOS=linux make
