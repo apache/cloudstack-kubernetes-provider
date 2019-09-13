@@ -4,7 +4,7 @@ go 1.12
 
 require (
 	github.com/spf13/pflag v1.0.3
-	github.com/xanzy/go-cloudstack v2.4.1+incompatible
+	github.com/xanzy/go-cloudstack v2.7.0+incompatible
 	gopkg.in/gcfg.v1 v1.2.3
 	k8s.io/api v0.0.0
 	k8s.io/apimachinery v0.0.0

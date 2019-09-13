@@ -35,7 +35,8 @@ func (p *AddResourceDetailParams) toURLValues() url.Values {
 	if v, found := p.p["details"]; found {
 		i := 0
 		for k, vv := range v.(map[string]string) {
-			u.Set(fmt.Sprintf("details[%d].%s", i, k), vv)
+			u.Set(fmt.Sprintf("details[%d].key", i), k)
+			u.Set(fmt.Sprintf("details[%d].value", i), vv)
 			i++
 		}
 	}
@@ -126,8 +127,9 @@ func (s *ResourcemetadataService) AddResourceDetail(p *AddResourceDetailParams) 
 }
 
 type AddResourceDetailResponse struct {
-	JobID       string `json:"jobid"`
 	Displaytext string `json:"displaytext"`
+	JobID       string `json:"jobid"`
+	Jobstatus   int    `json:"jobstatus"`
 	Success     bool   `json:"success"`
 }
 
@@ -179,6 +181,8 @@ func (s *ResourcemetadataService) GetVolumeSnapshotDetails(p *GetVolumeSnapshotD
 }
 
 type GetVolumeSnapshotDetailsResponse struct {
+	JobID           string `json:"jobid"`
+	Jobstatus       int    `json:"jobstatus"`
 	VolumeiScsiName string `json:"volumeiScsiName"`
 }
 
@@ -376,6 +380,8 @@ type ResourceDetail struct {
 	Customer     string `json:"customer"`
 	Domain       string `json:"domain"`
 	Domainid     string `json:"domainid"`
+	JobID        string `json:"jobid"`
+	Jobstatus    int    `json:"jobstatus"`
 	Key          string `json:"key"`
 	Project      string `json:"project"`
 	Projectid    string `json:"projectid"`
@@ -470,7 +476,8 @@ func (s *ResourcemetadataService) RemoveResourceDetail(p *RemoveResourceDetailPa
 }
 
 type RemoveResourceDetailResponse struct {
-	JobID       string `json:"jobid"`
 	Displaytext string `json:"displaytext"`
+	JobID       string `json:"jobid"`
+	Jobstatus   int    `json:"jobstatus"`
 	Success     bool   `json:"success"`
 }

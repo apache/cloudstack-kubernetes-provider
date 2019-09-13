@@ -117,7 +117,7 @@ github.com/sirupsen/logrus
 github.com/spf13/cobra
 # github.com/spf13/pflag v1.0.3
 github.com/spf13/pflag
-# github.com/xanzy/go-cloudstack v2.4.1+incompatible
+# github.com/xanzy/go-cloudstack v2.7.0+incompatible
 github.com/xanzy/go-cloudstack/cloudstack
 # golang.org/x/crypto v0.0.0-20181025213731-e84da0312774
 golang.org/x/crypto/ssh/terminal
