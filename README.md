@@ -144,7 +144,7 @@ If you don't have a 'real' CloudStack installation, you can also launch a local 
 
 ## Copyright
 
-© 2018-2019 Apache CloudStack project, SWISS TXT AG and the Kubernetes authors.
+Copyright 2019 The Apache Software Foundation
 
-This project is licensed under the Apache License, version 2.0.
-See the LICENSE file for details.
+This product includes software developed at
+The Apache Software Foundation (http://www.apache.org/).
