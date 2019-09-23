@@ -59,6 +59,12 @@ The service running in the pod must support the protocol.
 
 [traefik-ingress-controller.yml](/traefik-ingress-controller.yml) contains a basic deployment for the Træfik ingress controller that illustrates how to use it with the proxy protocol.
 
+For the nginx ingress controller, please refer to the official documentation at [kubernetes.github.io/ingress-nginx/deploy](https://kubernetes.github.io/ingress-nginx/deploy/). After applying the deployment, patch it for proxy protocol support with the provided fragment:
+
+```bash
+kubectl apply -f nginx-ingress-controller-patch.yml
+```
+
 ### Node Labels
 
 :warning: **The node name must match the host name, so the controller can fetch and assign metadata from CloudStack.**
