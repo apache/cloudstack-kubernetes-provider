@@ -57,7 +57,7 @@ For UDP and Proxy Protocol support, CloudStack 4.6 or later is required.
 Since kube-proxy does not support the Proxy Protocol or UDP, you should connect this directly to pods, for example by deploying a DaemonSet and setting `hostNetwork: true`.
 The service running in the pod must support the protocol.
 
-See [service.yaml](/service.yaml) for an example Service deployment and part of a suitable configuration for an ingress controller.
+[traefik-ingress-controller.yml](/traefik-ingress-controller.yml) contains a basic deployment for the Træfik ingress controller that illustrates how to use it with the proxy protocol.
 
 ### Node Labels
 
