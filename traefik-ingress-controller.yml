@@ -56,8 +56,6 @@ spec:
         volumeMounts:
         - mountPath: /config
           name: config
-      dnsPolicy: ClusterFirst
-      hostNetwork: true
       volumes:
       - configMap:
           defaultMode: 420
