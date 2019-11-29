@@ -124,6 +124,9 @@ func (cs *CSCloud) EnsureLoadBalancer(ctx context.Context, clusterName string, s
 
 	klog.V(4).Infof("Load balancer %v is associated with IP %v", lb.name, lb.ipAddr)
 
+	// Fetch the IP source ranges from the spec if any
+	sources := service.Spec.LoadBalancerSourceRanges
+
 	for _, port := range service.Spec.Ports {
 		// Construct the protocol name first, we need it a few times
 		protocol, err := constructProtocolName(port, service.Annotations)
@@ -157,7 +160,7 @@ func (cs *CSCloud) EnsureLoadBalancer(ctx context.Context, clusterName string, s
 		}
 
 		klog.V(4).Infof("Creating load balancer rule: %v", lbRuleName)
-		lbRule, err := lb.createLoadBalancerRule(lbRuleName, port, protocol)
+		lbRule, err := lb.createLoadBalancerRule(lbRuleName, port, protocol, len(sources) > 0)
 		if err != nil {
 			return nil, err
 		}
@@ -167,6 +170,12 @@ func (cs *CSCloud) EnsureLoadBalancer(ctx context.Context, clusterName string, s
 			return nil, err
 		}
 
+		for cidr := range sources {
+			// open the firewall if we have explicit rules
+			// otherwise, an implicit rule will be created by CS for us
+			klog.V(4).Infof("Creating firewall rule (%v) for load balancer rule: %v", cidr, lbRuleName)
+			// TODO
+		}
 	}
 
 	// Cleanup any rules that are now still in the rules map, as they are no longer needed.
@@ -485,7 +494,7 @@ func (lb *loadBalancer) updateLoadBalancerRule(lbRuleName string, protocol strin
 }
 
 // createLoadBalancerRule creates a new load balancer rule and returns it's ID.
-func (lb *loadBalancer) createLoadBalancerRule(lbRuleName string, port v1.ServicePort, protocol string) (*cloudstack.LoadBalancerRule, error) {
+func (lb *loadBalancer) createLoadBalancerRule(lbRuleName string, port v1.ServicePort, protocol string, explicitFirewall bool) (*cloudstack.LoadBalancerRule, error) {
 	p := lb.LoadBalancer.NewCreateLoadBalancerRuleParams(
 		lb.algorithm,
 		lbRuleName,
@@ -498,8 +507,15 @@ func (lb *loadBalancer) createLoadBalancerRule(lbRuleName string, port v1.Servic
 
 	p.SetProtocol(protocol)
 
-	// Do not create corresponding firewall rule.
-	p.SetOpenfirewall(true)
+	// Check we should allow CS to create an implicit rule for us
+	if explicitFirewall {
+		// Nope, we have to take care of that ourselves
+		p.SetOpenfirewall(false)
+		
+	} else {
+		// Sure, do it
+		p.SetOpenfirewall(true)
+	}
 
 	// Create a new load balancer rule.
 	r, err := lb.LoadBalancer.CreateLoadBalancerRule(p)
