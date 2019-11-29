@@ -25,7 +25,7 @@ import (
 	"fmt"
 	"regexp"
 
-	"github.com/xanzy/go-cloudstack/cloudstack"
+	"github.com/xanzy/go-cloudstack/v2/cloudstack"
 	"k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	cloudprovider "k8s.io/cloud-provider"
