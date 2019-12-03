@@ -124,9 +124,6 @@ func (cs *CSCloud) EnsureLoadBalancer(ctx context.Context, clusterName string, s
 
 	klog.V(4).Infof("Load balancer %v is associated with IP %v", lb.name, lb.ipAddr)
 
-	// Fetch the IP source ranges from the spec if any
-	sources := service.Spec.LoadBalancerSourceRanges
-
 	for _, port := range service.Spec.Ports {
 		// Construct the protocol name first, we need it a few times
 		protocol, err := constructProtocolName(port, service.Annotations)
@@ -160,7 +157,7 @@ func (cs *CSCloud) EnsureLoadBalancer(ctx context.Context, clusterName string, s
 		}
 
 		klog.V(4).Infof("Creating load balancer rule: %v", lbRuleName)
-		lbRule, err := lb.createLoadBalancerRule(lbRuleName, port, protocol, len(sources) > 0)
+		lbRule, err := lb.createLoadBalancerRule(lbRuleName, port, protocol)
 		if err != nil {
 			return nil, err
 		}
@@ -170,12 +167,8 @@ func (cs *CSCloud) EnsureLoadBalancer(ctx context.Context, clusterName string, s
 			return nil, err
 		}
 
-		for cidr := range sources {
-			// open the firewall if we have explicit rules
-			// otherwise, an implicit rule will be created by CS for us
-			klog.V(4).Infof("Creating firewall rule (%v) for load balancer rule: %v", cidr, lbRuleName)
-			// TODO
-		}
+		klog.V(4).Infof("Creating firewall rules for load balancer rule: %v (%v:%v:%v)", lbRuleName, protocol, lbRule.Publicip, port.Port)
+		lb.updateFirewallRules(lbRule.Publicipid, int(port.Port), l7protocolToL4(protocol), service.Spec.LoadBalancerSourceRanges)
 	}
 
 	// Cleanup any rules that are now still in the rules map, as they are no longer needed.
@@ -494,7 +487,7 @@ func (lb *loadBalancer) updateLoadBalancerRule(lbRuleName string, protocol strin
 }
 
 // createLoadBalancerRule creates a new load balancer rule and returns it's ID.
-func (lb *loadBalancer) createLoadBalancerRule(lbRuleName string, port v1.ServicePort, protocol string, explicitFirewall bool) (*cloudstack.LoadBalancerRule, error) {
+func (lb *loadBalancer) createLoadBalancerRule(lbRuleName string, port v1.ServicePort, protocol string) (*cloudstack.LoadBalancerRule, error) {
 	p := lb.LoadBalancer.NewCreateLoadBalancerRuleParams(
 		lb.algorithm,
 		lbRuleName,
@@ -507,15 +500,8 @@ func (lb *loadBalancer) createLoadBalancerRule(lbRuleName string, port v1.Servic
 
 	p.SetProtocol(protocol)
 
-	// Check we should allow CS to create an implicit rule for us
-	if explicitFirewall {
-		// Nope, we have to take care of that ourselves
-		p.SetOpenfirewall(false)
-		
-	} else {
-		// Sure, do it
-		p.SetOpenfirewall(true)
-	}
+	// Do not open the firewall implicitly, we always create explicit firewall rules
+	p.SetOpenfirewall(false)
 
 	// Create a new load balancer rule.
 	r, err := lb.LoadBalancer.CreateLoadBalancerRule(p)
@@ -600,4 +586,62 @@ func symmetricDifference(hostIDs []string, lbInstances []*cloudstack.VirtualMach
 	}
 
 	return assign, remove
+}
+
+// updateFirewallRules creates firewall rules for a load balancer rule
+//
+// If the rule list is empty, all internet (IPv4: 0.0.0.0/0) is opened for the
+// load balancer's port+protocol implicitly.
+//
+// Returns true if the firewall rule set was changed
+func (lb *loadBalancer) updateFirewallRules(publicIpId string, publicPort int, protocol string, allowedIPs []string) (bool, error) {
+	if len(allowedIPs) == 0 {
+		allowedIPs = []string{"0.0.0.0/0"}
+	}
+
+	p := lb.Firewall.NewListFirewallRulesParams()
+	p.SetIpaddressid(publicIpId)
+	r, err := lb.Firewall.ListFirewallRules(p)
+	if err != nil {
+		return false, fmt.Errorf("error fetching firewall rules from public IP %v: %v", publicIpId, err)
+	}
+
+	previousRules := filterFirewallRuleSet(r.FirewallRules, publicPort, protocol)
+
+	if !compareFirewallRules(allowedIPs, previousRules) {
+		// TODO recreate firewall rules
+	}
+
+	return false, nil
+}
+
+func filterFirewallRuleSet(rules []*cloudstack.FirewallRule, port int, protocol string) []string {
+	// TODO apply filter
+	return []string{}
+}
+
+// compareFirewallRules compares to sets of IP addresses and returns true when they are equal
+func compareFirewallRules(previous []string, replacement []string) bool {
+	if len(previous) != len(replacement) {
+		return false
+	}
+	equal := true
+	for i := 0; i < len(previous); i++ {
+		if previous[i] != replacement[i] {
+			equal = false
+		}
+	}
+	return equal
+}
+
+// l7protocolToL4 converts a layer7 protocol name to the encapsulating layer4 name
+//
+// Effectively returns "tcp" for "tcp-proxy" and everything else as-is
+func l7protocolToL4(protocol string) string {
+	switch protocol {
+		case "tcp-proxy":
+			return "tcp"
+		default:
+			return protocol
+	}
 }
