@@ -8,7 +8,7 @@ GIT_VERSION?=$(patsubst v%,%,${GIT_TAG})-master+${GIT_COMMIT}
 else
 GIT_VERSION?=$(patsubst v%,%,${GIT_TAG})
 endif
-LDFLAGS="-X github.com/apache/cloudstack-kubernetes-provider/vendor/k8s.io/kubernetes/pkg/version.gitVersion=${GIT_VERSION} -X github.com/apache/cloudstack-kubernetes-provider/vendor/k8s.io/kubernetes/pkg/version.gitCommit=${GIT_COMMIT} -X github.com/apache/cloudstack-kubernetes-provider/vendor/k8s.io/kubernetes/pkg/version.buildDate=${BUILD_DATE}"
+LDFLAGS="-X k8s.io/kubernetes/pkg/version.gitVersion=${GIT_VERSION} -X k8s.io/kubernetes/pkg/version.gitCommit=${GIT_COMMIT} -X k8s.io/kubernetes/pkg/version.buildDate=${BUILD_DATE}"
 export CGO_ENABLED=0
 export GO111MODULE=on
 
