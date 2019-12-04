@@ -168,7 +168,7 @@ func (cs *CSCloud) EnsureLoadBalancer(ctx context.Context, clusterName string, s
 		}
 
 		klog.V(4).Infof("Creating firewall rules for load balancer rule: %v (%v:%v:%v)", lbRuleName, protocol, lbRule.Publicip, port.Port)
-		lb.updateFirewallRules(lbRule.Publicipid, int(port.Port), l7protocolToL4(protocol), service.Spec.LoadBalancerSourceRanges)
+		lb.updateFirewallRule(lbRule.Publicipid, int(port.Port), l7protocolToL4(protocol), service.Spec.LoadBalancerSourceRanges)
 	}
 
 	// Cleanup any rules that are now still in the rules map, as they are no longer needed.
@@ -242,6 +242,14 @@ func (cs *CSCloud) EnsureLoadBalancerDeleted(ctx context.Context, clusterName st
 	}
 
 	for _, lbRule := range lb.rules {
+		klog.V(4).Infof("Deleting firewall rules for load balancer: %v", lbRule.Name)
+		port, err := strconv.ParseInt(lbRule.Publicport, 10, 32)
+		if err != nil {
+			klog.Errorf("Error parsing port: %v", err)
+		} else {
+			lb.deleteFirewallRule(lbRule.Publicipid, int(port), l7protocolToL4(lbRule.Protocol))
+		}
+
 		klog.V(4).Infof("Deleting load balancer rule: %v", lbRule.Name)
 		if err := lb.deleteLoadBalancerRule(lbRule); err != nil {
 			return err
@@ -588,13 +596,13 @@ func symmetricDifference(hostIDs []string, lbInstances []*cloudstack.VirtualMach
 	return assign, remove
 }
 
-// updateFirewallRules creates firewall rules for a load balancer rule
+// updateFirewallRule creates a firewall rule for a load balancer rule
 //
 // If the rule list is empty, all internet (IPv4: 0.0.0.0/0) is opened for the
 // load balancer's port+protocol implicitly.
 //
-// Returns true if the firewall rule set was changed
-func (lb *loadBalancer) updateFirewallRules(publicIpId string, publicPort int, protocol string, allowedIPs []string) (bool, error) {
+// Returns true if the firewall rule was created or updated
+func (lb *loadBalancer) updateFirewallRule(publicIpId string, publicPort int, protocol string, allowedIPs []string) (bool, error) {
 	if len(allowedIPs) == 0 {
 		allowedIPs = []string{"0.0.0.0/0"}
 	}
@@ -603,35 +611,74 @@ func (lb *loadBalancer) updateFirewallRules(publicIpId string, publicPort int, p
 	p.SetIpaddressid(publicIpId)
 	r, err := lb.Firewall.ListFirewallRules(p)
 	if err != nil {
-		return false, fmt.Errorf("error fetching firewall rules from public IP %v: %v", publicIpId, err)
+		return false, fmt.Errorf("error fetching firewall rules for public IP %v: %v", publicIpId, err)
 	}
 
-	previousRules := filterFirewallRuleSet(r.FirewallRules, publicPort, protocol)
-
-	if !compareFirewallRules(allowedIPs, previousRules) {
-		// TODO recreate firewall rules
-	}
-
-	return false, nil
-}
-
-func filterFirewallRuleSet(rules []*cloudstack.FirewallRule, port int, protocol string) []string {
-	// TODO apply filter
-	return []string{}
-}
-
-// compareFirewallRules compares to sets of IP addresses and returns true when they are equal
-func compareFirewallRules(previous []string, replacement []string) bool {
-	if len(previous) != len(replacement) {
-		return false
-	}
-	equal := true
-	for i := 0; i < len(previous); i++ {
-		if previous[i] != replacement[i] {
-			equal = false
+	// filter by proto:port
+	filtered := make([]*cloudstack.FirewallRule, 0, 1)
+	for _, rule := range r.FirewallRules {
+		if rule.Protocol == protocol && rule.Startport == publicPort && rule.Endport == publicPort {
+			filtered = append(filtered, rule)
 		}
 	}
-	return equal
+
+	// create a new rule first
+	p2 := lb.Firewall.NewCreateFirewallRuleParams(publicIpId, protocol)
+	p2.SetCidrlist(allowedIPs)
+	p2.SetStartport(publicPort)
+	p2.SetEndport(publicPort)
+	_, err = lb.Firewall.CreateFirewallRule(p2)
+	if err != nil {
+		return false, fmt.Errorf("error creating new firewall rule for public IP %v, proto %v, port %v, allowed %v: %v", publicIpId, protocol, publicPort, allowedIPs, err)
+	}
+
+	// delete old rules
+	for _, rule := range filtered {
+		p := lb.Firewall.NewDeleteFirewallRuleParams(rule.Id)
+		_, err2 := lb.Firewall.DeleteFirewallRule(p)
+		if err != nil {
+			klog.Errorf("Error deleting old firewall rule %v: %v", rule.Id, err2)
+			err = err2
+		}
+	}
+
+	// return true (because we changed something), but also the last error if deleting one old rule failed
+	return true, err
+}
+
+// deleteFirewallRule deletes the firewall rule associated with the ip:port:protocol combo
+//
+// returns true when corresponding rules were deleted
+func (lb *loadBalancer) deleteFirewallRule(publicIpId string, publicPort int, protocol string) (bool, error) {
+	p := lb.Firewall.NewListFirewallRulesParams()
+	p.SetIpaddressid(publicIpId)
+	r, err := lb.Firewall.ListFirewallRules(p)
+	if err != nil {
+		return false, fmt.Errorf("error fetching firewall rules for public IP %v: %v", publicIpId, err)
+	}
+
+	// filter by proto:port
+	filtered := make([]*cloudstack.FirewallRule, 0, 1)
+	for _, rule := range r.FirewallRules {
+		if rule.Protocol == protocol && rule.Startport == publicPort && rule.Endport == publicPort {
+			filtered = append(filtered, rule)
+		}
+	}
+
+	// delete all rules
+	deleted := false
+	for _, rule := range filtered {
+		p := lb.Firewall.NewDeleteFirewallRuleParams(rule.Id)
+		_, err2 := lb.Firewall.DeleteFirewallRule(p)
+		if err != nil {
+			klog.Errorf("Error deleting old firewall rule %v: %v", rule.Id, err2)
+			err = err2
+		} else {
+			deleted = true
+		}
+	}
+
+	return deleted, err
 }
 
 // l7protocolToL4 converts a layer7 protocol name to the encapsulating layer4 name
