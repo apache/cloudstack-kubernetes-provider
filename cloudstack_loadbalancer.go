@@ -39,6 +39,10 @@ import (
 // CloudStack 4.6 is required for it to work.
 const ServiceAnnotationLoadBalancerProxyProtocol = "service.beta.kubernetes.io/cloudstack-load-balancer-proxy-protocol"
 
+// defaultAllowedCIDR is the network range that is allowed on the firewall
+// by default when no explicit CIDR list is given on a LoadBalancer.
+const defaultAllowedCIDR = "0.0.0.0/0"
+
 type loadBalancer struct {
 	*cloudstack.CloudStackClient
 
@@ -168,11 +172,18 @@ func (cs *CSCloud) EnsureLoadBalancer(ctx context.Context, clusterName string, s
 		}
 
 		klog.V(4).Infof("Creating firewall rules for load balancer rule: %v (%v:%v:%v)", lbRuleName, protocol, lbRule.Publicip, port.Port)
-		lb.updateFirewallRule(lbRule.Publicipid, int(port.Port), l7protocolToL4(protocol), service.Spec.LoadBalancerSourceRanges)
+		if _ , err := lb.updateFirewallRule(lbRule.Publicipid, int(port.Port), l7protocolToL4(protocol), service.Spec.LoadBalancerSourceRanges); err != nil {
+			klog.V(1).Errorf("Error updating firewall rules for load balancer rule: %v", lbRuleName)
+		}
 	}
 
 	// Cleanup any rules that are now still in the rules map, as they are no longer needed.
 	for _, lbRule := range lb.rules {
+		klog.V(4).Infof("Deleting firewall rules associated with load balancer rule: %v (%v:%v:%v)", lbRule.Name, protocol, lbRule.Publicip, port.Port)
+		if _, err := lb.deleteFirewallRule(publicIpId, int(port.Port), l7protocolToL4(protocol)); err != nil {
+			klog.V(1).Errorf("Error deleting firewall rules for load balancer rule: %v", lbRule.Name)
+		}
+
 		klog.V(4).Infof("Deleting obsolete load balancer rule: %v", lbRule.Name)
 		if err := lb.deleteLoadBalancerRule(lbRule); err != nil {
 			return nil, err
@@ -604,7 +615,7 @@ func symmetricDifference(hostIDs []string, lbInstances []*cloudstack.VirtualMach
 // Returns true if the firewall rule was created or updated
 func (lb *loadBalancer) updateFirewallRule(publicIpId string, publicPort int, protocol string, allowedIPs []string) (bool, error) {
 	if len(allowedIPs) == 0 {
-		allowedIPs = []string{"0.0.0.0/0"}
+		allowedIPs = []string{defaultAllowedCIDR}
 	}
 
 	p := lb.Firewall.NewListFirewallRulesParams()
