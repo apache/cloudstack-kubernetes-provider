@@ -711,10 +711,9 @@ func (lb *loadBalancer) deleteFirewallRule(publicIpId string, publicPort int, pr
 	deleted := false
 	for _, rule := range filtered {
 		p := lb.Firewall.NewDeleteFirewallRuleParams(rule.Id)
-		_, err2 := lb.Firewall.DeleteFirewallRule(p)
+		_, err = lb.Firewall.DeleteFirewallRule(p)
 		if err != nil {
-			klog.Errorf("Error deleting old firewall rule %v: %v", rule.Id, err2)
-			err = err2
+			klog.Errorf("Error deleting old firewall rule %v: %v", rule.Id, err)
 		} else {
 			deleted = true
 		}
