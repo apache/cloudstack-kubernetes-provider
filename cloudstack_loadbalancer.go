@@ -23,6 +23,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/xanzy/go-cloudstack/cloudstack"
 	"k8s.io/klog"
@@ -651,7 +652,8 @@ func (lb *loadBalancer) updateFirewallRule(publicIpId string, publicPort int, pr
 	// determine if we already have a rule with matching cidrs
 	var match *cloudstack.FirewallRule
 	for rule := range filtered {
-		if compareStringSlice(rule.Cidrlist, allowedIPs) {
+		cidrlist := strings.Split(rule.Cidrlist, ",")
+		if compareStringSlice(cidrlist, allowedIPs) {
 			match = rule
 			break
 		}
