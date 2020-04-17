@@ -634,10 +634,13 @@ func (lb *loadBalancer) updateFirewallRule(publicIpId string, publicPort int, pr
 		allowedIPs = []string{defaultAllowedCIDR}
 	}
 
-	klog.V(4).Infof("Listing firewall rules for %v", publicIpId)
 	p := lb.Firewall.NewListFirewallRulesParams()
 	p.SetIpaddressid(publicIpId)
 	p.SetListall(true)
+	if lb.projectID != "" {
+		p.SetProjectid(lb.projectID)
+	}
+	klog.V(4).Infof("Listing firewall rules for %v", p)
 	r, err := lb.Firewall.ListFirewallRules(p)
 	if err != nil {
 		return false, fmt.Errorf("error fetching firewall rules for public IP %v: %v", publicIpId, err)
@@ -702,6 +705,10 @@ func (lb *loadBalancer) updateFirewallRule(publicIpId string, publicPort int, pr
 func (lb *loadBalancer) deleteFirewallRule(publicIpId string, publicPort int, protocol LoadBalancerProtocol) (bool, error) {
 	p := lb.Firewall.NewListFirewallRulesParams()
 	p.SetIpaddressid(publicIpId)
+	p.SetListall(true)
+	if lb.projectID != "" {
+		p.SetProjectid(lb.projectID)
+	}
 	r, err := lb.Firewall.ListFirewallRules(p)
 	if err != nil {
 		return false, fmt.Errorf("error fetching firewall rules for public IP %v: %v", publicIpId, err)
