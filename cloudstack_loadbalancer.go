@@ -636,6 +636,7 @@ func (lb *loadBalancer) updateFirewallRule(publicIpId string, publicPort int, pr
 
 	p := lb.Firewall.NewListFirewallRulesParams()
 	p.SetIpaddressid(publicIpId)
+	p.SetListall(true)
 	r, err := lb.Firewall.ListFirewallRules(p)
 	if err != nil {
 		return false, fmt.Errorf("error fetching firewall rules for public IP %v: %v", publicIpId, err)
