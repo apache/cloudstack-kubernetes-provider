@@ -74,7 +74,7 @@ func (cs *CSCloud) GetLoadBalancer(ctx context.Context, clusterName string, serv
 
 // EnsureLoadBalancer creates a new load balancer, or updates the existing one. Returns the status of the balancer.
 func (cs *CSCloud) EnsureLoadBalancer(ctx context.Context, clusterName string, service *v1.Service, nodes []*v1.Node) (status *v1.LoadBalancerStatus, err error) {
-	klog.V(4).Infof("EnsureLoadBalancer(%v, %v, %v, %v, %v, %v)", clusterName, service.Namespace, service.Name, service.Spec.LoadBalancerIP, service.Spec.Ports, nodes)
+	klog.V(4).Infof("EnsureLoadBalancer(%v, %v, %v, %v, %v)", clusterName, service.Namespace, service.Name, service.Spec.LoadBalancerIP, service.Spec.Ports)
 
 	if len(service.Spec.Ports) == 0 {
 		return nil, fmt.Errorf("requested load balancer with no ports")
@@ -132,41 +132,42 @@ func (cs *CSCloud) EnsureLoadBalancer(ctx context.Context, clusterName string, s
 		lbRuleName := fmt.Sprintf("%s-%s-%d", lb.name, protocol, port.Port)
 
 		// If the load balancer rule exists and is up-to-date, we move on to the next rule.
-		exists, needsUpdate, err := lb.checkLoadBalancerRule(lbRuleName, port, protocol)
+		lbRule, needsUpdate, err := lb.checkLoadBalancerRule(lbRuleName, port, protocol)
 		if err != nil {
 			return nil, err
 		}
-		if exists && !needsUpdate {
-			klog.V(4).Infof("Load balancer rule %v is up-to-date", lbRuleName)
-			// Delete the rule from the map, to prevent it being deleted.
-			delete(lb.rules, lbRuleName)
-			continue
-		}
 
-		if needsUpdate {
-			klog.V(4).Infof("Updating load balancer rule: %v", lbRuleName)
-			if err := lb.updateLoadBalancerRule(lbRuleName, protocol); err != nil {
+		if lbRule != nil {
+			if needsUpdate {
+				klog.V(4).Infof("Updating load balancer rule: %v", lbRuleName)
+				if err := lb.updateLoadBalancerRule(lbRuleName, protocol); err != nil {
+					return nil, err
+				}
+				// Delete the rule from the map, to prevent it being deleted.
+				delete(lb.rules, lbRuleName)
+			} else {
+				klog.V(4).Infof("Load balancer rule %v is up-to-date", lbRuleName)
+				// Delete the rule from the map, to prevent it being deleted.
+				delete(lb.rules, lbRuleName)
+			}
+		} else {
+			klog.V(4).Infof("Creating load balancer rule: %v", lbRuleName)
+			lbRule, err = lb.createLoadBalancerRule(lbRuleName, port, protocol)
+			if err != nil {
 				return nil, err
 			}
-			// Delete the rule from the map, to prevent it being deleted.
-			delete(lb.rules, lbRuleName)
-			continue
+
+			klog.V(4).Infof("Assigning hosts (%v) to load balancer rule: %v", lb.hostIDs, lbRuleName)
+			if err = lb.assignHostsToRule(lbRule, lb.hostIDs); err != nil {
+				return nil, err
+			}
 		}
 
-		klog.V(4).Infof("Creating load balancer rule: %v", lbRuleName)
-		lbRule, err := lb.createLoadBalancerRule(lbRuleName, port, protocol)
-		if err != nil {
-			return nil, err
-		}
-
-		klog.V(4).Infof("Assigning hosts (%v) to load balancer rule: %v", lb.hostIDs, lbRuleName)
-		if err = lb.assignHostsToRule(lbRule, lb.hostIDs); err != nil {
-			return nil, err
-		}
-
-		klog.V(4).Infof("Creating firewall rules for load balancer rule: %v (%v:%v:%v)", lbRuleName, protocol, lbRule.Publicip, port.Port)
-		if _ , err := lb.updateFirewallRule(lbRule.Publicipid, int(port.Port), protocol, service.Spec.LoadBalancerSourceRanges); err != nil {
-			klog.Errorf("Error updating firewall rules for load balancer rule: %v", lbRuleName)
+		if lbRule != nil {
+			klog.V(4).Infof("Creating firewall rules for load balancer rule: %v (%v:%v:%v)", lbRuleName, protocol, lbRule.Publicip, port.Port)
+			if _ , err := lb.updateFirewallRule(lbRule.Publicipid, int(port.Port), protocol, service.Spec.LoadBalancerSourceRanges); err != nil {
+				klog.Errorf("Error updating firewall rules for load balancer rule: %v", lbRuleName)
+			}
 		}
 	}
 
@@ -456,25 +457,25 @@ func (lb *loadBalancer) releaseLoadBalancerIP() error {
 
 // checkLoadBalancerRule checks if the rule already exists and if it does, if it can be updated. If
 // it does exist but cannot be updated, it will delete the existing rule so it can be created again.
-func (lb *loadBalancer) checkLoadBalancerRule(lbRuleName string, port v1.ServicePort, protocol LoadBalancerProtocol) (bool, bool, error) {
+func (lb *loadBalancer) checkLoadBalancerRule(lbRuleName string, port v1.ServicePort, protocol LoadBalancerProtocol) (*cloudstack.LoadBalancerRule, bool, error) {
 	lbRule, ok := lb.rules[lbRuleName]
 	if !ok {
-		return false, false, nil
+		return nil, false, nil
 	}
 
 	// Check if any of the values we cannot update (those that require a new load balancer rule) are changed.
 	if lbRule.Publicip == lb.ipAddr && lbRule.Privateport == strconv.Itoa(int(port.NodePort)) && lbRule.Publicport == strconv.Itoa(int(port.Port)) {
 		updateAlgo := lbRule.Algorithm != lb.algorithm
 		updateProto := lbRule.Protocol != protocol.CSProtocol()
-		return true, updateAlgo || updateProto, nil
+		return lbRule, updateAlgo || updateProto, nil
 	}
 
 	// Delete the load balancer rule so we can create a new one using the new values.
 	if err := lb.deleteLoadBalancerRule(lbRule); err != nil {
-		return false, false, err
+		return nil, false, err
 	}
 
-	return false, false, nil
+	return nil, false, nil
 }
 
 // updateLoadBalancerRule updates a load balancer rule.
