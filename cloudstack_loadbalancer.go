@@ -645,7 +645,7 @@ func (lb *loadBalancer) updateFirewallRule(publicIpId string, publicPort int, pr
 	// a map may or may not be faster, but is a bit easier to understand
 	filtered := make(map[*cloudstack.FirewallRule]bool)
 	for _, rule := range r.FirewallRules {
-		if rule.Protocol == protocol.CSProtocol() && rule.Startport == publicPort && rule.Endport == publicPort {
+		if rule.Protocol == protocol.IPProtocol() && rule.Startport == publicPort && rule.Endport == publicPort {
 			filtered[rule] = true
 		}
 	}
@@ -664,7 +664,7 @@ func (lb *loadBalancer) updateFirewallRule(publicIpId string, publicPort int, pr
 		delete(filtered, match)
 	} else {
 		// no rule found, create a new one
-		p := lb.Firewall.NewCreateFirewallRuleParams(publicIpId, protocol.CSProtocol())
+		p := lb.Firewall.NewCreateFirewallRuleParams(publicIpId, protocol.IPProtocol())
 		p.SetCidrlist(allowedIPs)
 		p.SetStartport(publicPort)
 		p.SetEndport(publicPort)
@@ -703,7 +703,7 @@ func (lb *loadBalancer) deleteFirewallRule(publicIpId string, publicPort int, pr
 	// filter by proto:port
 	filtered := make([]*cloudstack.FirewallRule, 0, 1)
 	for _, rule := range r.FirewallRules {
-		if rule.Protocol == protocol.CSProtocol() && rule.Startport == publicPort && rule.Endport == publicPort {
+		if rule.Protocol == protocol.IPProtocol() && rule.Startport == publicPort && rule.Endport == publicPort {
 			filtered = append(filtered, rule)
 		}
 	}
