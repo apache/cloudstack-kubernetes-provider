@@ -634,6 +634,7 @@ func (lb *loadBalancer) updateFirewallRule(publicIpId string, publicPort int, pr
 		allowedIPs = []string{defaultAllowedCIDR}
 	}
 
+	klog.V(4).Infof("Listing firewall rules for %v", publicIpId)
 	p := lb.Firewall.NewListFirewallRulesParams()
 	p.SetIpaddressid(publicIpId)
 	p.SetListall(true)
