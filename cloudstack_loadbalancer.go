@@ -640,6 +640,7 @@ func (lb *loadBalancer) updateFirewallRule(publicIpId string, publicPort int, pr
 	if err != nil {
 		return false, fmt.Errorf("error fetching firewall rules for public IP %v: %v", publicIpId, err)
 	}
+	klog.V(4).Infof("All firewall rules for %v: %v", lb.ipAddr, r.FirewallRules)
 
 	// find all rules that have a matching proto+port
 	// a map may or may not be faster, but is a bit easier to understand
@@ -647,14 +648,17 @@ func (lb *loadBalancer) updateFirewallRule(publicIpId string, publicPort int, pr
 	for _, rule := range r.FirewallRules {
 		if rule.Protocol == protocol.IPProtocol() && rule.Startport == publicPort && rule.Endport == publicPort {
 			filtered[rule] = true
+		} else {
 		}
 	}
+	klog.V(4).Infof("Matching rules for %v: %v", lb.ipAddr, filtered)
 
 	// determine if we already have a rule with matching cidrs
 	var match *cloudstack.FirewallRule
 	for rule := range filtered {
 		cidrlist := strings.Split(rule.Cidrlist, ",")
 		if compareStringSlice(cidrlist, allowedIPs) {
+			klog.V(4).Infof("Found identical rule: %v", rule)
 			match = rule
 			break
 		}
@@ -674,6 +678,7 @@ func (lb *loadBalancer) updateFirewallRule(publicIpId string, publicPort int, pr
 			return false, fmt.Errorf("error creating new firewall rule for public IP %v, proto %v, port %v, allowed %v: %v", publicIpId, protocol, publicPort, allowedIPs, err)
 		}
 	}
+	klog.V(4).Infof("Firewall rules to be deleted for %v: %v", lb.ipAddr, filtered)
 
 	// delete all other rules that didn't match the CIDR list
 	for rule := range filtered {
