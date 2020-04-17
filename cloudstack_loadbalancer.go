@@ -166,7 +166,7 @@ func (cs *CSCloud) EnsureLoadBalancer(ctx context.Context, clusterName string, s
 		if lbRule != nil {
 			klog.V(4).Infof("Creating firewall rules for load balancer rule: %v (%v:%v:%v)", lbRuleName, protocol, lbRule.Publicip, port.Port)
 			if _ , err := lb.updateFirewallRule(lbRule.Publicipid, int(port.Port), protocol, service.Spec.LoadBalancerSourceRanges); err != nil {
-				klog.Errorf("Error updating firewall rules for load balancer rule: %v", lbRuleName)
+				klog.Errorf("Error updating firewall rules for load balancer rule %v: %v", lbRuleName, err)
 			}
 		}
 	}
@@ -183,7 +183,7 @@ func (cs *CSCloud) EnsureLoadBalancer(ctx context.Context, clusterName string, s
 			} else {
 				klog.V(4).Infof("Deleting firewall rules associated with load balancer rule: %v (%v:%v:%v)", lbRule.Name, protocol, lbRule.Publicip, port)
 				if _, err := lb.deleteFirewallRule(lbRule.Publicipid, int(port), protocol); err != nil {
-					klog.Errorf("Error deleting firewall rules for load balancer rule: %v", lbRule.Name)
+					klog.Errorf("Error deleting firewall rules for load balancer rule %v: %v", lbRule.Name, err)
 				}
 			}
 		}
