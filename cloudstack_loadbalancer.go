@@ -166,7 +166,7 @@ func (cs *CSCloud) EnsureLoadBalancer(ctx context.Context, clusterName string, s
 		if lbRule != nil {
 			klog.V(4).Infof("Creating firewall rules for load balancer rule: %v (%v:%v:%v)", lbRuleName, protocol, lbRule.Publicip, port.Port)
 			if _ , err := lb.updateFirewallRule(lbRule.Publicipid, int(port.Port), protocol, service.Spec.LoadBalancerSourceRanges); err != nil {
-				klog.Errorf("Error updating firewall rules for load balancer rule %v: %v", lbRuleName, err)
+				return nil, err
 			}
 		}
 	}
@@ -175,17 +175,16 @@ func (cs *CSCloud) EnsureLoadBalancer(ctx context.Context, clusterName string, s
 	for _, lbRule := range lb.rules {
 		protocol := ProtocolFromLoadBalancer(lbRule.Protocol)
 		if protocol == LoadBalancerProtocolInvalid {
-			klog.Errorf("Error parsing protocol: %v", lbRule.Protocol)
-		} else {
-			port, err := strconv.ParseInt(lbRule.Publicport, 10, 32)
-			if err != nil {
-				klog.Errorf("Error parsing port: %v", err)
-			} else {
-				klog.V(4).Infof("Deleting firewall rules associated with load balancer rule: %v (%v:%v:%v)", lbRule.Name, protocol, lbRule.Publicip, port)
-				if _, err := lb.deleteFirewallRule(lbRule.Publicipid, int(port), protocol); err != nil {
-					klog.Errorf("Error deleting firewall rules for load balancer rule %v: %v", lbRule.Name, err)
-				}
-			}
+			return nil, fmt.Errorf("Error parsing protocol %v: %v", lbRule.Protocol, err)
+		}
+		port, err := strconv.ParseInt(lbRule.Publicport, 10, 32)
+		if err != nil {
+			return nil, fmt.Errorf("Error parsing port %d: %v", lbRule.Publicport, err)
+		}
+
+		klog.V(4).Infof("Deleting firewall rules associated with load balancer rule: %v (%v:%v:%v)", lbRule.Name, protocol, lbRule.Publicip, port)
+		if _, err := lb.deleteFirewallRule(lbRule.Publicipid, int(port), protocol); err != nil {
+			return nil, err
 		}
 
 		klog.V(4).Infof("Deleting obsolete load balancer rule: %v", lbRule.Name)
