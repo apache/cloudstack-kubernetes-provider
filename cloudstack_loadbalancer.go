@@ -179,7 +179,7 @@ func (cs *CSCloud) EnsureLoadBalancer(ctx context.Context, clusterName string, s
 		}
 		port, err := strconv.ParseInt(lbRule.Publicport, 10, 32)
 		if err != nil {
-			return nil, fmt.Errorf("Error parsing port %d: %v", lbRule.Publicport, err)
+			return nil, fmt.Errorf("Error parsing port %s: %v", lbRule.Publicport, err)
 		}
 
 		klog.V(4).Infof("Deleting firewall rules associated with load balancer rule: %v (%v:%v:%v)", lbRule.Name, protocol, lbRule.Publicip, port)
