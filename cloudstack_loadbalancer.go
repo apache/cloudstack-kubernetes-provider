@@ -714,10 +714,26 @@ func (lb *loadBalancer) updateFirewallRule(publicIpId string, publicPort int, pr
 			break
 		}
 	}
+
 	if match != nil {
-		// no need to create a new rule - but prevent deletion
+		// no need to create a new rule - but prevent deletion of the matching rule
 		delete(filtered, match)
-	} else {
+	}
+
+	// delete all other rules that didn't match the CIDR list
+	// do this first to prevent CS rule conflict errors
+	klog.V(4).Infof("Firewall rules to be deleted for %v: %v", lb.ipAddr, rulesMapToString(filtered))
+	for rule := range filtered {
+		p := lb.Firewall.NewDeleteFirewallRuleParams(rule.Id)
+		_, err = lb.Firewall.DeleteFirewallRule(p)
+		if err != nil {
+			// report the error, but keep on deleting the other rules
+			klog.Errorf("Error deleting old firewall rule %v: %v", rule.Id, err)
+		}
+	}
+
+	// create new rule if necessary
+	if match == nil {
 		// no rule found, create a new one
 		p := lb.Firewall.NewCreateFirewallRuleParams(publicIpId, protocol.IPProtocol())
 		p.SetCidrlist(allowedIPs)
@@ -727,17 +743,6 @@ func (lb *loadBalancer) updateFirewallRule(publicIpId string, publicPort int, pr
 		if err != nil {
 			// return immediately if we can't create the new rule
 			return false, fmt.Errorf("error creating new firewall rule for public IP %v, proto %v, port %v, allowed %v: %v", publicIpId, protocol, publicPort, allowedIPs, err)
-		}
-	}
-	klog.V(4).Infof("Firewall rules to be deleted for %v: %v", lb.ipAddr, filtered)
-
-	// delete all other rules that didn't match the CIDR list
-	for rule := range filtered {
-		p := lb.Firewall.NewDeleteFirewallRuleParams(rule.Id)
-		_, err = lb.Firewall.DeleteFirewallRule(p)
-		if err != nil {
-			// report the error, but keep on deleting the other rules
-			klog.Errorf("Error deleting old firewall rule %v: %v", rule.Id, err)
 		}
 	}
 
