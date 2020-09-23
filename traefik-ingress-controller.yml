@@ -1,0 +1,63 @@
+---
+kind: Service
+metadata:
+  annotations:
+    service.beta.kubernetes.io/cloudstack-load-balancer-proxy-protocol: enabled
+spec:
+  type: LoadBalancer
+  ports:
+  - name: http
+      port: 80
+      targetPort: http
+  - name: https
+      port: 443
+      targetPort: https
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: traefik-conf
+data:
+  traefik.toml: |
+    defaultEntryPoints = ["http"]
+    [entryPoints]
+      [entryPoints.http]
+      address = ":80"
+        [entryPoints.http.proxyProtocol]
+        trustedIPs = ["127.0.0.1/32", "10.0.0.1/32"]
+      [entryPoints.https]
+      address = ":443"
+        [entryPoints.https.proxyProtocol]
+        trustedIPs = ["127.0.0.1/32", "10.0.0.1/32"]
+---
+apiVersion: extensions/v1beta1
+kind: DaemonSet
+metadata:
+  name: traefik-ingress-controller
+spec:
+  template:
+    spec:
+      hostNetwork: true
+      containers:
+      - args:
+        - --configfile=/config/traefik.toml
+        image: traefik:1.7.12
+        imagePullPolicy: Always
+        name: traefik-ingress
+        ports:
+        - containerPort: 80
+          hostPort: 80
+          name: http
+          protocol: TCP
+        - containerPort: 443
+          hostPort: 443
+          name: http
+          protocol: TCP
+        volumeMounts:
+        - mountPath: /config
+          name: config
+      volumes:
+      - configMap:
+          defaultMode: 420
+          name: traefik-conf
+        name: config
