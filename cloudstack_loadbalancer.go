@@ -23,6 +23,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/xanzy/go-cloudstack/v2/cloudstack"
 	"k8s.io/klog"
@@ -31,13 +32,9 @@ import (
 	cloudprovider "k8s.io/cloud-provider"
 )
 
-// ServiceAnnotationLoadBalancerProxyProtocol is the annotation used on the
-// service to enable the proxy protocol on a CloudStack load balancer.
-// The value of this annotation is ignored, even if it is seemingly boolean.
-// Simple presence of the annotation will enable it.
-// Note that this protocol only applies to TCP service ports and
-// CloudStack 4.6 is required for it to work.
-const ServiceAnnotationLoadBalancerProxyProtocol = "service.beta.kubernetes.io/cloudstack-load-balancer-proxy-protocol"
+// defaultAllowedCIDR is the network range that is allowed on the firewall
+// by default when no explicit CIDR list is given on a LoadBalancer.
+const defaultAllowedCIDR = "0.0.0.0/0"
 
 type loadBalancer struct {
 	*cloudstack.CloudStackClient
@@ -129,51 +126,70 @@ func (cs *CSCloud) EnsureLoadBalancer(ctx context.Context, clusterName string, s
 
 	for _, port := range service.Spec.Ports {
 		// Construct the protocol name first, we need it a few times
-		protocol, err := constructProtocolName(port, service.Annotations)
-		if err != nil {
-			return nil, err
+		protocol := ProtocolFromServicePort(port, service.Annotations)
+		if protocol == LoadBalancerProtocolInvalid {
+			return nil, fmt.Errorf("unsupported load balancer protocol: %v", port.Protocol)
 		}
 
 		// All ports have their own load balancer rule, so add the port to lbName to keep the names unique.
 		lbRuleName := fmt.Sprintf("%s-%s-%d", lb.name, protocol, port.Port)
 
 		// If the load balancer rule exists and is up-to-date, we move on to the next rule.
-		exists, needsUpdate, err := lb.checkLoadBalancerRule(lbRuleName, port, protocol)
+		lbRule, needsUpdate, err := lb.checkLoadBalancerRule(lbRuleName, port, protocol)
 		if err != nil {
 			return nil, err
 		}
-		if exists && !needsUpdate {
-			klog.V(4).Infof("Load balancer rule %v is up-to-date", lbRuleName)
-			// Delete the rule from the map, to prevent it being deleted.
-			delete(lb.rules, lbRuleName)
-			continue
-		}
 
-		if needsUpdate {
-			klog.V(4).Infof("Updating load balancer rule: %v", lbRuleName)
-			if err := lb.updateLoadBalancerRule(lbRuleName, protocol); err != nil {
+		if lbRule != nil {
+			if needsUpdate {
+				klog.V(4).Infof("Updating load balancer rule: %v", lbRuleName)
+				if err := lb.updateLoadBalancerRule(lbRuleName, protocol); err != nil {
+					return nil, err
+				}
+				// Delete the rule from the map, to prevent it being deleted.
+				delete(lb.rules, lbRuleName)
+			} else {
+				klog.V(4).Infof("Load balancer rule %v is up-to-date", lbRuleName)
+				// Delete the rule from the map, to prevent it being deleted.
+				delete(lb.rules, lbRuleName)
+			}
+		} else {
+			klog.V(4).Infof("Creating load balancer rule: %v", lbRuleName)
+			lbRule, err = lb.createLoadBalancerRule(lbRuleName, port, protocol)
+			if err != nil {
 				return nil, err
 			}
-			// Delete the rule from the map, to prevent it being deleted.
-			delete(lb.rules, lbRuleName)
-			continue
+
+			klog.V(4).Infof("Assigning hosts (%v) to load balancer rule: %v", lb.hostIDs, lbRuleName)
+			if err = lb.assignHostsToRule(lbRule, lb.hostIDs); err != nil {
+				return nil, err
+			}
 		}
 
-		klog.V(4).Infof("Creating load balancer rule: %v", lbRuleName)
-		lbRule, err := lb.createLoadBalancerRule(lbRuleName, port, protocol)
-		if err != nil {
-			return nil, err
+		if lbRule != nil {
+			klog.V(4).Infof("Creating firewall rules for load balancer rule: %v (%v:%v:%v)", lbRuleName, protocol, lbRule.Publicip, port.Port)
+			if _ , err := lb.updateFirewallRule(lbRule.Publicipid, int(port.Port), protocol, service.Spec.LoadBalancerSourceRanges); err != nil {
+				return nil, err
+			}
 		}
-
-		klog.V(4).Infof("Assigning hosts (%v) to load balancer rule: %v", lb.hostIDs, lbRuleName)
-		if err = lb.assignHostsToRule(lbRule, lb.hostIDs); err != nil {
-			return nil, err
-		}
-
 	}
 
 	// Cleanup any rules that are now still in the rules map, as they are no longer needed.
 	for _, lbRule := range lb.rules {
+		protocol := ProtocolFromLoadBalancer(lbRule.Protocol)
+		if protocol == LoadBalancerProtocolInvalid {
+			return nil, fmt.Errorf("Error parsing protocol %v: %v", lbRule.Protocol, err)
+		}
+		port, err := strconv.ParseInt(lbRule.Publicport, 10, 32)
+		if err != nil {
+			return nil, fmt.Errorf("Error parsing port %s: %v", lbRule.Publicport, err)
+		}
+
+		klog.V(4).Infof("Deleting firewall rules associated with load balancer rule: %v (%v:%v:%v)", lbRule.Name, protocol, lbRule.Publicip, port)
+		if _, err := lb.deleteFirewallRule(lbRule.Publicipid, int(port), protocol); err != nil {
+			return nil, err
+		}
+
 		klog.V(4).Infof("Deleting obsolete load balancer rule: %v", lbRule.Name)
 		if err := lb.deleteLoadBalancerRule(lbRule); err != nil {
 			return nil, err
@@ -243,9 +259,22 @@ func (cs *CSCloud) EnsureLoadBalancerDeleted(ctx context.Context, clusterName st
 	}
 
 	for _, lbRule := range lb.rules {
-		klog.V(4).Infof("Deleting load balancer rule: %v", lbRule.Name)
-		if err := lb.deleteLoadBalancerRule(lbRule); err != nil {
-			return err
+		klog.V(4).Infof("Deleting firewall rules for load balancer: %v", lbRule.Name)
+		protocol := ProtocolFromLoadBalancer(lbRule.Protocol)
+		if protocol == LoadBalancerProtocolInvalid {
+			klog.Errorf("Error parsing protocol: %v", lbRule.Protocol)
+		} else {
+			port, err := strconv.ParseInt(lbRule.Publicport, 10, 32)
+			if err != nil {
+				klog.Errorf("Error parsing port: %v", err)
+			} else {
+				lb.deleteFirewallRule(lbRule.Publicipid, int(port), protocol)
+			}
+
+			klog.V(4).Infof("Deleting load balancer rule: %v", lbRule.Name)
+			if err := lb.deleteLoadBalancerRule(lbRule); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -428,67 +457,43 @@ func (lb *loadBalancer) releaseLoadBalancerIP() error {
 	return nil
 }
 
-// constructProtocolName builds a CS API compatible protocol name that incorporates
-// data from a ServicePort and (optionally) annotations on the service.
-// Currently supported are: "tcp", "udp" and "tcp-proxy".
-// The latter two require CloudStack 4.6 or later.
-func constructProtocolName(port v1.ServicePort, annotations map[string]string) (string, error) {
-	proxy := false
-	// FIXME this accepts any value as true, even "false", 0 or other falsey stuff
-	if _, ok := annotations[ServiceAnnotationLoadBalancerProxyProtocol]; ok {
-		proxy = true
-	}
-	switch port.Protocol {
-	case v1.ProtocolTCP:
-		if proxy {
-			return "tcp-proxy", nil
-		} else {
-			return "tcp", nil
-		}
-	case v1.ProtocolUDP:
-		return "udp", nil
-	default:
-		return "", fmt.Errorf("unsupported load balancer protocol: %v", port.Protocol)
-	}
-}
-
 // checkLoadBalancerRule checks if the rule already exists and if it does, if it can be updated. If
 // it does exist but cannot be updated, it will delete the existing rule so it can be created again.
-func (lb *loadBalancer) checkLoadBalancerRule(lbRuleName string, port v1.ServicePort, protocol string) (bool, bool, error) {
+func (lb *loadBalancer) checkLoadBalancerRule(lbRuleName string, port v1.ServicePort, protocol LoadBalancerProtocol) (*cloudstack.LoadBalancerRule, bool, error) {
 	lbRule, ok := lb.rules[lbRuleName]
 	if !ok {
-		return false, false, nil
+		return nil, false, nil
 	}
 
 	// Check if any of the values we cannot update (those that require a new load balancer rule) are changed.
 	if lbRule.Publicip == lb.ipAddr && lbRule.Privateport == strconv.Itoa(int(port.NodePort)) && lbRule.Publicport == strconv.Itoa(int(port.Port)) {
 		updateAlgo := lbRule.Algorithm != lb.algorithm
-		updateProto := lbRule.Protocol != protocol
-		return true, updateAlgo || updateProto, nil
+		updateProto := lbRule.Protocol != protocol.CSProtocol()
+		return lbRule, updateAlgo || updateProto, nil
 	}
 
 	// Delete the load balancer rule so we can create a new one using the new values.
 	if err := lb.deleteLoadBalancerRule(lbRule); err != nil {
-		return false, false, err
+		return nil, false, err
 	}
 
-	return false, false, nil
+	return nil, false, nil
 }
 
 // updateLoadBalancerRule updates a load balancer rule.
-func (lb *loadBalancer) updateLoadBalancerRule(lbRuleName string, protocol string) error {
+func (lb *loadBalancer) updateLoadBalancerRule(lbRuleName string, protocol LoadBalancerProtocol) error {
 	lbRule := lb.rules[lbRuleName]
 
 	p := lb.LoadBalancer.NewUpdateLoadBalancerRuleParams(lbRule.Id)
 	p.SetAlgorithm(lb.algorithm)
-	p.SetProtocol(protocol)
+	p.SetProtocol(protocol.CSProtocol())
 
 	_, err := lb.LoadBalancer.UpdateLoadBalancerRule(p)
 	return err
 }
 
 // createLoadBalancerRule creates a new load balancer rule and returns it's ID.
-func (lb *loadBalancer) createLoadBalancerRule(lbRuleName string, port v1.ServicePort, protocol string) (*cloudstack.LoadBalancerRule, error) {
+func (lb *loadBalancer) createLoadBalancerRule(lbRuleName string, port v1.ServicePort, protocol LoadBalancerProtocol) (*cloudstack.LoadBalancerRule, error) {
 	p := lb.LoadBalancer.NewCreateLoadBalancerRuleParams(
 		lb.algorithm,
 		lbRuleName,
@@ -499,10 +504,10 @@ func (lb *loadBalancer) createLoadBalancerRule(lbRuleName string, port v1.Servic
 	p.SetNetworkid(lb.networkID)
 	p.SetPublicipid(lb.ipAddrID)
 
-	p.SetProtocol(protocol)
+	p.SetProtocol(protocol.CSProtocol())
 
-	// Do not create corresponding firewall rule.
-	p.SetOpenfirewall(true)
+	// Do not open the firewall implicitly, we always create explicit firewall rules
+	p.SetOpenfirewall(false)
 
 	// Create a new load balancer rule.
 	r, err := lb.LoadBalancer.CreateLoadBalancerRule(p)
@@ -587,4 +592,201 @@ func symmetricDifference(hostIDs []string, lbInstances []*cloudstack.VirtualMach
 	}
 
 	return assign, remove
+}
+
+// compareStringSlice compares two unsorted slices of strings without sorting them first.
+//
+// The slices are equal if and only if both contain the same number of every unique element.
+//
+// Thanks to: https://stackoverflow.com/a/36000696
+func compareStringSlice(x, y []string) bool {
+    if len(x) != len(y) {
+        return false
+    }
+    // create a map of string -> int
+    diff := make(map[string]int, len(x))
+    for _, _x := range x {
+        // 0 value for int is 0, so just increment a counter for the string
+        diff[_x]++
+    }
+    for _, _y := range y {
+        // If the string _y is not in diff bail out early
+        if _, ok := diff[_y]; !ok {
+            return false
+        }
+        diff[_y] -= 1
+        if diff[_y] == 0 {
+            delete(diff, _y)
+        }
+    }
+    if len(diff) == 0 {
+        return true
+    }
+    return false
+}
+
+func ruleToString(rule *cloudstack.FirewallRule) string {
+	ls := &strings.Builder{}
+	if rule == nil {
+		ls.WriteString("nil")
+	} else {
+		switch rule.Protocol {
+		case "tcp":
+			fallthrough
+		case "udp":
+			fmt.Fprintf(ls, "{[%s] -> %s:[%d-%d] (%s)}", rule.Cidrlist, rule.Ipaddress, rule.Startport, rule.Endport, rule.Protocol)
+		case "icmp":
+			fmt.Fprintf(ls, "{[%s] -> %s [%d,%d] (%s)}", rule.Cidrlist, rule.Ipaddress, rule.Icmptype, rule.Icmpcode, rule.Protocol)
+		default:
+			fmt.Fprintf(ls, "{[%s] -> %s (%s)}", rule.Cidrlist, rule.Ipaddress, rule.Protocol)
+		}
+	}
+	return ls.String()
+}
+
+func rulesToString(rules []*cloudstack.FirewallRule) string {
+	ls := &strings.Builder{}
+	first := true
+	for _, rule := range rules {
+		if first {
+			first = false
+		} else {
+			ls.WriteString(", ")
+		}
+		ls.WriteString(ruleToString(rule))
+	}
+	return ls.String()
+}
+
+func rulesMapToString(rules map[*cloudstack.FirewallRule]bool) string {
+	ls := &strings.Builder{}
+	first := true
+	for rule, _ := range rules {
+		if first {
+			first = false
+		} else {
+			ls.WriteString(", ")
+		}
+		ls.WriteString(ruleToString(rule))
+	}
+	return ls.String()
+}
+
+// updateFirewallRule creates a firewall rule for a load balancer rule
+//
+// If the rule list is empty, all internet (IPv4: 0.0.0.0/0) is opened for the
+// load balancer's port+protocol implicitly.
+//
+// Returns true if the firewall rule was created or updated
+func (lb *loadBalancer) updateFirewallRule(publicIpId string, publicPort int, protocol LoadBalancerProtocol, allowedIPs []string) (bool, error) {
+	if len(allowedIPs) == 0 {
+		allowedIPs = []string{defaultAllowedCIDR}
+	}
+
+	p := lb.Firewall.NewListFirewallRulesParams()
+	p.SetIpaddressid(publicIpId)
+	p.SetListall(true)
+	if lb.projectID != "" {
+		p.SetProjectid(lb.projectID)
+	}
+	klog.V(4).Infof("Listing firewall rules for %v", p)
+	r, err := lb.Firewall.ListFirewallRules(p)
+	if err != nil {
+		return false, fmt.Errorf("error fetching firewall rules for public IP %v: %v", publicIpId, err)
+	}
+	klog.V(4).Infof("All firewall rules for %v: %v", lb.ipAddr, rulesToString(r.FirewallRules))
+
+	// find all rules that have a matching proto+port
+	// a map may or may not be faster, but is a bit easier to understand
+	filtered := make(map[*cloudstack.FirewallRule]bool)
+	for _, rule := range r.FirewallRules {
+		if rule.Protocol == protocol.IPProtocol() && rule.Startport == publicPort && rule.Endport == publicPort {
+			filtered[rule] = true
+		} else {
+		}
+	}
+	klog.V(4).Infof("Matching rules for %v: %v", lb.ipAddr, rulesMapToString(filtered))
+
+	// determine if we already have a rule with matching cidrs
+	var match *cloudstack.FirewallRule
+	for rule := range filtered {
+		cidrlist := strings.Split(rule.Cidrlist, ",")
+		if compareStringSlice(cidrlist, allowedIPs) {
+			klog.V(4).Infof("Found identical rule: %v", rule)
+			match = rule
+			break
+		}
+	}
+
+	if match != nil {
+		// no need to create a new rule - but prevent deletion of the matching rule
+		delete(filtered, match)
+	}
+
+	// delete all other rules that didn't match the CIDR list
+	// do this first to prevent CS rule conflict errors
+	klog.V(4).Infof("Firewall rules to be deleted for %v: %v", lb.ipAddr, rulesMapToString(filtered))
+	for rule := range filtered {
+		p := lb.Firewall.NewDeleteFirewallRuleParams(rule.Id)
+		_, err = lb.Firewall.DeleteFirewallRule(p)
+		if err != nil {
+			// report the error, but keep on deleting the other rules
+			klog.Errorf("Error deleting old firewall rule %v: %v", rule.Id, err)
+		}
+	}
+
+	// create new rule if necessary
+	if match == nil {
+		// no rule found, create a new one
+		p := lb.Firewall.NewCreateFirewallRuleParams(publicIpId, protocol.IPProtocol())
+		p.SetCidrlist(allowedIPs)
+		p.SetStartport(publicPort)
+		p.SetEndport(publicPort)
+		_, err = lb.Firewall.CreateFirewallRule(p)
+		if err != nil {
+			// return immediately if we can't create the new rule
+			return false, fmt.Errorf("error creating new firewall rule for public IP %v, proto %v, port %v, allowed %v: %v", publicIpId, protocol, publicPort, allowedIPs, err)
+		}
+	}
+
+	// return true (because we changed something), but also the last error if deleting one old rule failed
+	return true, err
+}
+
+// deleteFirewallRule deletes the firewall rule associated with the ip:port:protocol combo
+//
+// returns true when corresponding rules were deleted
+func (lb *loadBalancer) deleteFirewallRule(publicIpId string, publicPort int, protocol LoadBalancerProtocol) (bool, error) {
+	p := lb.Firewall.NewListFirewallRulesParams()
+	p.SetIpaddressid(publicIpId)
+	p.SetListall(true)
+	if lb.projectID != "" {
+		p.SetProjectid(lb.projectID)
+	}
+	r, err := lb.Firewall.ListFirewallRules(p)
+	if err != nil {
+		return false, fmt.Errorf("error fetching firewall rules for public IP %v: %v", publicIpId, err)
+	}
+
+	// filter by proto:port
+	filtered := make([]*cloudstack.FirewallRule, 0, 1)
+	for _, rule := range r.FirewallRules {
+		if rule.Protocol == protocol.IPProtocol() && rule.Startport == publicPort && rule.Endport == publicPort {
+			filtered = append(filtered, rule)
+		}
+	}
+
+	// delete all rules
+	deleted := false
+	for _, rule := range filtered {
+		p := lb.Firewall.NewDeleteFirewallRuleParams(rule.Id)
+		_, err = lb.Firewall.DeleteFirewallRule(p)
+		if err != nil {
+			klog.Errorf("Error deleting old firewall rule %v: %v", rule.Id, err)
+		} else {
+			deleted = true
+		}
+	}
+
+	return deleted, err
 }
