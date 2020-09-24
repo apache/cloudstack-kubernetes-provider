@@ -114,12 +114,10 @@ Instead, it first obtains the name of the node from Kubernetes, then fetches inf
 
 ### Building
 
-Go 1.12 is required to build cloudstack-ccm.
-
-It is recommended to build with Go module support, but dependencies are also vendored.
+At least Go 1.13 is required to build cloudstack-ccm.
 
 To build the controller with correct versioning, some build flags need to be passed.
-A Makefile is provided that sets these build flags to values obtained from git.
+A Makefile is provided that sets these build flags to automatically derived values.
 
 ```bash
 go get github.com/apache/cloudstack-kubernetes-provider
