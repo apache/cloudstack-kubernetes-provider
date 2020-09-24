@@ -23,7 +23,7 @@ clean:
 	rm -f cloudstack-ccm
 
 cloudstack-ccm: ${CMD_SRC}
-	go build -mod vendor -ldflags ${LDFLAGS} -o $@ $^
+	go build -ldflags ${LDFLAGS} -o $@ $^
 
 docker:
 	docker build . -t apache/cloudstack-kubernetes-provider:${GIT_COMMIT_SHORT}
