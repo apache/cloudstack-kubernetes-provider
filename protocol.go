@@ -33,14 +33,14 @@ func (p LoadBalancerProtocol) String() string {
 // Returns "" if the value is unknown.
 func (p LoadBalancerProtocol) CSProtocol() string {
 	switch p {
-		case LoadBalancerProtocolTCP:
-			return "tcp"
-		case LoadBalancerProtocolUDP:
-			return "udp"
-		case LoadBalancerProtocolTCPProxy:
-			return "tcp-proxy"
-		default:
-			return ""
+	case LoadBalancerProtocolTCP:
+		return "tcp"
+	case LoadBalancerProtocolUDP:
+		return "udp"
+	case LoadBalancerProtocolTCPProxy:
+		return "tcp-proxy"
+	default:
+		return ""
 	}
 }
 
@@ -48,14 +48,14 @@ func (p LoadBalancerProtocol) CSProtocol() string {
 // Returns "" if the value is unknown.
 func (p LoadBalancerProtocol) IPProtocol() string {
 	switch p {
-		case LoadBalancerProtocolTCP:
-			fallthrough
-		case LoadBalancerProtocolTCPProxy:
-			return "tcp"
-		case LoadBalancerProtocolUDP:
-			return "udp"
-		default:
-			return ""
+	case LoadBalancerProtocolTCP:
+		fallthrough
+	case LoadBalancerProtocolTCPProxy:
+		return "tcp"
+	case LoadBalancerProtocolUDP:
+		return "udp"
+	default:
+		return ""
 	}
 }
 
@@ -93,13 +93,13 @@ func ProtocolFromServicePort(port v1.ServicePort, annotations map[string]string)
 // CloudStack load balancer protocol name.
 func ProtocolFromLoadBalancer(protocol string) LoadBalancerProtocol {
 	switch protocol {
-		case "tcp":
-			return LoadBalancerProtocolTCP
-		case "udp":
-			return LoadBalancerProtocolUDP
-		case "tcp-proxy":
-			return LoadBalancerProtocolTCPProxy
-		default:
-			return LoadBalancerProtocolInvalid
+	case "tcp":
+		return LoadBalancerProtocolTCP
+	case "udp":
+		return LoadBalancerProtocolUDP
+	case "tcp-proxy":
+		return LoadBalancerProtocolTCPProxy
+	default:
+		return LoadBalancerProtocolInvalid
 	}
 }
