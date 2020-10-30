@@ -79,9 +79,8 @@ This will treat the node as 'uninitialized' and cause the CCM to apply metadata 
 
 Supported labels are:
 * kubernetes.io/hostname (= the instance name)
-* beta.kubernetes.io/instance-type (= the compute offering)
-* failure-domain.beta.kubernetes.io/zone (= the zone)
-* failure-domain.beta.kubernetes.io/region (also = the zone)
+* node.kubernetes.io/instance-type (= the compute offering)
+* topology.kubernetes.io/region (= the zone)
 
 It is also possible to trigger this process manually by issuing the following command:
 
