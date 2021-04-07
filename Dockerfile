@@ -22,6 +22,8 @@ RUN  make clean && CGO_ENABLED=0 GOOS=linux make
 
 FROM alpine:latest
 RUN apk --no-cache add ca-certificates
-WORKDIR /root/
-COPY --from=builder /go/src/github.com/apache/cloudstack-kubernetes-provider/cloudstack-ccm ./cloudstack-ccm
-CMD ["./cloudstack-ccm", "--cloud-provider", "external-cloudstack"]
+RUN addgroup -g 1000 -S app && \
+    adduser -u 1000 -S app -G app
+USER 1000
+COPY --from=builder /go/src/github.com/apache/cloudstack-kubernetes-provider/cloudstack-ccm /app/cloudstack-ccm
+ENTRYPOINT [ "/app/cloudstack-ccm", "--cloud-provider", "external-cloudstack" ]
