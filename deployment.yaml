@@ -15,6 +15,21 @@ metadata:
     k8s-app: cloud-controller-manager
 rules:
 - apiGroups:
+  - coordination.k8s.io
+  resources:
+  - leases
+  verbs:
+  - get
+  - create
+  - update
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  verbs:
+  - list
+  - watch
+- apiGroups:
   - ""
   resources:
   - events
@@ -112,7 +127,7 @@ metadata:
   name: cloud-controller-manager
   namespace: kube-system
 spec:
-  replicas: 3
+  replicas: 1
   selector:
     matchLabels:
       k8s-app: cloud-controller-manager
