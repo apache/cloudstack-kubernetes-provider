@@ -77,11 +77,17 @@ It is recommended to launch `kubelet` with the following parameter:
 
 This will treat the node as 'uninitialized' and cause the CCM to apply metadata labels from CloudStack automatically.
 
-Supported labels are:
+Supported labels for Kubernetes versions up to 1.16 are:
 * kubernetes.io/hostname (= the instance name)
 * beta.kubernetes.io/instance-type (= the compute offering)
 * failure-domain.beta.kubernetes.io/zone (= the zone)
 * failure-domain.beta.kubernetes.io/region (also = the zone)
+
+Supported labels for Kubernetes versions 1.17 and later are:
+* kubernetes.io/hostname (= the instance name)
+* node.kubernetes.io/instance-type (= the compute offering)
+* topology.kubernetes.io/zone (= the zone)
+* topology.kubernetes.io/region (also = the zone)
 
 It is also possible to trigger this process manually by issuing the following command:
 
