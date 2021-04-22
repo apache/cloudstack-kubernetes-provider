@@ -145,8 +145,7 @@ spec:
       - name: cloud-controller-manager
         image: apache/cloudstack-kubernetes-provider:latest
         imagePullPolicy: IfNotPresent
-        command:
-        - /root/cloudstack-ccm
+        args:
         - --leader-elect=true
         - --cloud-provider=external-cloudstack
         - --cloud-config=/config/cloud-config
