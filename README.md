@@ -22,10 +22,10 @@ Prebuilt containers are posted on [Docker Hub](https://hub.docker.com/r/apache/c
 
 The cloud controller is intended to be deployed as a daemon set, with on instance running on each node.
 
-To configure API access to your CloudStack management server, you need to create a secret containing a `cloudstack.ini`
+To configure API access to your CloudStack management server, you need to create a secret containing a `cloud-config`
 that is suitable for your environment.
 
-`cloudstack.ini` should look like this:
+`cloud-config` should look like this:
 ```ini
 [Global]
 api-url = <CloudStack API URL>
@@ -40,7 +40,7 @@ The access token needs to be able to fetch VM information and deploy load balanc
 
 To create the secret, use the following command:
 ```bash
-kubectl create secret generic cloudstack-secret --from-file=cloudstack.ini
+kubectl -n kube-system create secret generic cloudstack-secret --from-file=cloud-config
 ```
 
 You can then use the provided example [deployment.yaml](/deployment.yaml) to deploy the controller:
@@ -135,11 +135,11 @@ make docker
 ### Testing
 
 You need a local instance of the CloudStack Management Server or a 'real' one to connect to.
-The CCM supports the same cloudstack.ini configuration file format used by [the cs tool](https://github.com/exoscale/cs),
+The CCM supports the same cloud-config configuration file format used by [the cs tool](https://github.com/exoscale/cs),
 so you can simply point it to that.
 
 ```bash
-./cloudstack-ccm --cloud-provider external-cloudstack --cloud-config ~/.cloudstack.ini --master k8s-apiserver
+./cloudstack-ccm --cloud-provider external-cloudstack --cloud-config ~/.cloud-config --master k8s-apiserver
 ```
 
 Replace k8s-apiserver with the host name of your Kubernetes development clusters's API server.
