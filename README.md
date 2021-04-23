@@ -20,8 +20,6 @@ Refer:
 
 Prebuilt containers are posted on [Docker Hub](https://hub.docker.com/r/apache/cloudstack-kubernetes-provider).
 
-The cloud controller is intended to be deployed as a daemon set, with on instance running on each node.
-
 To configure API access to your CloudStack management server, you need to create a secret containing a `cloud-config`
 that is suitable for your environment.
 
