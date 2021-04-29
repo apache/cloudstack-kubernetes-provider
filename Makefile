@@ -34,7 +34,7 @@ CMD_SRC=\
 
 .PHONY: all clean docker
 
-all: cloudstack-ccm
+all: clean test cloudstack-ccm
 
 clean:
 	rm -f cloudstack-ccm
