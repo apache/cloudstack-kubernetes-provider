@@ -4,7 +4,4 @@ go:
 - 1.13
 - master
 
-services:
-  - docker
-
-script: make docker
+script: make test
