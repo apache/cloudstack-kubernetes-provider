@@ -2,6 +2,6 @@ language: go
 
 go:
 - 1.13
-- main
+- master
 
 script: make test

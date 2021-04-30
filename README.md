@@ -145,7 +145,7 @@ The CCM supports the same cloud-config configuration file format used by [the cs
 so you can simply point it to that.
 
 ```bash
-./cloudstack-ccm --cloud-provider external-cloudstack --cloud-config ~/.cloud-config --main k8s-apiserver
+./cloudstack-ccm --cloud-provider external-cloudstack --cloud-config ~/.cloud-config --master k8s-apiserver
 ```
 
 Replace k8s-apiserver with the host name of your Kubernetes development clusters's API server.
