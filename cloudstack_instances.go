@@ -168,3 +168,43 @@ func (cs *CSCloud) InstanceExistsByProviderID(ctx context.Context, providerID st
 func (cs *CSCloud) InstanceShutdownByProviderID(ctx context.Context, providerID string) (bool, error) {
 	return false, cloudprovider.NotImplemented
 }
+
+func (cs *CSCloud) InstanceExists(ctx context.Context, node *v1.Node) (bool, error) {
+	nodeName := types.NodeName(node.Name)
+	providerID, err := cs.InstanceID(ctx, nodeName)
+	if err != nil {
+		return false, err
+	}
+
+	return cs.InstanceExistsByProviderID(ctx, providerID)
+}
+
+func (cs *CSCloud) InstanceShutdown(ctx context.Context, node *v1.Node) (bool, error) {
+	return false, cloudprovider.NotImplemented
+}
+
+func (cs *CSCloud) InstanceMetadata(ctx context.Context, node *v1.Node) (*cloudprovider.InstanceMetadata, error) {
+
+	instanceType, err := cs.InstanceType(ctx, types.NodeName(node.Name))
+	if err != nil {
+		return nil, err
+	}
+
+	addresses, err := cs.NodeAddresses(ctx, types.NodeName(node.Name))
+	if err != nil {
+		return nil, err
+	}
+
+	zone, err := cs.GetZone(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	return &cloudprovider.InstanceMetadata{
+		ProviderID:    cs.ProviderName(),
+		InstanceType:  instanceType,
+		NodeAddresses: addresses,
+		Zone:          cs.zone,
+		Region:        zone.Region,
+	}, nil
+}
