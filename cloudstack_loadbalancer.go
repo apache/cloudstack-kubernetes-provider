@@ -121,9 +121,6 @@ func (cs *CSCloud) EnsureLoadBalancer(ctx context.Context, clusterName string, s
 
 	klog.V(4).Infof("Load balancer %v is associated with IP %v", lb.name, lb.ipAddr)
 
-	// Fetch the IP whitelist from the spec if any
-	//whitelist = service.Spec.LoadBalancerSourceRanges
-
 	for _, port := range service.Spec.Ports {
 		// Construct the protocol name first, we need it a few times
 		protocol := ProtocolFromServicePort(port, service.Annotations)

@@ -21,7 +21,7 @@ GIT_COMMIT_SHORT=$(shell git rev-parse --short HEAD)
 GIT_TAG=$(shell git describe --abbrev=0 --tags 2>/dev/null || echo v0.0.0)
 GIT_IS_TAG=$(shell git describe --exact-match --abbrev=0 --tags 2>/dev/null || echo NOT_A_TAG)
 ifeq (${GIT_IS_TAG},NOT_A_TAG)
-GIT_VERSION?=$(patsubst v%,%,${GIT_TAG})-master+${GIT_COMMIT}
+GIT_VERSION?=$(patsubst v%,%,${GIT_TAG})-main+${GIT_COMMIT}
 else
 GIT_VERSION?=$(patsubst v%,%,${GIT_TAG})
 endif
