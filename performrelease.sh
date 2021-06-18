@@ -27,7 +27,7 @@ committosvn='X'
 usage(){
     echo "usage: $0 -v version [-b branch] [-s source dir] [-o output dir] [-t] [-u] [-c] [-h]"
     echo "  -v sets the version"
-    echo "  -b sets the branch (defaults to 'master')"
+    echo "  -b sets the branch (defaults to 'main')"
     echo "  -s sets the source directory (defaults to $sourcedir)"
     echo "  -o sets the output directory (defaults to $outputdir)"
     echo "  -t tags the git repo with the version"
