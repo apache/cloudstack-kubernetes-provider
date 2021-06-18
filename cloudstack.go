@@ -120,6 +120,14 @@ func (cs *CSCloud) Instances() (cloudprovider.Instances, bool) {
 	return cs, true
 }
 
+func (cs *CSCloud) InstancesV2() (cloudprovider.InstancesV2, bool) {
+	if cs.client == nil {
+		return nil, false
+	}
+
+	return cs, true
+}
+
 // Zones returns an implementation of Zones for CloudStack.
 func (cs *CSCloud) Zones() (cloudprovider.Zones, bool) {
 	if cs.client == nil {
