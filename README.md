@@ -7,7 +7,7 @@
 
 A Cloud Controller Manager to facilitate Kubernetes deployments on Cloudstack.
 
-Based on the old Cloudstack provider in Kubernetes that will be removed soon.
+Based on the old Cloudstack provider in Kubernetes was removed.
 
 Refer:
 * https://github.com/kubernetes/kubernetes/tree/release-1.15/pkg/cloudprovider/providers/cloudstack
@@ -15,6 +15,14 @@ Refer:
 * https://github.com/kubernetes/enhancements/issues/88
 
 ## Deployment
+
+The CloudStack Kubernetes Provider is automatically deployed when a Kuberentes Cluster is created on CloudStack 4.16+
+
+In order to communicate with CloudStack, a separate service user **kubeadmin** is created in the same account as the cluster owner.
+The provider uses this user's API keys to get the details of the cluster as well as update the networking rules. It is imperative that this user
+is not altered or have its keys regenerated.
+
+The provider can also be manually deployed as follows :
 
 ### Kubernetes
 

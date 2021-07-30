@@ -15,19 +15,21 @@
 # specific language governing permissions and limitations
 # under the License.
 ---
+apiVersion: v1
 kind: Service
 metadata:
+  name: traefik
   annotations:
     service.beta.kubernetes.io/cloudstack-load-balancer-proxy-protocol: enabled
 spec:
   type: LoadBalancer
   ports:
   - name: http
-      port: 80
-      targetPort: http
+    port: 80
+    targetPort: http
   - name: https
-      port: 443
-      targetPort: https
+    port: 443
+    targetPort: https
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -46,12 +48,18 @@ data:
         [entryPoints.https.proxyProtocol]
         trustedIPs = ["127.0.0.1/32", "10.0.0.1/32"]
 ---
-apiVersion: extensions/v1beta1
+apiVersion: apps/v1
 kind: DaemonSet
 metadata:
   name: traefik-ingress-controller
 spec:
+  selector:
+    matchLabels:
+      name: traefik-ingress-controller
   template:
+    metadata:
+      labels:
+        name: traefik-ingress-controller
     spec:
       hostNetwork: true
       containers:
@@ -67,7 +75,7 @@ spec:
           protocol: TCP
         - containerPort: 443
           hostPort: 443
-          name: http
+          name: https
           protocol: TCP
         volumeMounts:
         - mountPath: /config
