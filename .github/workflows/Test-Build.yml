@@ -15,7 +15,7 @@
 # specific language governing permissions and limitations
 # under the License.
 
-name: Github-Actions
+name: Build-Test
 
 on: [push, pull_request]
 
