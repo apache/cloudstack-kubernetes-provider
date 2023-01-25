@@ -15,7 +15,7 @@
 # specific language governing permissions and limitations
 # under the License.
 
-name: Build-Test
+name: Test-Build
 
 on: [push, pull_request]
 
