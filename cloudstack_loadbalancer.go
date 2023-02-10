@@ -28,7 +28,7 @@ import (
 	"github.com/xanzy/go-cloudstack/v2/cloudstack"
 	"k8s.io/klog"
 
-	"k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	cloudprovider "k8s.io/cloud-provider"
 )
 
@@ -332,7 +332,7 @@ func (cs *CSCloud) getLoadBalancer(service *v1.Service) (*loadBalancer, error) {
 func (cs *CSCloud) verifyHosts(nodes []*v1.Node) ([]string, string, error) {
 	hostNames := map[string]bool{}
 	for _, node := range nodes {
-		hostNames[node.Name] = true
+		hostNames[strings.ToLower(node.Name)] = true
 	}
 
 	p := cs.client.VirtualMachine.NewListVirtualMachinesParams()
@@ -352,7 +352,7 @@ func (cs *CSCloud) verifyHosts(nodes []*v1.Node) ([]string, string, error) {
 
 	// Check if the virtual machine is in the hosts slice, then add the corresponding ID.
 	for _, vm := range l.VirtualMachines {
-		if hostNames[vm.Name] {
+		if hostNames[strings.ToLower(vm.Name)] {
 			if networkID != "" && networkID != vm.Nic[0].Networkid {
 				return nil, "", fmt.Errorf("found hosts that belong to different networks")
 			}
