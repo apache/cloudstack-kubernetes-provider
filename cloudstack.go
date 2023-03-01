@@ -26,7 +26,7 @@ import (
 	"io"
 	"os"
 
-	"github.com/xanzy/go-cloudstack/v2/cloudstack"
+	"github.com/apache/cloudstack-go/v2/cloudstack"
 	"gopkg.in/gcfg.v1"
 	"k8s.io/apimachinery/pkg/types"
 	cloudprovider "k8s.io/cloud-provider"

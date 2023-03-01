@@ -25,7 +25,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/xanzy/go-cloudstack/v2/cloudstack"
+	"github.com/apache/cloudstack-go/v2/cloudstack"
 	"k8s.io/klog"
 
 	v1 "k8s.io/api/core/v1"
