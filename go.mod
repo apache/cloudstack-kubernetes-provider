@@ -1,6 +1,6 @@
 module github.com/apache/cloudstack-kubernetes-provider
 
-go 1.15
+go 1.19
 
 require (
 	github.com/Rican7/retry v0.1.0 // indirect
