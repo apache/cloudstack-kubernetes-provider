@@ -26,16 +26,16 @@ import (
 	"regexp"
 
 	"github.com/apache/cloudstack-go/v2/cloudstack"
-	"k8s.io/api/core/v1"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	cloudprovider "k8s.io/cloud-provider"
-	"k8s.io/klog"
+	"k8s.io/klog/v2"
 )
 
 var labelInvalidCharsRegex *regexp.Regexp = regexp.MustCompile(`([^A-Za-z0-9][^-A-Za-z0-9_.]*)?[^A-Za-z0-9]`)
 
 // NodeAddresses returns the addresses of the specified instance.
-func (cs *CSCloud) NodeAddresses(ctx context.Context, name types.NodeName) ([]v1.NodeAddress, error) {
+func (cs *CSCloud) NodeAddresses(ctx context.Context, name types.NodeName) ([]corev1.NodeAddress, error) {
 	instance, count, err := cs.client.VirtualMachine.GetVirtualMachineByName(
 		string(name),
 		cloudstack.WithProject(cs.projectID),
@@ -51,7 +51,7 @@ func (cs *CSCloud) NodeAddresses(ctx context.Context, name types.NodeName) ([]v1
 }
 
 // NodeAddressesByProviderID returns the addresses of the specified instance.
-func (cs *CSCloud) NodeAddressesByProviderID(ctx context.Context, providerID string) ([]v1.NodeAddress, error) {
+func (cs *CSCloud) NodeAddressesByProviderID(ctx context.Context, providerID string) ([]corev1.NodeAddress, error) {
 	instance, count, err := cs.client.VirtualMachine.GetVirtualMachineByID(
 		providerID,
 		cloudstack.WithProject(cs.projectID),
@@ -66,21 +66,21 @@ func (cs *CSCloud) NodeAddressesByProviderID(ctx context.Context, providerID str
 	return cs.nodeAddresses(instance)
 }
 
-func (cs *CSCloud) nodeAddresses(instance *cloudstack.VirtualMachine) ([]v1.NodeAddress, error) {
+func (cs *CSCloud) nodeAddresses(instance *cloudstack.VirtualMachine) ([]corev1.NodeAddress, error) {
 	if len(instance.Nic) == 0 {
 		return nil, errors.New("instance does not have an internal IP")
 	}
 
-	addresses := []v1.NodeAddress{
-		{Type: v1.NodeInternalIP, Address: instance.Nic[0].Ipaddress},
+	addresses := []corev1.NodeAddress{
+		{Type: corev1.NodeInternalIP, Address: instance.Nic[0].Ipaddress},
 	}
 
 	if instance.Hostname != "" {
-		addresses = append(addresses, v1.NodeAddress{Type: v1.NodeHostName, Address: instance.Hostname})
+		addresses = append(addresses, corev1.NodeAddress{Type: corev1.NodeHostName, Address: instance.Hostname})
 	}
 
 	if instance.Publicip != "" {
-		addresses = append(addresses, v1.NodeAddress{Type: v1.NodeExternalIP, Address: instance.Publicip})
+		addresses = append(addresses, corev1.NodeAddress{Type: corev1.NodeExternalIP, Address: instance.Publicip})
 	} else {
 		// Since there is no sane way to determine the external IP if the host isn't
 		// using static NAT, we will just fire a log message and omit the external IP.
@@ -169,7 +169,7 @@ func (cs *CSCloud) InstanceShutdownByProviderID(ctx context.Context, providerID 
 	return false, cloudprovider.NotImplemented
 }
 
-func (cs *CSCloud) InstanceExists(ctx context.Context, node *v1.Node) (bool, error) {
+func (cs *CSCloud) InstanceExists(ctx context.Context, node *corev1.Node) (bool, error) {
 	nodeName := types.NodeName(node.Name)
 	providerID, err := cs.InstanceID(ctx, nodeName)
 	if err != nil {
@@ -179,11 +179,11 @@ func (cs *CSCloud) InstanceExists(ctx context.Context, node *v1.Node) (bool, err
 	return cs.InstanceExistsByProviderID(ctx, providerID)
 }
 
-func (cs *CSCloud) InstanceShutdown(ctx context.Context, node *v1.Node) (bool, error) {
+func (cs *CSCloud) InstanceShutdown(ctx context.Context, node *corev1.Node) (bool, error) {
 	return false, cloudprovider.NotImplemented
 }
 
-func (cs *CSCloud) InstanceMetadata(ctx context.Context, node *v1.Node) (*cloudprovider.InstanceMetadata, error) {
+func (cs *CSCloud) InstanceMetadata(ctx context.Context, node *corev1.Node) (*cloudprovider.InstanceMetadata, error) {
 
 	instanceType, err := cs.InstanceType(ctx, types.NodeName(node.Name))
 	if err != nil {

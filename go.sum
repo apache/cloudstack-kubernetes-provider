@@ -644,8 +644,6 @@ k8s.io/component-helpers v0.24.12/go.mod h1:oBT9p6Dd0lIW7CGQNHiDfUveWEECXTVFzwmY
 k8s.io/controller-manager v0.24.12 h1:AUre5+hsMry5R8xuVRp3xMe6czIm1PZlh2TcF5TzCCc=
 k8s.io/controller-manager v0.24.12/go.mod h1:XdyfRFfhXGP08AZU/ydu8sjW2PDbsxS7+gZHGAA4NWM=
 k8s.io/gengo v0.0.0-20210813121822-485abfe95c7c/go.mod h1:FiNAH4ZV3gBg2Kwh89tzAEV2be7d5xI0vBa/VySYy3E=
-k8s.io/klog v1.0.0 h1:Pt+yjF5aB1xDSVbau4VsWe+dQNzA0qv1LlXdC2dF6Q8=
-k8s.io/klog v1.0.0/go.mod h1:4Bi6QPql/J/LkTDqv7R/cd3hPo4k2DG6Ptcz060Ez5I=
 k8s.io/klog/v2 v2.0.0/go.mod h1:PBfzABfn139FHAV07az/IF9Wp1bkk3vpT2XSJ76fSDE=
 k8s.io/klog/v2 v2.2.0/go.mod h1:Od+F08eJP+W3HUb4pSrPpgp9DGU4GzlpG/TmITuYh/Y=
 k8s.io/klog/v2 v2.80.1 h1:atnLQ121W371wYYFawwYx1aEY2eUfs4l3J72wtgAwV4=

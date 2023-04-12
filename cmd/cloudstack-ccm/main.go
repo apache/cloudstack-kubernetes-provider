@@ -21,12 +21,11 @@ package main
 
 import (
 	goflag "flag"
-	"k8s.io/apimachinery/pkg/util/wait"
-	cloudprovider "k8s.io/cloud-provider"
 	"math/rand"
 	"time"
 
-	"k8s.io/klog"
+	"k8s.io/apimachinery/pkg/util/wait"
+	cloudprovider "k8s.io/cloud-provider"
 
 	"k8s.io/cloud-provider/app"
 	"k8s.io/cloud-provider/app/config"
@@ -36,6 +35,7 @@ import (
 
 	_ "k8s.io/component-base/metrics/prometheus/clientgo" // load all the prometheus client-go plugins
 	_ "k8s.io/component-base/metrics/prometheus/version"  // for version metric registration
+	"k8s.io/klog/v2"
 
 	"github.com/spf13/pflag"
 

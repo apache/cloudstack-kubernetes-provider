@@ -26,7 +26,7 @@ import (
 	"strings"
 	"testing"
 
-	"k8s.io/api/core/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -111,7 +111,7 @@ func TestLoadBalancer(t *testing.T) {
 		t.Fatalf("LoadBalancer() returned false")
 	}
 
-	_, exists, err := lb.GetLoadBalancer(context.TODO(), testClusterName, &v1.Service{ObjectMeta: metav1.ObjectMeta{Name: "noexist"}})
+	_, exists, err := lb.GetLoadBalancer(context.TODO(), testClusterName, &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: "noexist"}})
 	if err != nil {
 		t.Fatalf("GetLoadBalancer(\"noexist\") returned error: %s", err)
 	}

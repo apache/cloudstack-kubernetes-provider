@@ -10,7 +10,7 @@ require (
 	k8s.io/apimachinery v0.24.12
 	k8s.io/cloud-provider v0.24.12
 	k8s.io/component-base v0.24.12
-	k8s.io/klog v1.0.0
+	k8s.io/klog/v2 v2.80.1
 )
 
 require (
@@ -96,7 +96,6 @@ require (
 	k8s.io/client-go v0.24.12 // indirect
 	k8s.io/component-helpers v0.24.12 // indirect
 	k8s.io/controller-manager v0.24.12 // indirect
-	k8s.io/klog/v2 v2.80.1 // indirect
 	k8s.io/kube-openapi v0.0.0-20220328201542-3ee0da9b0b42 // indirect
 	k8s.io/utils v0.0.0-20221107191617-1a15be271d1d // indirect
 	sigs.k8s.io/apiserver-network-proxy/konnectivity-client v0.0.35 // indirect
