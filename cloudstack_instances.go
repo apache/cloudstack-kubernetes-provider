@@ -29,7 +29,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	cloudprovider "k8s.io/cloud-provider"
-	"k8s.io/klog/v2"
 )
 
 var labelInvalidCharsRegex *regexp.Regexp = regexp.MustCompile(`([^A-Za-z0-9][^-A-Za-z0-9_.]*)?[^A-Za-z0-9]`)
@@ -86,10 +85,6 @@ func (cs *CSCloud) nodeAddresses(instance *cloudstack.VirtualMachine) ([]corev1.
 
 	if instance.Publicip != "" {
 		addresses = append(addresses, corev1.NodeAddress{Type: corev1.NodeExternalIP, Address: instance.Publicip})
-	} else {
-		// Since there is no sane way to determine the external IP if the host isn't
-		// using static NAT, we will just fire a log message and omit the external IP.
-		klog.V(4).Infof("Could not determine the public IP of host %v (%v)", instance.Name, instance.Id)
 	}
 
 	return addresses, nil
