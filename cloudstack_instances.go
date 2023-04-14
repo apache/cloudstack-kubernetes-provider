@@ -52,8 +52,13 @@ func (cs *CSCloud) NodeAddresses(ctx context.Context, name types.NodeName) ([]co
 
 // NodeAddressesByProviderID returns the addresses of the specified instance.
 func (cs *CSCloud) NodeAddressesByProviderID(ctx context.Context, providerID string) ([]corev1.NodeAddress, error) {
+	id, _, err := instanceIDFromProviderID(providerID)
+	if err != nil {
+		return nil, err
+	}
+
 	instance, count, err := cs.client.VirtualMachine.GetVirtualMachineByID(
-		providerID,
+		id,
 		cloudstack.WithProject(cs.projectID),
 	)
 	if err != nil {
@@ -103,7 +108,9 @@ func (cs *CSCloud) InstanceID(ctx context.Context, name types.NodeName) (string,
 		return "", fmt.Errorf("error retrieving instance ID: %v", err)
 	}
 
-	return instance.Id, nil
+	// return instance ID with empty region
+	// in the future, with region support, this should be <region>/<instanceid>
+	return "/" + instance.Id, nil
 }
 
 // InstanceType returns the type of the specified instance.
@@ -124,8 +131,13 @@ func (cs *CSCloud) InstanceType(ctx context.Context, name types.NodeName) (strin
 
 // InstanceTypeByProviderID returns the type of the specified instance.
 func (cs *CSCloud) InstanceTypeByProviderID(ctx context.Context, providerID string) (string, error) {
+	id, _, err := instanceIDFromProviderID(providerID)
+	if err != nil {
+		return "", err
+	}
+
 	instance, count, err := cs.client.VirtualMachine.GetVirtualMachineByID(
-		providerID,
+		id,
 		cloudstack.WithProject(cs.projectID),
 	)
 	if err != nil {
@@ -150,8 +162,13 @@ func (cs *CSCloud) CurrentNodeName(ctx context.Context, hostname string) (types.
 
 // InstanceExistsByProviderID returns if the instance still exists.
 func (cs *CSCloud) InstanceExistsByProviderID(ctx context.Context, providerID string) (bool, error) {
+	id, _, err := instanceIDFromProviderID(providerID)
+	if err != nil {
+		return false, err
+	}
+
 	_, count, err := cs.client.VirtualMachine.GetVirtualMachineByID(
-		providerID,
+		id,
 		cloudstack.WithProject(cs.projectID),
 	)
 	if err != nil {
@@ -166,7 +183,22 @@ func (cs *CSCloud) InstanceExistsByProviderID(ctx context.Context, providerID st
 
 // InstanceShutdownByProviderID returns true if the instance is in safe state to detach volumes
 func (cs *CSCloud) InstanceShutdownByProviderID(ctx context.Context, providerID string) (bool, error) {
-	return false, cloudprovider.NotImplemented
+	id, _, err := instanceIDFromProviderID(providerID)
+	if err != nil {
+		return false, err
+	}
+
+	instance, count, err := cs.client.VirtualMachine.GetVirtualMachineByID(
+		id,
+		cloudstack.WithProject(cs.projectID),
+	)
+	if err != nil {
+		if count == 0 {
+			return false, cloudprovider.InstanceNotFound
+		}
+		return false, fmt.Errorf("error retrieving instance state: %v", err)
+	}
+	return instance != nil && instance.State == "Stopped", nil
 }
 
 func (cs *CSCloud) InstanceExists(ctx context.Context, node *corev1.Node) (bool, error) {
@@ -180,31 +212,36 @@ func (cs *CSCloud) InstanceExists(ctx context.Context, node *corev1.Node) (bool,
 }
 
 func (cs *CSCloud) InstanceShutdown(ctx context.Context, node *corev1.Node) (bool, error) {
-	return false, cloudprovider.NotImplemented
+	return cs.InstanceShutdownByProviderID(ctx, node.Spec.ProviderID)
 }
 
 func (cs *CSCloud) InstanceMetadata(ctx context.Context, node *corev1.Node) (*cloudprovider.InstanceMetadata, error) {
-
-	instanceType, err := cs.InstanceType(ctx, types.NodeName(node.Name))
+	id, region, err := instanceIDFromProviderID(node.Spec.ProviderID)
 	if err != nil {
 		return nil, err
 	}
 
-	addresses, err := cs.NodeAddresses(ctx, types.NodeName(node.Name))
+	instance, count, err := cs.client.VirtualMachine.GetVirtualMachineByID(
+		id,
+		cloudstack.WithProject(cs.projectID),
+	)
 	if err != nil {
-		return nil, err
+		if count == 0 {
+			return nil, cloudprovider.InstanceNotFound
+		}
+		return nil, fmt.Errorf("error retrieving instance: %v", err)
 	}
 
-	zone, err := cs.GetZone(ctx)
+	addresses, err := cs.nodeAddresses(instance)
 	if err != nil {
 		return nil, err
 	}
 
 	return &cloudprovider.InstanceMetadata{
-		ProviderID:    cs.ProviderName(),
-		InstanceType:  instanceType,
+		ProviderID:    node.Spec.ProviderID,
+		InstanceType:  labelInvalidCharsRegex.ReplaceAllString(instance.Serviceofferingname, ``),
 		NodeAddresses: addresses,
-		Zone:          cs.zone,
-		Region:        zone.Region,
+		Zone:          labelInvalidCharsRegex.ReplaceAllString(instance.Zonename, ``),
+		Region:        region,
 	}, nil
 }
