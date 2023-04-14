@@ -34,7 +34,7 @@ import (
 )
 
 // ProviderName is the name of this cloud provider.
-const ProviderName = "external-cloudstack"
+const ProviderName = "cloudstack"
 
 // CSConfig wraps the config for the CloudStack cloud provider.
 type CSConfig struct {
@@ -199,13 +199,18 @@ func (cs *CSCloud) GetZone(ctx context.Context) (cloudprovider.Zone, error) {
 func (cs *CSCloud) GetZoneByProviderID(ctx context.Context, providerID string) (cloudprovider.Zone, error) {
 	zone := cloudprovider.Zone{}
 
+	id, _, err := instanceIDFromProviderID(providerID)
+	if err != nil {
+		return zone, err
+	}
+
 	instance, count, err := cs.client.VirtualMachine.GetVirtualMachineByID(
-		providerID,
+		id,
 		cloudstack.WithProject(cs.projectID),
 	)
 	if err != nil {
 		if count == 0 {
-			return zone, fmt.Errorf("could not find node by ID: %v", providerID)
+			return zone, fmt.Errorf("could not find node by ID: %v", id)
 		}
 		return zone, fmt.Errorf("error retrieving zone: %v", err)
 	}
