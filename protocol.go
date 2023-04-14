@@ -82,10 +82,11 @@ func (p LoadBalancerProtocol) IPProtocol() string {
 // based on a ServicePort object and annotations from a LoadBalancer definition.
 //
 // Supported combinations include:
-//   v1.ProtocolTCP="tcp" -> "tcp"
-//   v1.ProtocolTCP="udp" -> "udp" (CloudStack 4.6 and later)
-//   v1.ProtocolTCP="tcp" + annotation "service.beta.kubernetes.io/cloudstack-load-balancer-proxy-protocol"
-//                        -> "tcp-proxy" (CloudStack 4.6 and later)
+//
+//	v1.ProtocolTCP="tcp" -> "tcp"
+//	v1.ProtocolTCP="udp" -> "udp" (CloudStack 4.6 and later)
+//	v1.ProtocolTCP="tcp" + annotation "service.beta.kubernetes.io/cloudstack-load-balancer-proxy-protocol"
+//	                     -> "tcp-proxy" (CloudStack 4.6 and later)
 //
 // Other values return LoadBalancerProtocolInvalid.
 func ProtocolFromServicePort(port v1.ServicePort, annotations map[string]string) LoadBalancerProtocol {

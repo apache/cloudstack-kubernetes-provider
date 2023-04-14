@@ -25,10 +25,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/xanzy/go-cloudstack/v2/cloudstack"
-	"k8s.io/klog"
+	"github.com/apache/cloudstack-go/v2/cloudstack"
+	"k8s.io/klog/v2"
 
-	v1 "k8s.io/api/core/v1"
+	corev1 "k8s.io/api/core/v1"
 	cloudprovider "k8s.io/cloud-provider"
 )
 
@@ -50,7 +50,7 @@ type loadBalancer struct {
 }
 
 // GetLoadBalancer returns whether the specified load balancer exists, and if so, what its status is.
-func (cs *CSCloud) GetLoadBalancer(ctx context.Context, clusterName string, service *v1.Service) (*v1.LoadBalancerStatus, bool, error) {
+func (cs *CSCloud) GetLoadBalancer(ctx context.Context, clusterName string, service *corev1.Service) (*corev1.LoadBalancerStatus, bool, error) {
 	klog.V(4).Infof("GetLoadBalancer(%v, %v, %v)", clusterName, service.Namespace, service.Name)
 
 	// Get the load balancer details and existing rules.
@@ -66,14 +66,14 @@ func (cs *CSCloud) GetLoadBalancer(ctx context.Context, clusterName string, serv
 
 	klog.V(4).Infof("Found a load balancer associated with IP %v", lb.ipAddr)
 
-	status := &v1.LoadBalancerStatus{}
-	status.Ingress = append(status.Ingress, v1.LoadBalancerIngress{IP: lb.ipAddr})
+	status := &corev1.LoadBalancerStatus{}
+	status.Ingress = append(status.Ingress, corev1.LoadBalancerIngress{IP: lb.ipAddr})
 
 	return status, true, nil
 }
 
 // EnsureLoadBalancer creates a new load balancer, or updates the existing one. Returns the status of the balancer.
-func (cs *CSCloud) EnsureLoadBalancer(ctx context.Context, clusterName string, service *v1.Service, nodes []*v1.Node) (status *v1.LoadBalancerStatus, err error) {
+func (cs *CSCloud) EnsureLoadBalancer(ctx context.Context, clusterName string, service *corev1.Service, nodes []*corev1.Node) (status *corev1.LoadBalancerStatus, err error) {
 	klog.V(4).Infof("EnsureLoadBalancer(%v, %v, %v, %v, %v, %v)", clusterName, service.Namespace, service.Name, service.Spec.LoadBalancerIP, service.Spec.Ports, nodes)
 
 	if len(service.Spec.Ports) == 0 {
@@ -88,9 +88,9 @@ func (cs *CSCloud) EnsureLoadBalancer(ctx context.Context, clusterName string, s
 
 	// Set the load balancer algorithm.
 	switch service.Spec.SessionAffinity {
-	case v1.ServiceAffinityNone:
+	case corev1.ServiceAffinityNone:
 		lb.algorithm = "roundrobin"
-	case v1.ServiceAffinityClientIP:
+	case corev1.ServiceAffinityClientIP:
 		lb.algorithm = "source"
 	default:
 		return nil, fmt.Errorf("unsupported load balancer affinity: %v", service.Spec.SessionAffinity)
@@ -193,14 +193,14 @@ func (cs *CSCloud) EnsureLoadBalancer(ctx context.Context, clusterName string, s
 		}
 	}
 
-	status = &v1.LoadBalancerStatus{}
-	status.Ingress = []v1.LoadBalancerIngress{{IP: lb.ipAddr}}
+	status = &corev1.LoadBalancerStatus{}
+	status.Ingress = []corev1.LoadBalancerIngress{{IP: lb.ipAddr}}
 
 	return status, nil
 }
 
 // UpdateLoadBalancer updates hosts under the specified load balancer.
-func (cs *CSCloud) UpdateLoadBalancer(ctx context.Context, clusterName string, service *v1.Service, nodes []*v1.Node) error {
+func (cs *CSCloud) UpdateLoadBalancer(ctx context.Context, clusterName string, service *corev1.Service, nodes []*corev1.Node) error {
 	klog.V(4).Infof("UpdateLoadBalancer(%v, %v, %v, %v)", clusterName, service.Namespace, service.Name, nodes)
 
 	// Get the load balancer details and existing rules.
@@ -246,7 +246,7 @@ func (cs *CSCloud) UpdateLoadBalancer(ctx context.Context, clusterName string, s
 
 // EnsureLoadBalancerDeleted deletes the specified load balancer if it exists, returning
 // nil if the load balancer specified either didn't exist or was successfully deleted.
-func (cs *CSCloud) EnsureLoadBalancerDeleted(ctx context.Context, clusterName string, service *v1.Service) error {
+func (cs *CSCloud) EnsureLoadBalancerDeleted(ctx context.Context, clusterName string, service *corev1.Service) error {
 	klog.V(4).Infof("EnsureLoadBalancerDeleted(%v, %v, %v)", clusterName, service.Namespace, service.Name)
 
 	// Get the load balancer details and existing rules.
@@ -286,12 +286,12 @@ func (cs *CSCloud) EnsureLoadBalancerDeleted(ctx context.Context, clusterName st
 }
 
 // GetLoadBalancerName retrieves the name of the LoadBalancer.
-func (cs *CSCloud) GetLoadBalancerName(ctx context.Context, clusterName string, service *v1.Service) string {
+func (cs *CSCloud) GetLoadBalancerName(ctx context.Context, clusterName string, service *corev1.Service) string {
 	return cloudprovider.DefaultLoadBalancerName(service)
 }
 
 // getLoadBalancer retrieves the IP address and ID and all the existing rules it can find.
-func (cs *CSCloud) getLoadBalancer(service *v1.Service) (*loadBalancer, error) {
+func (cs *CSCloud) getLoadBalancer(service *corev1.Service) (*loadBalancer, error) {
 	lb := &loadBalancer{
 		CloudStackClient: cs.client,
 		name:             cs.GetLoadBalancerName(context.TODO(), "", service),
@@ -329,7 +329,7 @@ func (cs *CSCloud) getLoadBalancer(service *v1.Service) (*loadBalancer, error) {
 }
 
 // verifyHosts verifies if all hosts belong to the same network, and returns the host ID's and network ID.
-func (cs *CSCloud) verifyHosts(nodes []*v1.Node) ([]string, string, error) {
+func (cs *CSCloud) verifyHosts(nodes []*corev1.Node) ([]string, string, error) {
 	hostNames := map[string]bool{}
 	for _, node := range nodes {
 		hostNames[strings.ToLower(node.Name)] = true
@@ -456,7 +456,7 @@ func (lb *loadBalancer) releaseLoadBalancerIP() error {
 
 // checkLoadBalancerRule checks if the rule already exists and if it does, if it can be updated. If
 // it does exist but cannot be updated, it will delete the existing rule so it can be created again.
-func (lb *loadBalancer) checkLoadBalancerRule(lbRuleName string, port v1.ServicePort, protocol LoadBalancerProtocol) (*cloudstack.LoadBalancerRule, bool, error) {
+func (lb *loadBalancer) checkLoadBalancerRule(lbRuleName string, port corev1.ServicePort, protocol LoadBalancerProtocol) (*cloudstack.LoadBalancerRule, bool, error) {
 	lbRule, ok := lb.rules[lbRuleName]
 	if !ok {
 		return nil, false, nil
@@ -490,7 +490,7 @@ func (lb *loadBalancer) updateLoadBalancerRule(lbRuleName string, protocol LoadB
 }
 
 // createLoadBalancerRule creates a new load balancer rule and returns it's ID.
-func (lb *loadBalancer) createLoadBalancerRule(lbRuleName string, port v1.ServicePort, protocol LoadBalancerProtocol) (*cloudstack.LoadBalancerRule, error) {
+func (lb *loadBalancer) createLoadBalancerRule(lbRuleName string, port corev1.ServicePort, protocol LoadBalancerProtocol) (*cloudstack.LoadBalancerRule, error) {
 	p := lb.LoadBalancer.NewCreateLoadBalancerRuleParams(
 		lb.algorithm,
 		lbRuleName,

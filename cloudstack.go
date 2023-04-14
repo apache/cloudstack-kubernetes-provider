@@ -26,11 +26,11 @@ import (
 	"io"
 	"os"
 
-	"github.com/xanzy/go-cloudstack/v2/cloudstack"
+	"github.com/apache/cloudstack-go/v2/cloudstack"
 	"gopkg.in/gcfg.v1"
 	"k8s.io/apimachinery/pkg/types"
 	cloudprovider "k8s.io/cloud-provider"
-	"k8s.io/klog"
+	"k8s.io/klog/v2"
 )
 
 // ProviderName is the name of this cloud provider.
@@ -113,6 +113,14 @@ func (cs *CSCloud) LoadBalancer() (cloudprovider.LoadBalancer, bool) {
 
 // Instances returns an implementation of Instances for CloudStack.
 func (cs *CSCloud) Instances() (cloudprovider.Instances, bool) {
+	if cs.client == nil {
+		return nil, false
+	}
+
+	return cs, true
+}
+
+func (cs *CSCloud) InstancesV2() (cloudprovider.InstancesV2, bool) {
 	if cs.client == nil {
 		return nil, false
 	}
