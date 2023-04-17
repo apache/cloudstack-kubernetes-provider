@@ -45,3 +45,29 @@ func instanceIDFromProviderID(providerID string) (instanceID string, region stri
 	}
 	return matches[2], matches[1], nil
 }
+
+// Sanitize label value so it complies with https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/#syntax-and-character-set
+// Anything but [-A-Za-z0-9_.] will get converted to '_'
+func sanitizeLabel(value string) string {
+	fn := func(r rune) rune {
+		if r >= 'a' && r <= 'z' ||
+			r >= 'A' && r <= 'Z' ||
+			r >= '0' && r <= '9' ||
+			r == '-' || r == '_' || r == '.' {
+			return r
+		}
+		return '_'
+	}
+	value = strings.Map(fn, value)
+
+	// Must start & end with alphanumeric char
+	value = strings.Trim(value, "-_.")
+
+	// Strip anything over 63 chars
+	if len(value) > 63 {
+		value = value[:63]
+		value = strings.Trim(value, "-_.")
+	}
+
+	return value
+}

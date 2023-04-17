@@ -23,15 +23,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"regexp"
 
 	"github.com/apache/cloudstack-go/v2/cloudstack"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	cloudprovider "k8s.io/cloud-provider"
 )
-
-var labelInvalidCharsRegex *regexp.Regexp = regexp.MustCompile(`([^A-Za-z0-9][^-A-Za-z0-9_.]*)?[^A-Za-z0-9]`)
 
 // NodeAddresses returns the addresses of the specified instance.
 func (cs *CSCloud) NodeAddresses(ctx context.Context, name types.NodeName) ([]corev1.NodeAddress, error) {
@@ -121,7 +118,7 @@ func (cs *CSCloud) InstanceType(ctx context.Context, name types.NodeName) (strin
 		return "", fmt.Errorf("error retrieving instance type: %v", err)
 	}
 
-	return labelInvalidCharsRegex.ReplaceAllString(instance.Serviceofferingname, ``), nil
+	return sanitizeLabel(instance.Serviceofferingname), nil
 }
 
 // InstanceTypeByProviderID returns the type of the specified instance.
@@ -142,7 +139,7 @@ func (cs *CSCloud) InstanceTypeByProviderID(ctx context.Context, providerID stri
 		return "", fmt.Errorf("error retrieving instance type: %v", err)
 	}
 
-	return labelInvalidCharsRegex.ReplaceAllString(instance.Serviceofferingname, ``), nil
+	return sanitizeLabel(instance.Serviceofferingname), nil
 }
 
 // AddSSHKeyToAllInstances is currently not implemented.
@@ -234,9 +231,9 @@ func (cs *CSCloud) InstanceMetadata(ctx context.Context, node *corev1.Node) (*cl
 
 	return &cloudprovider.InstanceMetadata{
 		ProviderID:    node.Spec.ProviderID,
-		InstanceType:  labelInvalidCharsRegex.ReplaceAllString(instance.Serviceofferingname, ``),
+		InstanceType:  sanitizeLabel(instance.Serviceofferingname),
 		NodeAddresses: addresses,
-		Zone:          labelInvalidCharsRegex.ReplaceAllString(instance.Zonename, ``),
+		Zone:          sanitizeLabel(instance.Zonename),
 		Region:        region,
 	}, nil
 }
