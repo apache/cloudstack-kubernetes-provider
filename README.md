@@ -16,7 +16,7 @@ Refer:
 
 ## Deployment
 
-The CloudStack Kubernetes Provider is automatically deployed when a Kuberentes Cluster is created on CloudStack 4.16+
+The CloudStack Kubernetes Provider is automatically deployed when a Kubernetes Cluster is created on CloudStack 4.16+
 
 In order to communicate with CloudStack, a separate service user **kubeadmin** is created in the same account as the cluster owner.
 The provider uses this user's API keys to get the details of the cluster as well as update the networking rules. It is imperative that this user

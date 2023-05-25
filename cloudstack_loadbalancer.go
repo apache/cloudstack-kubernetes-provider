@@ -370,7 +370,7 @@ func (lb *loadBalancer) hasLoadBalancerIP() bool {
 	return lb.ipAddr != "" && lb.ipAddrID != ""
 }
 
-// getLoadBalancerIP retieves an existing IP or associates a new IP.
+// getLoadBalancerIP retrieves an existing IP or associates a new IP.
 func (lb *loadBalancer) getLoadBalancerIP(loadBalancerIP string) error {
 	if loadBalancerIP != "" {
 		return lb.getPublicIPAddress(loadBalancerIP)
