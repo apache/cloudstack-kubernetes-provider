@@ -20,17 +20,13 @@
 package cloudstack
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"io"
-	"os"
 
 	"github.com/apache/cloudstack-go/v2/cloudstack"
 	"gopkg.in/gcfg.v1"
-	"k8s.io/apimachinery/pkg/types"
 	cloudprovider "k8s.io/cloud-provider"
-	"k8s.io/klog/v2"
 )
 
 // ProviderName is the name of this cloud provider.
@@ -113,13 +109,13 @@ func (cs *CSCloud) LoadBalancer() (cloudprovider.LoadBalancer, bool) {
 
 // Instances returns an implementation of Instances for CloudStack.
 func (cs *CSCloud) Instances() (cloudprovider.Instances, bool) {
-	if cs.client == nil {
-		return nil, false
-	}
-
-	return cs, true
+	return nil, false
 }
 
+// InstancesV2 is an implementation for instances and should only be implemented by external cloud providers.
+// Implementing InstancesV2 is behaviorally identical to Instances but is optimized to significantly reduce
+// API calls to the cloud provider when registering and syncing nodes. Implementation of this interface will
+// disable calls to the Zones interface. Also returns true if the interface is supported, false otherwise.
 func (cs *CSCloud) InstancesV2() (cloudprovider.InstancesV2, bool) {
 	if cs.client == nil {
 		return nil, false
@@ -130,30 +126,16 @@ func (cs *CSCloud) InstancesV2() (cloudprovider.InstancesV2, bool) {
 
 // Zones returns an implementation of Zones for CloudStack.
 func (cs *CSCloud) Zones() (cloudprovider.Zones, bool) {
-	if cs.client == nil {
-		return nil, false
-	}
-
-	return cs, true
+	return nil, false
 }
 
 // Clusters returns an implementation of Clusters for CloudStack.
 func (cs *CSCloud) Clusters() (cloudprovider.Clusters, bool) {
-	if cs.client == nil {
-		return nil, false
-	}
-
-	klog.Warning("This cloud provider doesn't support clusters")
 	return nil, false
 }
 
 // Routes returns an implementation of Routes for CloudStack.
 func (cs *CSCloud) Routes() (cloudprovider.Routes, bool) {
-	if cs.client == nil {
-		return nil, false
-	}
-
-	klog.Warning("This cloud provider doesn't support routes")
 	return nil, false
 }
 
@@ -165,81 +147,4 @@ func (cs *CSCloud) ProviderName() string {
 // HasClusterID returns true if the cluster has a clusterID
 func (cs *CSCloud) HasClusterID() bool {
 	return true
-}
-
-// GetZone returns the Zone containing the region that the program is running in.
-func (cs *CSCloud) GetZone(ctx context.Context) (cloudprovider.Zone, error) {
-	zone := cloudprovider.Zone{}
-
-	if cs.zone == "" {
-		hostname, err := os.Hostname()
-		if err != nil {
-			return zone, fmt.Errorf("failed to get hostname for retrieving the zone: %v", err)
-		}
-
-		instance, count, err := cs.client.VirtualMachine.GetVirtualMachineByName(hostname)
-		if err != nil {
-			if count == 0 {
-				return zone, fmt.Errorf("could not find instance for retrieving the zone: %v", err)
-			}
-			return zone, fmt.Errorf("error getting instance for retrieving the zone: %v", err)
-		}
-
-		cs.zone = instance.Zonename
-	}
-
-	klog.V(2).Infof("Current zone is %v", cs.zone)
-	zone.FailureDomain = cs.zone
-	zone.Region = cs.zone
-
-	return zone, nil
-}
-
-// GetZoneByProviderID returns the Zone, found by using the provider ID.
-func (cs *CSCloud) GetZoneByProviderID(ctx context.Context, providerID string) (cloudprovider.Zone, error) {
-	zone := cloudprovider.Zone{}
-
-	id, _, err := instanceIDFromProviderID(providerID)
-	if err != nil {
-		return zone, err
-	}
-
-	instance, count, err := cs.client.VirtualMachine.GetVirtualMachineByID(
-		id,
-		cloudstack.WithProject(cs.projectID),
-	)
-	if err != nil {
-		if count == 0 {
-			return zone, fmt.Errorf("could not find node by ID: %v", id)
-		}
-		return zone, fmt.Errorf("error retrieving zone: %v", err)
-	}
-
-	klog.V(2).Infof("Current zone is %v", cs.zone)
-	zone.FailureDomain = instance.Zonename
-	zone.Region = instance.Zonename
-
-	return zone, nil
-}
-
-// GetZoneByNodeName returns the Zone, found by using the node name.
-func (cs *CSCloud) GetZoneByNodeName(ctx context.Context, nodeName types.NodeName) (cloudprovider.Zone, error) {
-	zone := cloudprovider.Zone{}
-
-	instance, count, err := cs.client.VirtualMachine.GetVirtualMachineByName(
-		string(nodeName),
-		cloudstack.WithProject(cs.projectID),
-	)
-	if err != nil {
-		if count == 0 {
-			return zone, fmt.Errorf("could not find node: %v", nodeName)
-		}
-		return zone, fmt.Errorf("error retrieving zone: %v", err)
-	}
-
-	klog.V(2).Infof("Current zone is %v", cs.zone)
-	zone.FailureDomain = instance.Zonename
-	zone.Region = instance.Zonename
-
-	return zone, nil
 }
