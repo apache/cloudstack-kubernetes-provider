@@ -193,11 +193,11 @@ func (cs *CSCloud) EnsureLoadBalancer(ctx context.Context, clusterName string, s
 	for _, lbRule := range lb.rules {
 		protocol := ProtocolFromLoadBalancer(lbRule.Protocol)
 		if protocol == LoadBalancerProtocolInvalid {
-			return nil, fmt.Errorf("Error parsing protocol %v: %v", lbRule.Protocol, err)
+			return nil, fmt.Errorf("error parsing protocol %v: %v", lbRule.Protocol, err)
 		}
 		port, err := strconv.ParseInt(lbRule.Publicport, 10, 32)
 		if err != nil {
-			return nil, fmt.Errorf("Error parsing port %s: %v", lbRule.Publicport, err)
+			return nil, fmt.Errorf("error parsing port %s: %v", lbRule.Publicport, err)
 		}
 
 		klog.V(4).Infof("Deleting firewall rules associated with load balancer rule: %v (%v:%v:%v)", lbRule.Name, protocol, lbRule.Publicip, port)
@@ -656,10 +656,7 @@ func compareStringSlice(x, y []string) bool {
 			delete(diff, _y)
 		}
 	}
-	if len(diff) == 0 {
-		return true
-	}
-	return false
+	return len(diff) == 0
 }
 
 func ruleToString(rule *cloudstack.FirewallRule) string {
@@ -698,7 +695,7 @@ func rulesToString(rules []*cloudstack.FirewallRule) string {
 func rulesMapToString(rules map[*cloudstack.FirewallRule]bool) string {
 	ls := &strings.Builder{}
 	first := true
-	for rule, _ := range rules {
+	for rule := range rules {
 		if first {
 			first = false
 		} else {
@@ -739,7 +736,6 @@ func (lb *loadBalancer) updateFirewallRule(publicIpId string, publicPort int, pr
 	for _, rule := range r.FirewallRules {
 		if rule.Protocol == protocol.IPProtocol() && rule.Startport == publicPort && rule.Endport == publicPort {
 			filtered[rule] = true
-		} else {
 		}
 	}
 	klog.V(4).Infof("Matching rules for %v: %v", lb.ipAddr, rulesMapToString(filtered))
