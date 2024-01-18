@@ -163,7 +163,12 @@ func (cs *CSCloud) EnsureLoadBalancer(ctx context.Context, clusterName string, s
 			}
 		}
 
-		if lbRule != nil {
+		network, _, err := cs.client.Network.GetNetworkByID(lb.networkID, nil)
+		if err != nil {
+			return nil, err
+		}
+
+		if lbRule != nil && isFirewallSupported(network.Service) {
 			klog.V(4).Infof("Creating firewall rules for load balancer rule: %v (%v:%v:%v)", lbRuleName, protocol, lbRule.Publicip, port.Port)
 			if _, err := lb.updateFirewallRule(lbRule.Publicipid, int(port.Port), protocol, service.Spec.LoadBalancerSourceRanges); err != nil {
 				return nil, err
@@ -242,6 +247,15 @@ func (cs *CSCloud) UpdateLoadBalancer(ctx context.Context, clusterName string, s
 	}
 
 	return nil
+}
+
+func isFirewallSupported(services []cloudstack.NetworkServiceInternal) bool {
+	for _, svc := range services {
+		if svc.Name == "Firewall" {
+			return true
+		}
+	}
+	return false
 }
 
 // EnsureLoadBalancerDeleted deletes the specified load balancer if it exists, returning
