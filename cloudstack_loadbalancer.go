@@ -163,8 +163,11 @@ func (cs *CSCloud) EnsureLoadBalancer(ctx context.Context, clusterName string, s
 			}
 		}
 
-		network, _, err := cs.client.Network.GetNetworkByID(lb.networkID, nil)
+		network, count, err := lb.Network.GetNetworkByID(lb.networkID, cloudstack.WithProject(lb.projectID))
 		if err != nil {
+			if count == 0 {
+				return nil, err
+			}
 			return nil, err
 		}
 
