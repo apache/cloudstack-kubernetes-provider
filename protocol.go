@@ -20,7 +20,7 @@
 package cloudstack
 
 import (
-	"k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 )
 
 // LoadBalancerProtocol represents a specific network protocol supported by the CloudStack load balancer.
@@ -34,14 +34,6 @@ const (
 	LoadBalancerProtocolTCPProxy
 	LoadBalancerProtocolInvalid
 )
-
-// ServiceAnnotationLoadBalancerProxyProtocol is the annotation used on the
-// service to enable the proxy protocol on a CloudStack load balancer.
-// The value of this annotation is ignored, even if it is seemingly boolean.
-// Simple presence of the annotation will enable it.
-// Note that this protocol only applies to TCP service ports and
-// CloudStack 4.6 is required for it to work.
-const ServiceAnnotationLoadBalancerProxyProtocol = "service.beta.kubernetes.io/cloudstack-load-balancer-proxy-protocol"
 
 // String returns the same value as CSProtocol.
 func (p LoadBalancerProtocol) String() string {
@@ -89,12 +81,8 @@ func (p LoadBalancerProtocol) IPProtocol() string {
 //	                     -> "tcp-proxy" (CloudStack 4.6 and later)
 //
 // Other values return LoadBalancerProtocolInvalid.
-func ProtocolFromServicePort(port v1.ServicePort, annotations map[string]string) LoadBalancerProtocol {
-	proxy := false
-	// FIXME this accepts any value as true, even "false", 0 or other falsey stuff
-	if _, ok := annotations[ServiceAnnotationLoadBalancerProxyProtocol]; ok {
-		proxy = true
-	}
+func ProtocolFromServicePort(port v1.ServicePort, service *v1.Service) LoadBalancerProtocol {
+	proxy := getBoolFromServiceAnnotation(service, ServiceAnnotationLoadBalancerProxyProtocol, false)
 	switch port.Protocol {
 	case v1.ProtocolTCP:
 		if proxy {
