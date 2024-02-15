@@ -166,3 +166,8 @@ spec:
       - name: config-volume
         secret:
           secretName: cloudstack-secret
+      tolerations:
+      # this is required so CCM can bootstrap itself
+      - key: node.cloudprovider.kubernetes.io/uninitialized
+        value: "true"
+        effect: NoSchedule
