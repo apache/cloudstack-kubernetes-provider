@@ -1,0 +1,85 @@
+name: Release and Image Push
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - v*
+
+env:
+  REGISTRY_NAME: ghcr.io/leaseweb
+  IMAGE_NAME: "cloud-controller-manager"
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v1
+
+      - name: Log into registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY_NAME }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and Push Docker Image (Main Branch)
+        if: github.ref == 'refs/heads/main'
+        run: |
+          docker build . -t ${{ env.REGISTRY_NAME }}/${{ env.IMAGE_NAME }}:main
+          docker push ${{ env.REGISTRY_NAME }}/${{ env.IMAGE_NAME }}:main
+
+      - name: Build and Push Docker Image (Tags)
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          VERSION=$(echo "${{ github.ref }}" | sed -e 's,.*/\(.*\),\1,' | sed -e 's/^v//')
+          docker build . -t ${{ env.REGISTRY_NAME }}/${{ env.IMAGE_NAME }}:${VERSION}
+          docker push ${{ env.REGISTRY_NAME }}/${{ env.IMAGE_NAME }}:${VERSION}
+
+  release:
+    name: Release
+    runs-on: ubuntu-22.04
+
+    # Run only if previous job has succeeded
+    needs: [build-and-push]
+
+    # Create a release only for tags v*
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Create manifest
+        run: |
+          VERSION=$(echo "${{ github.ref }}" | sed -e 's,.*/\(.*\),\1,' | sed -e 's/^v//')
+          echo "---" >> manifest.yaml
+          cat deploy/k8s/rbac.yaml >> manifest.yaml
+          echo "---" >> manifest.yaml
+          sed -E "s|image: +cloudstack-kubernetes-provider|image: ${REGISTRY_NAME}/cloud-controller-manager:${VERSION}|" deploy/k8s/deployment.yaml >> manifest.yaml
+
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref }}
+          release_name: ${{ github.ref }}
+          draft: false
+          prerelease: false
+
+      - name: Upload Release Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: manifest.yaml
+          asset_name: manifest.yaml
+          asset_content_type: application/x-yaml
