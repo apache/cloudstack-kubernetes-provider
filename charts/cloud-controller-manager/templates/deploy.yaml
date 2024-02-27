@@ -1,0 +1,124 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "ccm.name" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ccm.labels" . | nindent 4 }}
+  annotations:
+    {{- with .Values.commonAnnotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  strategy:
+    type: {{ .Values.strategy.type }}
+{{- if eq .Values.strategy.type "RollingUpdate" }}
+    rollingUpdate:
+      maxUnavailable: {{ .Values.strategy.rollingUpdate.maxUnavailable }}
+      maxSurge: {{ .Values.strategy.rollingUpdate.maxSurge }}
+{{- end }}
+  revisionHistoryLimit: 2
+  selector:
+    matchLabels:
+      {{- include "ccm.controllermanager.matchLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include "cloudConfig" . | sha256sum }}
+        {{- with .Values.commonAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "ccm.controllermanager.labels" . | nindent 8 }}
+    spec:
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if gt (len .Values.nodeSelector) 0 }}
+      nodeSelector: 
+        {{ toYaml .Values.nodeSelector | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ .Values.serviceAccountName }}
+      containers:
+        - name: cloudstack-cloud-controller-manager
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          args:
+            - --v={{ .Values.logVerbosityLevel }}
+            - --cloud-config=$(CLOUD_CONFIG)
+            - --cloud-provider=cloudstack
+            - --cluster-name=$(CLUSTER_NAME)  
+            - --controllers={{- trimAll "," (include "ccm.enabledControllers" . ) -}}
+            {{- if .Values.serviceMonitor.enabled }}
+            - --bind-address=0.0.0.0
+            {{- else }}
+            - --bind-address=127.0.0.1
+            {{- end }}
+            {{- if .Values.controllerExtraArgs }}
+            {{- with .Values.controllerExtraArgs }}
+            {{- tpl . $ | trim | nindent 12 }}
+            {{- end }}
+            {{- end }}
+            {{- if (eq (int $.Values.replicaCount) 1) }}
+            - "--leader-elect=false"
+            {{- end }}
+          {{- if .Values.serviceMonitor.enabled }}
+          ports:
+          - containerPort: 10258
+            hostPort: 10258
+            name: http
+            protocol: TCP
+          {{- end }}
+          {{- if or (.Values.extraVolumeMounts) (.Values.secret.enabled) }}
+          volumeMounts:
+          {{- end }}
+          {{- if .Values.secret.enabled }}
+            - mountPath: /etc/config
+              name: cloud-config-volume
+              readOnly: true
+          {{- end }}
+          {{- if .Values.extraVolumeMounts }}
+            {{- toYaml .Values.extraVolumeMounts | nindent 12 }}
+          {{- end }}
+          {{- if .Values.livenessProbe }}
+          livenessProbe:
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          {{- end }}
+          {{- if .Values.readinessProbe }}
+          readinessProbe:
+            {{- toYaml .Values.readinessProbe | nindent 12 }}
+          {{- end }}
+          {{- if .Values.resources }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          {{- end }}
+          env:
+            - name: CLOUD_CONFIG
+              value: /etc/config/cloud.conf
+            - name: CLUSTER_NAME
+              value: {{ .Values.cluster.name }}
+      {{- if .Values.extraInitContainers }}
+      initContainers: {{ toYaml .Values.extraInitContainers | nindent 6 }}
+      {{- end }}
+      hostNetwork: {{ .Values.hostNetwork}}
+      {{- if .Values.hostNetwork }}
+      dnsPolicy: {{ .Values.dnsPolicy}}
+      {{- end }}      {{- if .Values.priorityClassName }}
+      priorityClassName: {{ .Values.priorityClassName }}
+      {{- end }}
+      {{- if or (.Values.extraVolumes) (.Values.secret.enabled) }}
+      volumes:
+      {{- end }}
+      {{- if .Values.secret.enabled }}
+      - name: cloud-config-volume
+        secret:
+          secretName: {{ .Values.secret.name }}
+      {{- end }}
+      {{- if .Values.extraVolumes }}
+        {{ toYaml .Values.extraVolumes | nindent 6 }}
+      {{- end }}

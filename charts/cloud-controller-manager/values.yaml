@@ -1,0 +1,163 @@
+# Values CloudStack Cloud Controller Manager Helm Chart
+#
+# Define deployment mode for the controller and provide cloud credentials in cloudConfig at the end of the file
+#
+## Overriding Name
+nameOverride: ""
+
+## Set number of replicas (If replicaCount set to 1 by default leader-elect will be false)
+replicaCount: 1
+
+strategy:
+  # RollingUpdate strategy replaces old pods with new ones gradually,
+  # without incurring downtime.
+  type: RollingUpdate
+  rollingUpdate:
+    # maxUnavailable is the maximum number of pods that can be
+    # unavailable during the update process.
+    maxUnavailable: 0
+    # maxSurge is the maximum number of pods that can be
+    # created over the desired number of pods.
+    maxSurge: 1
+
+## Annotations to apply to all resources
+commonAnnotations: {}
+# commonAnnotations:
+#   "helm.sh/hook": pre-install,pre-upgrade
+#   "helm.sh/hook-weight": "-100"
+#   "helm.sh/hook-delete-policy": before-hook-creation
+
+# Image repository name and tag
+image:
+  repository: leaseweb/cloudstack-kubernetes-provider
+  tag: "testv2"
+
+# Additional containers which are run before the app containers are started.
+extraInitContainers: []
+# - name: wait
+#   image: busybox
+#   command: ['sh', '-c', 'echo waiting for 10 seconds; sleep 10;']
+
+# Additional environment variables for the cloud-controller-manager.
+extraEnv: []
+# - name: OS_CCM_REGIONAL
+#   value: "true"
+
+# Set resources for Kubernetes daemonset
+resources: {}
+# resources:
+#   requests:
+#     cpu: 200m
+
+# Set livenessProbe for Kubernetes daemonset. Used the same port for servicemonitor metrics
+livenessProbe: {}
+# livenessProbe:
+#   httpGet:
+#    path: /metrics
+#    port: 10258
+
+# Set readinessProbe in the same way like livenessProbe
+readinessProbe: {}
+
+# Set nodeSelector where the controller should run, i.e. controlplane nodes
+nodeSelector:
+  node-role.kubernetes.io/control-plane: ""
+
+# Set tolerations for nodes where the controller should run, i.e. node
+# should be uninitialized, controlplane...
+tolerations:
+  # Allow ccm itself to schedule on nodes that have not yet been initialized by ccm.
+  - key: "node.cloudprovider.kubernetes.io/uninitialized"
+    value: "true"
+    effect: "NoSchedule"
+  - key: "CriticalAddonsOnly"
+    operator: "Exists"
+  # Allow ccm to schedule on control plane nodes.
+  - key: "node-role.kubernetes.io/control-plane"
+    effect: NoSchedule
+    operator: Exists
+  - key: "node.kubernetes.io/not-ready"
+    effect: "NoExecute"
+
+# Set security settings for the controller pods
+# For all available options, see https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.23/#podsecuritycontext-v1-core
+podSecurityContext:
+  runAsUser: 1001
+  # seccompProfile:
+  #   type: RuntimeDefault
+
+# Any extra arguments for cloudstack-cloud-controller-manager
+controllerExtraArgs: {}
+# controllerExtraArgs: |-
+#   - --cluster-name=my-cluster
+
+# Create a service monitor for Prometheus Operator
+serviceMonitor: {}
+# serviceMonitor:
+#   enabled: true
+
+# Create a secret resource cloud-config (or other name) to store credentials and settings from cloudConfig
+# You can also provide your own secret (not created by the Helm chart), in this case set create to false
+# and adjust the name of the secret as necessary
+# If you dont want to use a secret (because you are using something like an agent injector to inject the cloud config file)
+# you can disable the secret usage by setting enabled to false.
+# If you disable the secret, you have to insert the cloud config file into the path /etc/cloud/config.
+secret:
+  enabled: true
+  create: true
+  name: cloud-config
+
+cloudConfig:
+  global:
+    api-url: ""
+    api-key: ""
+    secret-key: ""
+
+# Log verbosity level.
+# See https://github.com/kubernetes/community/blob/master/contributors/devel/sig-instrumentation/logging.md
+# for description of individual verbosity levels.
+logVerbosityLevel: 2
+
+
+## Pod priority settings
+## ref: https://kubernetes.io/docs/concepts/configuration/pod-priority-preemption/
+priorityClassName:
+
+# The following three volumes are required to use all CCM controllers,
+# but might not be needed if you just use a specific controller
+# Additional volumes that should be available to the pods:
+extraVolumes: []
+# - name: k8s-certs
+#   hostPath:
+#     path: /etc/kubernetes/pki
+# Where the additional volumes should be mounted into the pods:
+extraVolumeMounts: []
+# - name: k8s-certs
+#   mountPath: /etc/kubernetes/pki
+#   readOnly: true
+
+# Using host netwok setting
+hostNetwork: true
+
+# "ClusterFirstWithHostNet": For Pods running with hostNetwork, you should explicitly set its DNS policy to "ClusterFirstWithHostNet"
+# ref: https://kubernetes.io/docs/concepts/services-networking/dns-pod-service/#pod-s-dns-policy
+dnsPolicy: ClusterFirstWithHostNet
+
+# List of controllers should be enabled.
+# Use '*' to enable all controllers.
+# Prefix a controller with '-' to disable it.
+enabledControllers:
+  - cloud-node
+  - cloud-node-lifecycle
+  - route
+  - service
+
+# cluster name that used for created cluster
+cluster:
+  name: kubernetes
+
+# Set ClusterRole name
+clusterRoleName: system:cloud-controller-manager
+
+# Set ServiceAccount name
+serviceAccountName: cloud-controller-manager
