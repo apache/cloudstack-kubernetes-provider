@@ -1,0 +1,18 @@
+{{- if .Values.serviceMonitor.enabled }}
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: system:{{ include "ccm.name" . }}:auth-delegate
+  annotations:
+    {{- with .Values.commonAnnotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+subjects:
+- kind: User
+  name: system:serviceaccount:{{ .Release.Namespace }}:{{ include "ccm.name" . }}
+  apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: ClusterRole
+  name: system:auth-delegator
+  apiGroup: rbac.authorization.k8s.io
+{{- end }}
