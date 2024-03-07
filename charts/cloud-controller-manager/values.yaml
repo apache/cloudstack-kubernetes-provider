@@ -29,8 +29,8 @@ commonAnnotations: {}
 
 # Image repository name and tag
 image:
-  repository: leaseweb/cloudstack-kubernetes-provider
-  tag: "testv2"
+  repository: "ghcr.io/leaseweb/cloud-controller-manager"
+  tag: "1.0.0"
 
 # Additional containers which are run before the app containers are started.
 extraInitContainers: []
