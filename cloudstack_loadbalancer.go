@@ -299,7 +299,9 @@ func (cs *CSCloud) EnsureLoadBalancerDeleted(ctx context.Context, clusterName st
 			if err != nil {
 				klog.Errorf("Error parsing port: %v", err)
 			} else {
-				lb.deleteFirewallRule(lbRule.Publicipid, int(port), protocol)
+				if _, err := lb.deleteFirewallRule(lbRule.Publicipid, int(port), protocol); err != nil {
+					return err
+				}
 			}
 
 			klog.V(4).Infof("Deleting load balancer rule: %v", lbRule.Name)
