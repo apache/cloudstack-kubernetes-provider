@@ -23,48 +23,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"regexp"
 
 	"github.com/apache/cloudstack-go/v2/cloudstack"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/types"
 	cloudprovider "k8s.io/cloud-provider"
 	"k8s.io/klog/v2"
 )
-
-var labelInvalidCharsRegex *regexp.Regexp = regexp.MustCompile(`([^A-Za-z0-9][^-A-Za-z0-9_.]*)?[^A-Za-z0-9]`)
-
-// NodeAddresses returns the addresses of the specified instance.
-func (cs *CSCloud) NodeAddresses(ctx context.Context, name types.NodeName) ([]corev1.NodeAddress, error) {
-	instance, count, err := cs.client.VirtualMachine.GetVirtualMachineByName(
-		string(name),
-		cloudstack.WithProject(cs.projectID),
-	)
-	if err != nil {
-		if count == 0 {
-			return nil, cloudprovider.InstanceNotFound
-		}
-		return nil, fmt.Errorf("error retrieving node addresses: %v", err)
-	}
-
-	return cs.nodeAddresses(instance)
-}
-
-// NodeAddressesByProviderID returns the addresses of the specified instance.
-func (cs *CSCloud) NodeAddressesByProviderID(ctx context.Context, providerID string) ([]corev1.NodeAddress, error) {
-	instance, count, err := cs.client.VirtualMachine.GetVirtualMachineByID(
-		providerID,
-		cloudstack.WithProject(cs.projectID),
-	)
-	if err != nil {
-		if count == 0 {
-			return nil, cloudprovider.InstanceNotFound
-		}
-		return nil, fmt.Errorf("error retrieving node addresses: %v", err)
-	}
-
-	return cs.nodeAddresses(instance)
-}
 
 func (cs *CSCloud) nodeAddresses(instance *cloudstack.VirtualMachine) ([]corev1.NodeAddress, error) {
 	if len(instance.Nic) == 0 {
@@ -81,130 +45,99 @@ func (cs *CSCloud) nodeAddresses(instance *cloudstack.VirtualMachine) ([]corev1.
 
 	if instance.Publicip != "" {
 		addresses = append(addresses, corev1.NodeAddress{Type: corev1.NodeExternalIP, Address: instance.Publicip})
-	} else {
-		// Since there is no sane way to determine the external IP if the host isn't
-		// using static NAT, we will just fire a log message and omit the external IP.
-		klog.V(4).Infof("Could not determine the public IP of host %v (%v)", instance.Name, instance.Id)
 	}
 
 	return addresses, nil
 }
 
-// InstanceID returns the cloud provider ID of the specified instance.
-func (cs *CSCloud) InstanceID(ctx context.Context, name types.NodeName) (string, error) {
-	instance, count, err := cs.client.VirtualMachine.GetVirtualMachineByName(
-		string(name),
-		cloudstack.WithProject(cs.projectID),
-	)
-	if err != nil {
-		if count == 0 {
-			return "", cloudprovider.InstanceNotFound
-		}
-		return "", fmt.Errorf("error retrieving instance ID: %v", err)
+func (cs *CSCloud) InstanceExists(ctx context.Context, node *corev1.Node) (bool, error) {
+	_, err := cs.getInstance(ctx, node)
+
+	if err == cloudprovider.InstanceNotFound {
+		klog.V(5).Infof("instance not found for node: %s", node.Name)
+		return false, nil
 	}
 
-	return instance.Id, nil
-}
-
-// InstanceType returns the type of the specified instance.
-func (cs *CSCloud) InstanceType(ctx context.Context, name types.NodeName) (string, error) {
-	instance, count, err := cs.client.VirtualMachine.GetVirtualMachineByName(
-		string(name),
-		cloudstack.WithProject(cs.projectID),
-	)
 	if err != nil {
-		if count == 0 {
-			return "", cloudprovider.InstanceNotFound
-		}
-		return "", fmt.Errorf("error retrieving instance type: %v", err)
-	}
-
-	return labelInvalidCharsRegex.ReplaceAllString(instance.Serviceofferingname, ``), nil
-}
-
-// InstanceTypeByProviderID returns the type of the specified instance.
-func (cs *CSCloud) InstanceTypeByProviderID(ctx context.Context, providerID string) (string, error) {
-	instance, count, err := cs.client.VirtualMachine.GetVirtualMachineByID(
-		providerID,
-		cloudstack.WithProject(cs.projectID),
-	)
-	if err != nil {
-		if count == 0 {
-			return "", cloudprovider.InstanceNotFound
-		}
-		return "", fmt.Errorf("error retrieving instance type: %v", err)
-	}
-
-	return labelInvalidCharsRegex.ReplaceAllString(instance.Serviceofferingname, ``), nil
-}
-
-// AddSSHKeyToAllInstances is currently not implemented.
-func (cs *CSCloud) AddSSHKeyToAllInstances(ctx context.Context, user string, keyData []byte) error {
-	return cloudprovider.NotImplemented
-}
-
-// CurrentNodeName returns the name of the node we are currently running on.
-func (cs *CSCloud) CurrentNodeName(ctx context.Context, hostname string) (types.NodeName, error) {
-	return types.NodeName(hostname), nil
-}
-
-// InstanceExistsByProviderID returns if the instance still exists.
-func (cs *CSCloud) InstanceExistsByProviderID(ctx context.Context, providerID string) (bool, error) {
-	_, count, err := cs.client.VirtualMachine.GetVirtualMachineByID(
-		providerID,
-		cloudstack.WithProject(cs.projectID),
-	)
-	if err != nil {
-		if count == 0 {
-			return false, nil
-		}
-		return false, fmt.Errorf("error retrieving instance: %v", err)
+		return false, err
 	}
 
 	return true, nil
 }
 
-// InstanceShutdownByProviderID returns true if the instance is in safe state to detach volumes
-func (cs *CSCloud) InstanceShutdownByProviderID(ctx context.Context, providerID string) (bool, error) {
-	return false, cloudprovider.NotImplemented
-}
-
-func (cs *CSCloud) InstanceExists(ctx context.Context, node *corev1.Node) (bool, error) {
-	nodeName := types.NodeName(node.Name)
-	providerID, err := cs.InstanceID(ctx, nodeName)
+func (cs *CSCloud) InstanceShutdown(ctx context.Context, node *corev1.Node) (bool, error) {
+	instance, err := cs.getInstance(ctx, node)
 	if err != nil {
 		return false, err
 	}
 
-	return cs.InstanceExistsByProviderID(ctx, providerID)
-}
-
-func (cs *CSCloud) InstanceShutdown(ctx context.Context, node *corev1.Node) (bool, error) {
-	return false, cloudprovider.NotImplemented
+	return instance != nil && instance.State == "Stopped", nil
 }
 
 func (cs *CSCloud) InstanceMetadata(ctx context.Context, node *corev1.Node) (*cloudprovider.InstanceMetadata, error) {
-
-	instanceType, err := cs.InstanceType(ctx, types.NodeName(node.Name))
+	instance, err := cs.getInstance(ctx, node)
 	if err != nil {
 		return nil, err
 	}
 
-	addresses, err := cs.NodeAddresses(ctx, types.NodeName(node.Name))
-	if err != nil {
-		return nil, err
-	}
-
-	zone, err := cs.GetZone(ctx)
+	addresses, err := cs.nodeAddresses(instance)
 	if err != nil {
 		return nil, err
 	}
 
 	return &cloudprovider.InstanceMetadata{
-		ProviderID:    cs.ProviderName(),
-		InstanceType:  instanceType,
+		ProviderID:    getInstanceProviderID(instance),
+		InstanceType:  sanitizeLabel(instance.Serviceofferingname),
 		NodeAddresses: addresses,
-		Zone:          cs.zone,
-		Region:        zone.Region,
+		Zone:          sanitizeLabel(instance.Zonename),
+		Region:        "",
 	}, nil
+}
+
+func getInstanceProviderID(instance *cloudstack.VirtualMachine) string {
+	// TODO: implement region
+	return fmt.Sprintf("%s:///%s", ProviderName, instance.Id)
+}
+
+func (cs *CSCloud) getInstance(ctx context.Context, node *corev1.Node) (*cloudstack.VirtualMachine, error) {
+	if node.Spec.ProviderID == "" {
+		var err error
+		klog.V(4).Infof("looking for node by node name %v", node.Name)
+		instance, count, err := cs.client.VirtualMachine.GetVirtualMachineByName(
+			node.Name,
+			cloudstack.WithProject(cs.projectID),
+		)
+		if err != nil {
+			if count == 0 {
+				return nil, cloudprovider.InstanceNotFound
+			}
+			if count > 1 {
+				return nil, fmt.Errorf("getInstance: multiple instances found")
+			}
+			return nil, fmt.Errorf("getInstance: error retrieving instance by name: %v", err)
+		}
+		return instance, nil
+	}
+
+	klog.V(4).Infof("looking for node by provider ID %v", node.Spec.ProviderID)
+	id, _, err := instanceIDFromProviderID(node.Spec.ProviderID)
+	if err != nil {
+		return nil, err
+	}
+
+	instance, count, err := cs.client.VirtualMachine.GetVirtualMachineByID(
+		id,
+		cloudstack.WithProject(cs.projectID),
+	)
+	if err != nil {
+		if count == 0 {
+			return nil, cloudprovider.InstanceNotFound
+		}
+		if count > 1 {
+			return nil, fmt.Errorf("getInstance: multiple instances found")
+		}
+		return nil, fmt.Errorf("error retrieving instance by provider ID: %v", err)
+	}
+
+	return instance, nil
 }
