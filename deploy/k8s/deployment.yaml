@@ -21,13 +21,14 @@ spec:
       labels:
         k8s-app: cloud-controller-manager
     spec:
+      priorityClassName: system-node-critical
       containers:
       - name: cloud-controller-manager
         image: cloudstack-kubernetes-provider
         imagePullPolicy: IfNotPresent
         args:
         - --leader-elect=true
-        - --cloud-provider=external-cloudstack
+        - --cloud-provider=cloudstack
         - --cloud-config=/config/cloud-config
         resources:
           limits:

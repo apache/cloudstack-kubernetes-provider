@@ -126,7 +126,7 @@ Instead, it first obtains the name of the node from Kubernetes, then fetches inf
 
 ### Building
 
-At least Go 1.13 is required to build cloudstack-ccm.
+At least Go 1.21 is required to build cloudstack-ccm.
 
 To build the controller with correct versioning, some build flags need to be passed.
 A Makefile is provided that sets these build flags to automatically derived values.
@@ -151,7 +151,7 @@ The CCM supports the same cloud-config configuration file format used by [the cs
 so you can simply point it to that.
 
 ```bash
-./cloudstack-ccm --cloud-provider external-cloudstack --cloud-config ~/.cloud-config --master k8s-apiserver
+./cloudstack-ccm --cloud-provider cloudstack --cloud-config ~/.cloud-config --master k8s-apiserver
 ```
 
 Replace k8s-apiserver with the host name of your Kubernetes development clusters's API server.
