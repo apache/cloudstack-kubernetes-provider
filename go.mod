@@ -1,6 +1,6 @@
 module github.com/apache/cloudstack-kubernetes-provider
 
-go 1.19
+go 1.21
 
 require (
 	github.com/apache/cloudstack-go/v2 v2.15.0
