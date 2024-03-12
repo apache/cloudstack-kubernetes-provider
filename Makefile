@@ -15,19 +15,17 @@
 # specific language governing permissions and limitations
 # under the License.
 
+GOOS	?= $(shell go env GOOS)
+GOPROXY	?= $(shell go env GOPROXY)
+GOARCH	:=
+
 BUILD_DATE=$(shell date -u +'%Y-%m-%dT%H:%M:%SZ')
 GIT_COMMIT=$(shell git rev-parse HEAD)
 GIT_COMMIT_SHORT=$(shell git rev-parse --short HEAD)
 GIT_TAG=$(shell git describe --abbrev=0 --tags 2>/dev/null || echo v0.0.0)
 GIT_IS_TAG=$(shell git describe --exact-match --abbrev=0 --tags 2>/dev/null || echo NOT_A_TAG)
-ifeq (${GIT_IS_TAG},NOT_A_TAG)
-GIT_VERSION?=$(patsubst v%,%,${GIT_TAG})-main+${GIT_COMMIT}
-else
-GIT_VERSION?=$(patsubst v%,%,${GIT_TAG})
-endif
-LDFLAGS="-X k8s.io/kubernetes/pkg/version.gitVersion=${GIT_VERSION} -X k8s.io/kubernetes/pkg/version.gitCommit=${GIT_COMMIT} -X k8s.io/kubernetes/pkg/version.buildDate=${BUILD_DATE}"
-export CGO_ENABLED=0
-export GO111MODULE=on
+GIT_VERSION?=$(shell git describe --dirty --tags --match='v*')
+LDFLAGS="-X 'k8s.io/component-base/version.gitVersion=${GIT_VERSION}' -X 'k8s.io/component-base/version.gitCommit=${GIT_COMMIT}' -X 'k8s.io/component-base/version.buildDate=${BUILD_DATE}'"
 
 CMD_SRC=\
 	cmd/cloudstack-ccm/main.go
@@ -40,7 +38,10 @@ clean:
 	rm -f cloudstack-ccm
 
 cloudstack-ccm: ${CMD_SRC}
-	go build -ldflags ${LDFLAGS} -o $@ $^
+	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) GOPROXY=${GOPROXY} go build \
+		-trimpath \
+		-ldflags ${LDFLAGS} \
+	 	-o $@ $^
 
 test:
 	go test -v
@@ -48,8 +49,8 @@ test:
 	@(echo "gofmt -l"; FMTFILES="$$(gofmt -l .)"; if test -n "$${FMTFILES}"; then echo "Go files that need to be reformatted (use 'go fmt'):\n$${FMTFILES}"; exit 1; fi)
 
 docker:
-	docker build . -t apache/cloudstack-kubernetes-provider:${GIT_COMMIT_SHORT}
-	docker tag apache/cloudstack-kubernetes-provider:${GIT_COMMIT_SHORT} apache/cloudstack-kubernetes-provider:latest
+	docker build . -t leaseweb/cloudstack-kubernetes-provider:${GIT_COMMIT_SHORT}
+	docker tag leaseweb/cloudstack-kubernetes-provider:${GIT_COMMIT_SHORT} leaseweb/cloudstack-kubernetes-provider:latest
 ifneq (${GIT_IS_TAG},NOT_A_TAG)
-	docker tag apache/cloudstack-kubernetes-provider:${GIT_COMMIT_SHORT} apache/cloudstack-kubernetes-provider:${GIT_TAG}
+	docker tag leaseweb/cloudstack-kubernetes-provider:${GIT_COMMIT_SHORT} leaseweb/cloudstack-kubernetes-provider:${GIT_TAG}
 endif
