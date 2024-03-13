@@ -29,7 +29,7 @@ commonAnnotations: {}
 
 # Image repository name and tag
 image:
-  repository: "ghcr.io/leaseweb/cloud-controller-manager"
+  repository: "ghcr.io/leaseweb/cloudstack-kubernetes-provider"
   tag: "1.0.0"
 
 # Additional containers which are run before the app containers are started.
@@ -118,10 +118,9 @@ cloudConfig:
 # for description of individual verbosity levels.
 logVerbosityLevel: 2
 
-
 ## Pod priority settings
 ## ref: https://kubernetes.io/docs/concepts/configuration/pod-priority-preemption/
-priorityClassName:
+priorityClassName: system-node-critical
 
 # The following three volumes are required to use all CCM controllers,
 # but might not be needed if you just use a specific controller
