@@ -49,8 +49,8 @@ test:
 	@(echo "gofmt -l"; FMTFILES="$$(gofmt -l .)"; if test -n "$${FMTFILES}"; then echo "Go files that need to be reformatted (use 'go fmt'):\n$${FMTFILES}"; exit 1; fi)
 
 docker:
-	docker build . -t leaseweb/cloudstack-kubernetes-provider:${GIT_COMMIT_SHORT}
-	docker tag leaseweb/cloudstack-kubernetes-provider:${GIT_COMMIT_SHORT} leaseweb/cloudstack-kubernetes-provider:latest
+	docker build . -t ghcr.io/leaseweb/cloudstack-kubernetes-provider:${GIT_COMMIT_SHORT}
+	docker tag ghcr.io/leaseweb/cloudstack-kubernetes-provider:${GIT_COMMIT_SHORT} ghcr.io/leaseweb/cloudstack-kubernetes-provider:latest
 ifneq (${GIT_IS_TAG},NOT_A_TAG)
-	docker tag leaseweb/cloudstack-kubernetes-provider:${GIT_COMMIT_SHORT} leaseweb/cloudstack-kubernetes-provider:${GIT_TAG}
+	docker tag ghcr.io/leaseweb/cloudstack-kubernetes-provider:${GIT_COMMIT_SHORT} ghcr.io/leaseweb/cloudstack-kubernetes-provider:${GIT_TAG}
 endif
