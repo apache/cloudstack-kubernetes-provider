@@ -1,7 +1,7 @@
 Apache CloudStack Kubernetes Provider Changelog
 ===============================================
 
-Unreleased
+v1.0.1
 ---
 
 ### Dependencies
