@@ -70,7 +70,7 @@ func readConfig(config io.Reader) (*CSConfig, error) {
 	}
 
 	if err := gcfg.ReadInto(cfg, config); err != nil {
-		return nil, fmt.Errorf("could not parse cloud provider config: %v", err)
+		return nil, fmt.Errorf("could not parse cloud provider config: %w", err)
 	}
 
 	return cfg, nil
@@ -94,7 +94,7 @@ func newCSCloud(cfg *CSConfig) (*CSCloud, error) {
 	return cs, nil
 }
 
-// Initialize passes a Kubernetes clientBuilder interface to the cloud provider
+// Initialize passes a Kubernetes clientBuilder interface to the cloud provider.
 func (cs *CSCloud) Initialize(clientBuilder cloudprovider.ControllerClientBuilder, stop <-chan struct{}) {
 }
 
@@ -144,7 +144,7 @@ func (cs *CSCloud) ProviderName() string {
 	return ProviderName
 }
 
-// HasClusterID returns true if the cluster has a clusterID
+// HasClusterID returns true if the cluster has a clusterID.
 func (cs *CSCloud) HasClusterID() bool {
 	return true
 }

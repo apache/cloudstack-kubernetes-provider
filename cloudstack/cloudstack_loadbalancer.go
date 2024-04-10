@@ -21,15 +21,15 @@ package cloudstack
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
 
 	"github.com/apache/cloudstack-go/v2/cloudstack"
-	"k8s.io/klog/v2"
-
 	corev1 "k8s.io/api/core/v1"
 	cloudprovider "k8s.io/cloud-provider"
+	"k8s.io/klog/v2"
 )
 
 const (
@@ -64,7 +64,7 @@ func (cs *CSCloud) GetLoadBalancer(ctx context.Context, clusterName string, serv
 	klog.V(4).Infof("GetLoadBalancer(%v, %v, %v)", clusterName, service.Namespace, service.Name)
 
 	// Get the load balancer details and existing rules.
-	lb, err := cs.getLoadBalancer(service)
+	lb, err := cs.getLoadBalancer(ctx, service)
 	if err != nil {
 		return nil, false, err
 	}
@@ -87,11 +87,11 @@ func (cs *CSCloud) EnsureLoadBalancer(ctx context.Context, clusterName string, s
 	klog.V(4).Infof("EnsureLoadBalancer(%v, %v, %v, %v, %v, %v)", clusterName, service.Namespace, service.Name, service.Spec.LoadBalancerIP, service.Spec.Ports, nodes)
 
 	if len(service.Spec.Ports) == 0 {
-		return nil, fmt.Errorf("requested load balancer with no ports")
+		return nil, errors.New("requested load balancer with no ports")
 	}
 
 	// Get the load balancer details and existing rules.
-	lb, err := cs.getLoadBalancer(service)
+	lb, err := cs.getLoadBalancer(ctx, service)
 	if err != nil {
 		return nil, err
 	}
@@ -178,6 +178,7 @@ func (cs *CSCloud) EnsureLoadBalancer(ctx context.Context, clusterName string, s
 			if count == 0 {
 				return nil, err
 			}
+
 			return nil, err
 		}
 
@@ -193,11 +194,11 @@ func (cs *CSCloud) EnsureLoadBalancer(ctx context.Context, clusterName string, s
 	for _, lbRule := range lb.rules {
 		protocol := ProtocolFromLoadBalancer(lbRule.Protocol)
 		if protocol == LoadBalancerProtocolInvalid {
-			return nil, fmt.Errorf("error parsing protocol %v: %v", lbRule.Protocol, err)
+			return nil, fmt.Errorf("error parsing protocol %v: %w", lbRule.Protocol, err)
 		}
 		port, err := strconv.ParseInt(lbRule.Publicport, 10, 32)
 		if err != nil {
-			return nil, fmt.Errorf("error parsing port %s: %v", lbRule.Publicport, err)
+			return nil, fmt.Errorf("error parsing port %s: %w", lbRule.Publicport, err)
 		}
 
 		klog.V(4).Infof("Deleting firewall rules associated with load balancer rule: %v (%v:%v:%v)", lbRule.Name, protocol, lbRule.Publicip, port)
@@ -216,6 +217,7 @@ func (cs *CSCloud) EnsureLoadBalancer(ctx context.Context, clusterName string, s
 	// Workaround for https://github.com/kubernetes/kubernetes/issues/66607
 	if hostname := getStringFromServiceAnnotation(service, ServiceAnnotationLoadBalancerLoadbalancerHostname, ""); hostname != "" {
 		status.Ingress = []corev1.LoadBalancerIngress{{Hostname: hostname}}
+
 		return status, nil
 	}
 	// Default to IP
@@ -229,7 +231,7 @@ func (cs *CSCloud) UpdateLoadBalancer(ctx context.Context, clusterName string, s
 	klog.V(4).Infof("UpdateLoadBalancer(%v, %v, %v, %v)", clusterName, service.Namespace, service.Name, nodes)
 
 	// Get the load balancer details and existing rules.
-	lb, err := cs.getLoadBalancer(service)
+	lb, err := cs.getLoadBalancer(ctx, service)
 	if err != nil {
 		return err
 	}
@@ -246,7 +248,7 @@ func (cs *CSCloud) UpdateLoadBalancer(ctx context.Context, clusterName string, s
 		// Retrieve all VMs currently associated to this load balancer rule.
 		l, err := lb.LoadBalancer.ListLoadBalancerRuleInstances(p)
 		if err != nil {
-			return fmt.Errorf("error retrieving associated instances: %v", err)
+			return fmt.Errorf("error retrieving associated instances: %w", err)
 		}
 
 		assign, remove := symmetricDifference(lb.hostIDs, l.LoadBalancerRuleInstances)
@@ -275,6 +277,7 @@ func isFirewallSupported(services []cloudstack.NetworkServiceInternal) bool {
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -284,7 +287,7 @@ func (cs *CSCloud) EnsureLoadBalancerDeleted(ctx context.Context, clusterName st
 	klog.V(4).Infof("EnsureLoadBalancerDeleted(%v, %v, %v)", clusterName, service.Namespace, service.Name)
 
 	// Get the load balancer details and existing rules.
-	lb, err := cs.getLoadBalancer(service)
+	lb, err := cs.getLoadBalancer(ctx, service)
 	if err != nil {
 		return err
 	}
@@ -327,10 +330,10 @@ func (cs *CSCloud) GetLoadBalancerName(ctx context.Context, clusterName string, 
 }
 
 // getLoadBalancer retrieves the IP address and ID and all the existing rules it can find.
-func (cs *CSCloud) getLoadBalancer(service *corev1.Service) (*loadBalancer, error) {
+func (cs *CSCloud) getLoadBalancer(ctx context.Context, service *corev1.Service) (*loadBalancer, error) {
 	lb := &loadBalancer{
 		CloudStackClient: cs.client,
-		name:             cs.GetLoadBalancerName(context.TODO(), "", service),
+		name:             cs.GetLoadBalancerName(ctx, "", service),
 		projectID:        cs.projectID,
 		rules:            make(map[string]*cloudstack.LoadBalancerRule),
 	}
@@ -345,7 +348,7 @@ func (cs *CSCloud) getLoadBalancer(service *corev1.Service) (*loadBalancer, erro
 
 	l, err := cs.client.LoadBalancer.ListLoadBalancerRules(p)
 	if err != nil {
-		return nil, fmt.Errorf("error retrieving load balancer rules: %v", err)
+		return nil, fmt.Errorf("error retrieving load balancer rules: %w", err)
 	}
 
 	for _, lbRule := range l.LoadBalancerRules {
@@ -382,7 +385,7 @@ func (cs *CSCloud) verifyHosts(nodes []*corev1.Node) ([]string, string, error) {
 
 	l, err := cs.client.VirtualMachine.ListVirtualMachines(p)
 	if err != nil {
-		return nil, "", fmt.Errorf("error retrieving list of hosts: %v", err)
+		return nil, "", fmt.Errorf("error retrieving list of hosts: %w", err)
 	}
 
 	var hostIDs []string
@@ -392,7 +395,7 @@ func (cs *CSCloud) verifyHosts(nodes []*corev1.Node) ([]string, string, error) {
 	for _, vm := range l.VirtualMachines {
 		if hostNames[strings.ToLower(vm.Name)] {
 			if networkID != "" && networkID != vm.Nic[0].Networkid {
-				return nil, "", fmt.Errorf("found hosts that belong to different networks")
+				return nil, "", errors.New("found hosts that belong to different networks")
 			}
 
 			networkID = vm.Nic[0].Networkid
@@ -401,7 +404,7 @@ func (cs *CSCloud) verifyHosts(nodes []*corev1.Node) ([]string, string, error) {
 	}
 
 	if len(hostIDs) == 0 || len(networkID) == 0 {
-		return nil, "", fmt.Errorf("none of the hosts matched the list of VMs retrieved from CS API")
+		return nil, "", errors.New("none of the hosts matched the list of VMs retrieved from CS API")
 	}
 
 	return hostIDs, networkID, nil
@@ -435,7 +438,7 @@ func (lb *loadBalancer) getPublicIPAddress(loadBalancerIP string) error {
 
 	l, err := lb.Address.ListPublicIpAddresses(p)
 	if err != nil {
-		return fmt.Errorf("error retrieving IP address: %v", err)
+		return fmt.Errorf("error retrieving IP address: %w", err)
 	}
 
 	if l.Count != 1 {
@@ -458,7 +461,8 @@ func (lb *loadBalancer) associatePublicIPAddress() error {
 		if count == 0 {
 			return fmt.Errorf("could not find network %v", lb.networkID)
 		}
-		return fmt.Errorf("error retrieving network: %v", err)
+
+		return fmt.Errorf("error retrieving network: %w", err)
 	}
 
 	p := lb.Address.NewAssociateIpAddressParams()
@@ -476,7 +480,7 @@ func (lb *loadBalancer) associatePublicIPAddress() error {
 	// Associate a new IP address
 	r, err := lb.Address.AssociateIpAddress(p)
 	if err != nil {
-		return fmt.Errorf("error associating new IP address: %v", err)
+		return fmt.Errorf("error associating new IP address: %w", err)
 	}
 
 	lb.ipAddr = r.Ipaddress
@@ -490,7 +494,7 @@ func (lb *loadBalancer) releaseLoadBalancerIP() error {
 	p := lb.Address.NewDisassociateIpAddressParams(lb.ipAddrID)
 
 	if _, err := lb.Address.DisassociateIpAddress(p); err != nil {
-		return fmt.Errorf("error releasing load balancer IP %v: %v", lb.ipAddr, err)
+		return fmt.Errorf("error releasing load balancer IP %v: %w", lb.ipAddr, err)
 	}
 
 	return nil
@@ -508,6 +512,7 @@ func (lb *loadBalancer) checkLoadBalancerRule(lbRuleName string, port corev1.Ser
 	if lbRule.Publicip == lb.ipAddr && lbRule.Privateport == strconv.Itoa(int(port.NodePort)) && lbRule.Publicport == strconv.Itoa(int(port.Port)) {
 		updateAlgo := lbRule.Algorithm != lb.algorithm
 		updateProto := lbRule.Protocol != protocol.CSProtocol()
+
 		return lbRule, updateAlgo || updateProto, nil
 	}
 
@@ -528,6 +533,7 @@ func (lb *loadBalancer) updateLoadBalancerRule(lbRuleName string, protocol LoadB
 	p.SetProtocol(protocol.CSProtocol())
 
 	_, err := lb.LoadBalancer.UpdateLoadBalancerRule(p)
+
 	return err
 }
 
@@ -551,7 +557,7 @@ func (lb *loadBalancer) createLoadBalancerRule(lbRuleName string, port corev1.Se
 	// Create a new load balancer rule.
 	r, err := lb.LoadBalancer.CreateLoadBalancerRule(p)
 	if err != nil {
-		return nil, fmt.Errorf("error creating load balancer rule %v: %v", lbRuleName, err)
+		return nil, fmt.Errorf("error creating load balancer rule %v: %w", lbRuleName, err)
 	}
 
 	lbRule := &cloudstack.LoadBalancerRule{
@@ -575,7 +581,7 @@ func (lb *loadBalancer) deleteLoadBalancerRule(lbRule *cloudstack.LoadBalancerRu
 	p := lb.LoadBalancer.NewDeleteLoadBalancerRuleParams(lbRule.Id)
 
 	if _, err := lb.LoadBalancer.DeleteLoadBalancerRule(p); err != nil {
-		return fmt.Errorf("error deleting load balancer rule %v: %v", lbRule.Name, err)
+		return fmt.Errorf("error deleting load balancer rule %v: %w", lbRule.Name, err)
 	}
 
 	// Delete the rule from the map as it no longer exists
@@ -590,7 +596,7 @@ func (lb *loadBalancer) assignHostsToRule(lbRule *cloudstack.LoadBalancerRule, h
 	p.SetVirtualmachineids(hostIDs)
 
 	if _, err := lb.LoadBalancer.AssignToLoadBalancerRule(p); err != nil {
-		return fmt.Errorf("error assigning hosts to load balancer rule %v: %v", lbRule.Name, err)
+		return fmt.Errorf("error assigning hosts to load balancer rule %v: %w", lbRule.Name, err)
 	}
 
 	return nil
@@ -602,7 +608,7 @@ func (lb *loadBalancer) removeHostsFromRule(lbRule *cloudstack.LoadBalancerRule,
 	p.SetVirtualmachineids(hostIDs)
 
 	if _, err := lb.LoadBalancer.RemoveFromLoadBalancerRule(p); err != nil {
-		return fmt.Errorf("error removing hosts from load balancer rule %v: %v", lbRule.Name, err)
+		return fmt.Errorf("error removing hosts from load balancer rule %v: %w", lbRule.Name, err)
 	}
 
 	return nil
@@ -610,23 +616,24 @@ func (lb *loadBalancer) removeHostsFromRule(lbRule *cloudstack.LoadBalancerRule,
 
 // symmetricDifference returns the symmetric difference between the old (existing) and new (wanted) host ID's.
 func symmetricDifference(hostIDs []string, lbInstances []*cloudstack.VirtualMachine) ([]string, []string) {
-	new := make(map[string]bool)
+	newIDs := make(map[string]bool)
 	for _, hostID := range hostIDs {
-		new[hostID] = true
+		newIDs[hostID] = true
 	}
 
-	var remove []string
+	var remove []string //nolint: prealloc
 	for _, instance := range lbInstances {
-		if new[instance.Id] {
-			delete(new, instance.Id)
+		if newIDs[instance.Id] {
+			delete(newIDs, instance.Id)
+
 			continue
 		}
 
 		remove = append(remove, instance.Id)
 	}
 
-	var assign []string
-	for hostID := range new {
+	var assign []string //nolint: prealloc
+	for hostID := range newIDs {
 		assign = append(assign, hostID)
 	}
 
@@ -653,11 +660,12 @@ func compareStringSlice(x, y []string) bool {
 		if _, ok := diff[_y]; !ok {
 			return false
 		}
-		diff[_y] -= 1
+		diff[_y]--
 		if diff[_y] == 0 {
 			delete(diff, _y)
 		}
 	}
+
 	return len(diff) == 0
 }
 
@@ -677,6 +685,7 @@ func ruleToString(rule *cloudstack.FirewallRule) string {
 			fmt.Fprintf(ls, "{[%s] -> %s (%s)}", rule.Cidrlist, rule.Ipaddress, rule.Protocol)
 		}
 	}
+
 	return ls.String()
 }
 
@@ -691,6 +700,7 @@ func rulesToString(rules []*cloudstack.FirewallRule) string {
 		}
 		ls.WriteString(ruleToString(rule))
 	}
+
 	return ls.String()
 }
 
@@ -705,6 +715,7 @@ func rulesMapToString(rules map[*cloudstack.FirewallRule]bool) string {
 		}
 		ls.WriteString(ruleToString(rule))
 	}
+
 	return ls.String()
 }
 
@@ -713,14 +724,14 @@ func rulesMapToString(rules map[*cloudstack.FirewallRule]bool) string {
 // If the rule list is empty, all internet (IPv4: 0.0.0.0/0) is opened for the
 // load balancer's port+protocol implicitly.
 //
-// Returns true if the firewall rule was created or updated
-func (lb *loadBalancer) updateFirewallRule(publicIpId string, publicPort int, protocol LoadBalancerProtocol, allowedIPs []string) (bool, error) {
+// Returns true if the firewall rule was created or updated.
+func (lb *loadBalancer) updateFirewallRule(publicIPID string, publicPort int, protocol LoadBalancerProtocol, allowedIPs []string) (bool, error) {
 	if len(allowedIPs) == 0 {
 		allowedIPs = []string{defaultAllowedCIDR}
 	}
 
 	p := lb.Firewall.NewListFirewallRulesParams()
-	p.SetIpaddressid(publicIpId)
+	p.SetIpaddressid(publicIPID)
 	p.SetListall(true)
 	if lb.projectID != "" {
 		p.SetProjectid(lb.projectID)
@@ -728,7 +739,7 @@ func (lb *loadBalancer) updateFirewallRule(publicIpId string, publicPort int, pr
 	klog.V(4).Infof("Listing firewall rules for %v", p)
 	r, err := lb.Firewall.ListFirewallRules(p)
 	if err != nil {
-		return false, fmt.Errorf("error fetching firewall rules for public IP %v: %v", publicIpId, err)
+		return false, fmt.Errorf("error fetching firewall rules for public IP %v: %w", publicIPID, err)
 	}
 	klog.V(4).Infof("All firewall rules for %v: %v", lb.ipAddr, rulesToString(r.FirewallRules))
 
@@ -749,6 +760,7 @@ func (lb *loadBalancer) updateFirewallRule(publicIpId string, publicPort int, pr
 		if compareStringSlice(cidrlist, allowedIPs) {
 			klog.V(4).Infof("Found identical rule: %v", rule)
 			match = rule
+
 			break
 		}
 	}
@@ -773,14 +785,14 @@ func (lb *loadBalancer) updateFirewallRule(publicIpId string, publicPort int, pr
 	// create new rule if necessary
 	if match == nil {
 		// no rule found, create a new one
-		p := lb.Firewall.NewCreateFirewallRuleParams(publicIpId, protocol.IPProtocol())
+		p := lb.Firewall.NewCreateFirewallRuleParams(publicIPID, protocol.IPProtocol())
 		p.SetCidrlist(allowedIPs)
 		p.SetStartport(publicPort)
 		p.SetEndport(publicPort)
 		_, err = lb.Firewall.CreateFirewallRule(p)
 		if err != nil {
 			// return immediately if we can't create the new rule
-			return false, fmt.Errorf("error creating new firewall rule for public IP %v, proto %v, port %v, allowed %v: %v", publicIpId, protocol, publicPort, allowedIPs, err)
+			return false, fmt.Errorf("error creating new firewall rule for public IP %v, proto %v, port %v, allowed %v: %w", publicIPID, protocol, publicPort, allowedIPs, err)
 		}
 	}
 
@@ -790,17 +802,17 @@ func (lb *loadBalancer) updateFirewallRule(publicIpId string, publicPort int, pr
 
 // deleteFirewallRule deletes the firewall rule associated with the ip:port:protocol combo
 //
-// returns true when corresponding rules were deleted
-func (lb *loadBalancer) deleteFirewallRule(publicIpId string, publicPort int, protocol LoadBalancerProtocol) (bool, error) {
+// returns true when corresponding rules were deleted.
+func (lb *loadBalancer) deleteFirewallRule(publicIPID string, publicPort int, protocol LoadBalancerProtocol) (bool, error) {
 	p := lb.Firewall.NewListFirewallRulesParams()
-	p.SetIpaddressid(publicIpId)
+	p.SetIpaddressid(publicIPID)
 	p.SetListall(true)
 	if lb.projectID != "" {
 		p.SetProjectid(lb.projectID)
 	}
 	r, err := lb.Firewall.ListFirewallRules(p)
 	if err != nil {
-		return false, fmt.Errorf("error fetching firewall rules for public IP %v: %v", publicIpId, err)
+		return false, fmt.Errorf("error fetching firewall rules for public IP %v: %w", publicIPID, err)
 	}
 
 	// filter by proto:port
@@ -826,28 +838,30 @@ func (lb *loadBalancer) deleteFirewallRule(publicIpId string, publicPort int, pr
 	return deleted, err
 }
 
-// getStringFromServiceAnnotation searches a given v1.Service for a specific annotationKey and either returns the annotation's value or a specified defaultSetting
+// getStringFromServiceAnnotation searches a given v1.Service for a specific annotationKey and either returns the annotation's value or a specified defaultSetting.
 func getStringFromServiceAnnotation(service *corev1.Service, annotationKey string, defaultSetting string) string {
 	klog.V(4).Infof("getStringFromServiceAnnotation(%s/%s, %v, %v)", service.Namespace, service.Name, annotationKey, defaultSetting)
 	if annotationValue, ok := service.Annotations[annotationKey]; ok {
-		//if there is an annotation for this setting, set the "setting" var to it
+		// If there is an annotation for this setting, set the "setting" var to it
 		// annotationValue can be empty, it is working as designed
 		// it makes possible for instance provisioning loadbalancer without floatingip
 		klog.V(4).Infof("Found a Service Annotation: %v = %v", annotationKey, annotationValue)
+
 		return annotationValue
 	}
-	//if there is no annotation, set "settings" var to the value from cloud config
+	// If there is no annotation, set "settings" var to the value from cloud config
 	if defaultSetting != "" {
 		klog.V(4).Infof("Could not find a Service Annotation; falling back on cloud-config setting: %v = %v", annotationKey, defaultSetting)
 	}
+
 	return defaultSetting
 }
 
-// getBoolFromServiceAnnotation searches a given v1.Service for a specific annotationKey and either returns the annotation's boolean value or a specified defaultSetting
+// getBoolFromServiceAnnotation searches a given v1.Service for a specific annotationKey and either returns the annotation's boolean value or a specified defaultSetting.
 func getBoolFromServiceAnnotation(service *corev1.Service, annotationKey string, defaultSetting bool) bool {
 	klog.V(4).Infof("getBoolFromServiceAnnotation(%s/%s, %v, %v)", service.Namespace, service.Name, annotationKey, defaultSetting)
 	if annotationValue, ok := service.Annotations[annotationKey]; ok {
-		returnValue := false
+		var returnValue bool
 		switch annotationValue {
 		case "true":
 			returnValue = true
@@ -858,8 +872,10 @@ func getBoolFromServiceAnnotation(service *corev1.Service, annotationKey string,
 		}
 
 		klog.V(4).Infof("Found a Service Annotation: %v = %v", annotationKey, returnValue)
+
 		return returnValue
 	}
 	klog.V(4).Infof("Could not find a Service Annotation; falling back to default setting: %v = %v", annotationKey, defaultSetting)
+
 	return defaultSetting
 }

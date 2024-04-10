@@ -33,7 +33,6 @@ var providerIDRegexp = regexp.MustCompile(`^` + ProviderName + `://([^/]*)/([^/]
 // or '${ProviderName}://${region}/${instance-id}' which contains '://'.
 // See cloudprovider.GetInstanceProviderID and Instances.InstanceID.
 func instanceIDFromProviderID(providerID string) (instanceID string, region string, err error) {
-
 	// https://github.com/kubernetes/kubernetes/issues/85731
 	if providerID != "" && !strings.Contains(providerID, "://") {
 		providerID = ProviderName + "://" + providerID
@@ -43,11 +42,12 @@ func instanceIDFromProviderID(providerID string) (instanceID string, region stri
 	if len(matches) != 3 {
 		return "", "", fmt.Errorf("ProviderID \"%s\" didn't match expected format \"cloudstack://region/InstanceID\"", providerID)
 	}
+
 	return matches[2], matches[1], nil
 }
 
 // Sanitize label value so it complies with https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/#syntax-and-character-set
-// Anything but [-A-Za-z0-9_.] will get converted to '_'
+// Anything but [-A-Za-z0-9_.] will get converted to '_'.
 func sanitizeLabel(value string) string {
 	fn := func(r rune) rune {
 		if r >= 'a' && r <= 'z' ||
@@ -56,6 +56,7 @@ func sanitizeLabel(value string) string {
 			r == '-' || r == '_' || r == '.' {
 			return r
 		}
+
 		return '_'
 	}
 	value = strings.Map(fn, value)

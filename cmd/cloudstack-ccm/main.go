@@ -77,5 +77,6 @@ func cloudInitializer(config *config.CompletedConfig) cloudprovider.Interface {
 			klog.Fatalf("no ClusterID found.  A ClusterID is required for the cloud provider to function properly.  This check can be bypassed by setting the allow-untagged-cloud option")
 		}
 	}
+
 	return cloud
 }
