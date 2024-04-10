@@ -34,7 +34,7 @@ import (
 	_ "k8s.io/component-base/metrics/prometheus/version"  // for version metric registration
 	"k8s.io/klog/v2"
 
-	_ "github.com/apache/cloudstack-kubernetes-provider" // our cloud package
+	_ "github.com/apache/cloudstack-kubernetes-provider/cloudstack" // our cloud package
 )
 
 func main() {

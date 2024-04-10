@@ -44,8 +44,8 @@ cloudstack-ccm: ${CMD_SRC}
 	 	-o $@ $^
 
 test:
-	go test -v
-	go vet
+	go test -v ./...
+	go vet ./...
 	@(echo "gofmt -l"; FMTFILES="$$(gofmt -l .)"; if test -n "$${FMTFILES}"; then echo "Go files that need to be reformatted (use 'go fmt'):\n$${FMTFILES}"; exit 1; fi)
 
 docker:
