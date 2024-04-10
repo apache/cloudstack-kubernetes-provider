@@ -20,21 +20,21 @@
 package main
 
 import (
-	"k8s.io/apimachinery/pkg/util/wait"
-	cloudprovider "k8s.io/cloud-provider"
-	"k8s.io/cloud-provider/names"
-	"k8s.io/component-base/cli"
 	"os"
 
+	"k8s.io/apimachinery/pkg/util/wait"
+	cloudprovider "k8s.io/cloud-provider"
 	"k8s.io/cloud-provider/app"
 	"k8s.io/cloud-provider/app/config"
+	"k8s.io/cloud-provider/names"
 	"k8s.io/cloud-provider/options"
+	"k8s.io/component-base/cli"
 	cliflag "k8s.io/component-base/cli/flag"
 	_ "k8s.io/component-base/metrics/prometheus/clientgo" // load all the prometheus client-go plugins
 	_ "k8s.io/component-base/metrics/prometheus/version"  // for version metric registration
 	"k8s.io/klog/v2"
 
-	_ "github.com/apache/cloudstack-kubernetes-provider/cloudstack" // our cloud package
+	"github.com/apache/cloudstack-kubernetes-provider/cloudstack" // our cloud package
 )
 
 func main() {
@@ -42,9 +42,14 @@ func main() {
 	if err != nil {
 		klog.Fatalf("unable to initialize command options: %v", err)
 	}
+	ccmOptions.KubeCloudShared.CloudProvider.Name = cloudstack.ProviderName
+	ccmOptions.Authentication.SkipInClusterLookup = true
 
 	controllerInitializers := app.DefaultInitFuncConstructors
 	controllerAliases := names.CCMControllerAliases()
+
+	// Remove the route controller which the CloudStack cloud provider does not use.
+	delete(controllerInitializers, "route")
 
 	fss := cliflag.NamedFlagSets{}
 
