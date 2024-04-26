@@ -354,6 +354,7 @@ func (cs *CSCloud) verifyHosts(nodes []*corev1.Node) ([]string, string, error) {
 
 	p := cs.client.VirtualMachine.NewListVirtualMachinesParams()
 	p.SetListall(true)
+	p.SetDetails([]string{"min", "nics"})
 
 	if cs.projectID != "" {
 		p.SetProjectid(cs.projectID)
