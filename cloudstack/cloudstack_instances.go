@@ -53,8 +53,8 @@ func (cs *CSCloud) nodeAddresses(instance *cloudstack.VirtualMachine) ([]corev1.
 func (cs *CSCloud) InstanceExists(ctx context.Context, node *corev1.Node) (bool, error) {
 	_, err := cs.getInstance(ctx, node)
 
-	if err == cloudprovider.InstanceNotFound { //nolint: errorlint
-		klog.V(5).Infof("instance not found for node: %s", node.Name)
+	if errors.Is(err, cloudprovider.InstanceNotFound) { //nolint: errorlint
+		klog.V(4).Infof("Instance not found for node: %s", node.Name)
 
 		return false, nil
 	}
