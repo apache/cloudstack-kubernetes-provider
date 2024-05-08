@@ -314,7 +314,7 @@ func (cs *CSCloud) EnsureLoadBalancerDeleted(ctx context.Context, clusterName st
 		}
 	}
 
-	if lb.ipAddr != "" && lb.ipAddr != service.Spec.LoadBalancerIP {
+	if lb.ipAddr != "" {
 		klog.V(4).Infof("Releasing load balancer IP: %v", lb.ipAddr)
 		if err := lb.releaseLoadBalancerIP(); err != nil {
 			return err
