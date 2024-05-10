@@ -30,7 +30,7 @@ commonAnnotations: {}
 # Image repository name and tag
 image:
   repository: "ghcr.io/leaseweb/cloudstack-kubernetes-provider"
-  tag: "1.0.0"
+  tag: "1.1.0"
 
 # Additional containers which are run before the app containers are started.
 extraInitContainers: []
