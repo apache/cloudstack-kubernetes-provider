@@ -20,24 +20,21 @@
 package main
 
 import (
-	goflag "flag"
+	"os"
 
 	"k8s.io/apimachinery/pkg/util/wait"
 	cloudprovider "k8s.io/cloud-provider"
-
 	"k8s.io/cloud-provider/app"
 	"k8s.io/cloud-provider/app/config"
+	"k8s.io/cloud-provider/names"
 	"k8s.io/cloud-provider/options"
+	"k8s.io/component-base/cli"
 	cliflag "k8s.io/component-base/cli/flag"
-	"k8s.io/component-base/logs"
-
 	_ "k8s.io/component-base/metrics/prometheus/clientgo" // load all the prometheus client-go plugins
 	_ "k8s.io/component-base/metrics/prometheus/version"  // for version metric registration
 	"k8s.io/klog/v2"
 
-	"github.com/spf13/pflag"
-
-	_ "github.com/apache/cloudstack-kubernetes-provider" // our cloud package
+	"github.com/apache/cloudstack-kubernetes-provider/cloudstack" // our cloud package
 )
 
 func main() {
@@ -45,23 +42,20 @@ func main() {
 	if err != nil {
 		klog.Fatalf("unable to initialize command options: %v", err)
 	}
+	ccmOptions.KubeCloudShared.CloudProvider.Name = cloudstack.ProviderName
+	ccmOptions.Authentication.SkipInClusterLookup = true
+
+	controllerInitializers := app.DefaultInitFuncConstructors
+	controllerAliases := names.CCMControllerAliases()
+
+	// Remove the route controller which the CloudStack cloud provider does not use.
+	delete(controllerInitializers, "route")
 
 	fss := cliflag.NamedFlagSets{}
 
-	command := app.NewCloudControllerManagerCommand(ccmOptions, cloudInitializer, app.DefaultInitFuncConstructors, fss, wait.NeverStop)
-
-	// TODO: once we switch everything over to Cobra commands, we can go back to calling
-	// cliflag.InitFlags() (by removing its pflag.Parse() call). For now, we have to set the
-	// normalize func and add the go flag set by hand.
-	pflag.CommandLine.SetNormalizeFunc(cliflag.WordSepNormalizeFunc)
-	pflag.CommandLine.AddGoFlagSet(goflag.CommandLine)
-	//cliflag.InitFlags()
-	logs.InitLogs()
-	defer logs.FlushLogs()
-
-	if err := command.Execute(); err != nil {
-		klog.Fatalf("error: %v\n", err)
-	}
+	command := app.NewCloudControllerManagerCommand(ccmOptions, cloudInitializer, controllerInitializers, controllerAliases, fss, wait.NeverStop)
+	code := cli.Run(command)
+	os.Exit(code)
 }
 
 func cloudInitializer(config *config.CompletedConfig) cloudprovider.Interface {
@@ -83,5 +77,6 @@ func cloudInitializer(config *config.CompletedConfig) cloudprovider.Interface {
 			klog.Fatalf("no ClusterID found.  A ClusterID is required for the cloud provider to function properly.  This check can be bypassed by setting the allow-untagged-cloud option")
 		}
 	}
+
 	return cloud
 }

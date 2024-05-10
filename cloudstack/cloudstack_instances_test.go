@@ -2,7 +2,7 @@ package cloudstack
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"testing"
 
 	"github.com/apache/cloudstack-go/v2/cloudstack"
@@ -40,6 +40,7 @@ func makeInstance(instanceID, privateIP, publicIP string, stateName string) *clo
 
 func makeNode(nodeName string) *corev1.Node {
 	providerID := "cloudstack:///915653c4-298b-4d74-bdee-4ced282114f1"
+
 	return &corev1.Node{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: nodeName,
@@ -94,7 +95,7 @@ func TestInstanceExists(t *testing.T) {
 	defer mockCtrl.Finish()
 
 	cs := cloudstack.NewMockClient(mockCtrl)
-	ms := cs.VirtualMachine.(*cloudstack.MockVirtualMachineServiceIface)
+	ms := cs.VirtualMachine.(*cloudstack.MockVirtualMachineServiceIface) //nolint: forcetypeassert
 
 	fakeInstances := &CSCloud{
 		client: cs,
@@ -141,14 +142,13 @@ func TestInstanceExists(t *testing.T) {
 				if test.node.Name == "testDummyVM" {
 					ms.EXPECT().GetVirtualMachineByName("testDummyVM", gomock.Any()).Return(test.mockedCSOutput, 1, nil)
 				} else {
-					ms.EXPECT().GetVirtualMachineByName("nonExistingVM", gomock.Any()).Return(test.mockedCSOutput, 0, fmt.Errorf("No match found for ..."))
+					ms.EXPECT().GetVirtualMachineByName("nonExistingVM", gomock.Any()).Return(test.mockedCSOutput, 0, errors.New("No match found for ...")) //nolint: revive
 				}
 			} else {
 				ms.EXPECT().GetVirtualMachineByID("915653c4-298b-4d74-bdee-4ced282114f1", gomock.Any()).Return(test.mockedCSOutput, 1, nil)
 			}
 
 			exists, err := fakeInstances.InstanceExists(context.TODO(), test.node)
-
 			if err != nil {
 				t.Errorf("InstanceExists failed with node %v: %v", nodeName, err)
 			}
@@ -165,7 +165,7 @@ func TestInstanceShutdown(t *testing.T) {
 	defer mockCtrl.Finish()
 
 	cs := cloudstack.NewMockClient(mockCtrl)
-	ms := cs.VirtualMachine.(*cloudstack.MockVirtualMachineServiceIface)
+	ms := cs.VirtualMachine.(*cloudstack.MockVirtualMachineServiceIface) //nolint: forcetypeassert
 
 	fakeInstances := &CSCloud{
 		client: cs,
@@ -226,7 +226,6 @@ func TestInstanceShutdown(t *testing.T) {
 			}
 
 			shutdown, err := fakeInstances.InstanceShutdown(context.TODO(), test.node)
-
 			if err != nil {
 				t.Logf("InstanceShutdown failed with node %v: %v", nodeName, err)
 			}
@@ -243,7 +242,7 @@ func TestInstanceMetadata(t *testing.T) {
 	defer mockCtrl.Finish()
 
 	cs := cloudstack.NewMockClient(mockCtrl)
-	ms := cs.VirtualMachine.(*cloudstack.MockVirtualMachineServiceIface)
+	ms := cs.VirtualMachine.(*cloudstack.MockVirtualMachineServiceIface) //nolint: forcetypeassert
 
 	fakeInstances := &CSCloud{
 		client: cs,
@@ -376,7 +375,6 @@ func TestInstanceMetadata(t *testing.T) {
 			}
 
 			metadata, err := fakeInstances.InstanceMetadata(context.TODO(), test.node)
-
 			if err != nil {
 				t.Logf("InstanceMetadata failed with node %v: %v", nodeName, err)
 			}

@@ -53,8 +53,9 @@ func (cs *CSCloud) nodeAddresses(instance *cloudstack.VirtualMachine) ([]corev1.
 func (cs *CSCloud) InstanceExists(ctx context.Context, node *corev1.Node) (bool, error) {
 	_, err := cs.getInstance(ctx, node)
 
-	if err == cloudprovider.InstanceNotFound {
-		klog.V(5).Infof("instance not found for node: %s", node.Name)
+	if errors.Is(err, cloudprovider.InstanceNotFound) { //nolint: errorlint
+		klog.V(4).Infof("Instance not found for node: %s", node.Name)
+
 		return false, nil
 	}
 
@@ -112,10 +113,12 @@ func (cs *CSCloud) getInstance(ctx context.Context, node *corev1.Node) (*cloudst
 				return nil, cloudprovider.InstanceNotFound
 			}
 			if count > 1 {
-				return nil, fmt.Errorf("getInstance: multiple instances found")
+				return nil, errors.New("getInstance: multiple instances found")
 			}
-			return nil, fmt.Errorf("getInstance: error retrieving instance by name: %v", err)
+
+			return nil, fmt.Errorf("getInstance: error retrieving instance by name: %w", err)
 		}
+
 		return instance, nil
 	}
 
@@ -134,9 +137,10 @@ func (cs *CSCloud) getInstance(ctx context.Context, node *corev1.Node) (*cloudst
 			return nil, cloudprovider.InstanceNotFound
 		}
 		if count > 1 {
-			return nil, fmt.Errorf("getInstance: multiple instances found")
+			return nil, errors.New("getInstance: multiple instances found")
 		}
-		return nil, fmt.Errorf("error retrieving instance by provider ID: %v", err)
+
+		return nil, fmt.Errorf("error retrieving instance by provider ID: %w", err)
 	}
 
 	return instance, nil
