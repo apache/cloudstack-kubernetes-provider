@@ -366,7 +366,9 @@ func (cs *CSCloud) getLoadBalancer(service *corev1.Service) (*loadBalancer, erro
 func (cs *CSCloud) verifyHosts(nodes []*corev1.Node) ([]string, string, error) {
 	hostNames := map[string]bool{}
 	for _, node := range nodes {
-		hostNames[strings.ToLower(node.Name)] = true
+		// node.Name can be an FQDN as well, and CloudStack VM names aren't
+		// To match, we need to Split the domain part off here, if present
+		hostNames[strings.Split(strings.ToLower(node.Name), ".")[0]] = true
 	}
 
 	p := cs.client.VirtualMachine.NewListVirtualMachinesParams()
@@ -395,6 +397,10 @@ func (cs *CSCloud) verifyHosts(nodes []*corev1.Node) ([]string, string, error) {
 			networkID = vm.Nic[0].Networkid
 			hostIDs = append(hostIDs, vm.Id)
 		}
+	}
+
+	if len(hostIDs) == 0 || len(networkID) == 0 {
+		return nil, "", fmt.Errorf("none of the hosts matched the list of VMs retrieved from CS API")
 	}
 
 	return hostIDs, networkID, nil
