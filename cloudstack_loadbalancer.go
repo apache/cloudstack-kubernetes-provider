@@ -32,9 +32,19 @@ import (
 	cloudprovider "k8s.io/cloud-provider"
 )
 
-// defaultAllowedCIDR is the network range that is allowed on the firewall
-// by default when no explicit CIDR list is given on a LoadBalancer.
-const defaultAllowedCIDR = "0.0.0.0/0"
+const (
+	// defaultAllowedCIDR is the network range that is allowed on the firewall
+	// by default when no explicit CIDR list is given on a LoadBalancer.
+	defaultAllowedCIDR = "0.0.0.0/0"
+
+	// ServiceAnnotationLoadBalancerProxyProtocol is the annotation used on the
+	// service to enable the proxy protocol on a CloudStack load balancer.
+	// Note that this protocol only applies to TCP service ports and
+	// CloudStack >= 4.6 is required for it to work.
+	ServiceAnnotationLoadBalancerProxyProtocol = "service.beta.kubernetes.io/cloudstack-load-balancer-proxy-protocol"
+
+	ServiceAnnotationLoadBalancerLoadbalancerHostname = "service.beta.kubernetes.io/cloudstack-load-balancer-hostname"
+)
 
 type loadBalancer struct {
 	*cloudstack.CloudStackClient
@@ -123,7 +133,7 @@ func (cs *CSCloud) EnsureLoadBalancer(ctx context.Context, clusterName string, s
 
 	for _, port := range service.Spec.Ports {
 		// Construct the protocol name first, we need it a few times
-		protocol := ProtocolFromServicePort(port, service.Annotations)
+		protocol := ProtocolFromServicePort(port, service)
 		if protocol == LoadBalancerProtocolInvalid {
 			return nil, fmt.Errorf("unsupported load balancer protocol: %v", port.Protocol)
 		}
@@ -202,6 +212,13 @@ func (cs *CSCloud) EnsureLoadBalancer(ctx context.Context, clusterName string, s
 	}
 
 	status = &corev1.LoadBalancerStatus{}
+	// If hostname is explicitly set using service annotation
+	// Workaround for https://github.com/kubernetes/kubernetes/issues/66607
+	if hostname := getStringFromServiceAnnotation(service, ServiceAnnotationLoadBalancerLoadbalancerHostname, ""); hostname != "" {
+		status.Ingress = []corev1.LoadBalancerIngress{{Hostname: hostname}}
+		return status, nil
+	}
+	// Default to IP
 	status.Ingress = []corev1.LoadBalancerIngress{{IP: lb.ipAddr}}
 
 	return status, nil
@@ -804,4 +821,42 @@ func (lb *loadBalancer) deleteFirewallRule(publicIpId string, publicPort int, pr
 	}
 
 	return deleted, err
+}
+
+// getStringFromServiceAnnotation searches a given v1.Service for a specific annotationKey and either returns the annotation's value or a specified defaultSetting
+func getStringFromServiceAnnotation(service *corev1.Service, annotationKey string, defaultSetting string) string {
+	klog.V(4).Infof("getStringFromServiceAnnotation(%s/%s, %v, %v)", service.Namespace, service.Name, annotationKey, defaultSetting)
+	if annotationValue, ok := service.Annotations[annotationKey]; ok {
+		//if there is an annotation for this setting, set the "setting" var to it
+		// annotationValue can be empty, it is working as designed
+		// it makes possible for instance provisioning loadbalancer without floatingip
+		klog.V(4).Infof("Found a Service Annotation: %v = %v", annotationKey, annotationValue)
+		return annotationValue
+	}
+	//if there is no annotation, set "settings" var to the value from cloud config
+	if defaultSetting != "" {
+		klog.V(4).Infof("Could not find a Service Annotation; falling back on cloud-config setting: %v = %v", annotationKey, defaultSetting)
+	}
+	return defaultSetting
+}
+
+// getBoolFromServiceAnnotation searches a given v1.Service for a specific annotationKey and either returns the annotation's boolean value or a specified defaultSetting
+func getBoolFromServiceAnnotation(service *corev1.Service, annotationKey string, defaultSetting bool) bool {
+	klog.V(4).Infof("getBoolFromServiceAnnotation(%s/%s, %v, %v)", service.Namespace, service.Name, annotationKey, defaultSetting)
+	if annotationValue, ok := service.Annotations[annotationKey]; ok {
+		returnValue := false
+		switch annotationValue {
+		case "true":
+			returnValue = true
+		case "false":
+			returnValue = false
+		default:
+			returnValue = defaultSetting
+		}
+
+		klog.V(4).Infof("Found a Service Annotation: %v = %v", annotationKey, returnValue)
+		return returnValue
+	}
+	klog.V(4).Infof("Could not find a Service Annotation; falling back to default setting: %v = %v", annotationKey, defaultSetting)
+	return defaultSetting
 }
