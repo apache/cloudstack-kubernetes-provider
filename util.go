@@ -26,7 +26,7 @@ import (
 )
 
 // If Instances.InstanceID or cloudprovider.GetInstanceProviderID is changed, the regexp should be changed too.
-var providerIDRegexp = regexp.MustCompile(`^` + ProviderName + `://([^/]*)/([^/]+)$`)
+var providerIDRegexp = regexp.MustCompile(`^` + ProviderName + `://?([^/]*)/([^/]+)$`)
 
 // instanceIDFromProviderID splits a provider's id and return instanceID.
 // A providerID is build out of '${ProviderName}:///${instance-id}' which contains ':///'.
