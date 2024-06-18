@@ -15,7 +15,7 @@
 # specific language governing permissions and limitations
 # under the License.
 
-FROM golang:1.19 as builder
+FROM golang:1.21 as builder
 COPY . /go/src/github.com/apache/cloudstack-kubernetes-provider
 WORKDIR /go/src/github.com/apache/cloudstack-kubernetes-provider
 RUN make clean && CGO_ENABLED=0 GOOS=linux make
