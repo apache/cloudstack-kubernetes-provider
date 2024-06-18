@@ -52,7 +52,7 @@ jobs:
           fetch-depth: 0
           
       - name: Set Docker image TAG
-        run: echo "TAG=$(if [ "${{ github.ref_type }}" = "tag" ];then echo ${{ github.ref_name }}; elif [ "${{ github.event_name }}" = "pull_request" ];then echo "pr" + ${{ github.event.pull_request.number}};else cat version;fi)" >> $GITHUB_ENV
+        run: echo "TAG=$(if [ "${{ github.event_name }}" = "pull_request" ];then echo "pr${{ github.event.pull_request.number}}"; elif [ "${{ github.ref_name }}" = "main" ];then cat version; else echo ${{ github.ref_name }};fi)" >> $GITHUB_ENV
 
       - name: Set Docker image FULL TAG
         run: echo "FULL_TAG=$(if [ "${{ secrets.DOCKER_REGISTRY }}" = "" ];then echo ${DOCKER_REPOSITORY}/cloudstack-kubernetes-provider:${TAG};else echo ${{ secrets.DOCKER_REGISTRY }}/${DOCKER_REPOSITORY}/cloudstack-kubernetes-provider:${TAG};fi)" >> $GITHUB_ENV
