@@ -181,10 +181,17 @@ func (cs *CSCloud) EnsureLoadBalancer(ctx context.Context, clusterName string, s
 			return nil, err
 		}
 
-		if lbRule != nil && isFirewallSupported(network.Service) {
-			klog.V(4).Infof("Creating firewall rules for load balancer rule: %v (%v:%v:%v)", lbRuleName, protocol, lbRule.Publicip, port.Port)
-			if _, err := lb.updateFirewallRule(lbRule.Publicipid, int(port.Port), protocol, service.Spec.LoadBalancerSourceRanges); err != nil {
-				return nil, err
+		if lbRule != nil {
+			if isFirewallSupported(network.Service) {
+				klog.V(4).Infof("Creating firewall rules for load balancer rule: %v (%v:%v:%v)", lbRuleName, protocol, lbRule.Publicip, port.Port)
+				if _, err := lb.updateFirewallRule(lbRule.Publicipid, int(port.Port), protocol, service.Spec.LoadBalancerSourceRanges); err != nil {
+					return nil, err
+				}
+			} else if isNetworkACLSupported(network.Service) {
+				klog.V(4).Infof("Creating ACL rules for load balancer rule: %v (%v:%v:%v)", lbRuleName, protocol, lbRule.Publicip, port.Port)
+				if _, err := lb.updateNetworkACL(int(port.Port), protocol, network.Id); err != nil {
+					return nil, err
+				}
 			}
 		}
 	}
@@ -272,6 +279,15 @@ func (cs *CSCloud) UpdateLoadBalancer(ctx context.Context, clusterName string, s
 func isFirewallSupported(services []cloudstack.NetworkServiceInternal) bool {
 	for _, svc := range services {
 		if svc.Name == "Firewall" {
+			return true
+		}
+	}
+	return false
+}
+
+func isNetworkACLSupported(services []cloudstack.NetworkServiceInternal) bool {
+	for _, svc := range services {
+		if svc.Name == "NetworkACL" {
 			return true
 		}
 	}
@@ -787,6 +803,28 @@ func (lb *loadBalancer) updateFirewallRule(publicIpId string, publicPort int, pr
 	}
 
 	// return true (because we changed something), but also the last error if deleting one old rule failed
+	return true, err
+}
+
+func (lb *loadBalancer) updateNetworkACL(publicPort int, protocol LoadBalancerProtocol, networkId string) (bool, error) {
+	network, _, err := lb.Network.GetNetworkByID(networkId)
+	if err != nil {
+		return false, fmt.Errorf("error fetching Network with ID: %v, due to: %s", networkId, err)
+	}
+
+	// create ACL rule
+	acl := lb.NetworkACL.NewCreateNetworkACLParams(protocol.CSProtocol())
+	acl.SetAclid(network.Aclid)
+	acl.SetAction("Allow")
+	acl.SetStartport(publicPort)
+	acl.SetEndport(publicPort)
+	acl.SetNetworkid(networkId)
+	acl.SetTraffictype("Ingress")
+
+	_, err = lb.NetworkACL.CreateNetworkACL(acl)
+	if err != nil {
+		return false, fmt.Errorf("error creating Network ACL for port: %v, due to: %s", publicPort, err)
+	}
 	return true, err
 }
 
