@@ -812,9 +812,6 @@ func (lb *loadBalancer) updateNetworkACL(publicPort int, protocol LoadBalancerPr
 		return false, fmt.Errorf("error fetching Network with ID: %v, due to: %s", networkId, err)
 	}
 
-	// Get All ACL rules for the given ACL ID
-	lb.NetworkACL.ListNetworkACLLists()
-
 	// create ACL rule
 	acl := lb.NetworkACL.NewCreateNetworkACLParams(protocol.CSProtocol())
 	acl.SetAclid(network.Aclid)
