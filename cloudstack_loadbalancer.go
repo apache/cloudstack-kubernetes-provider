@@ -320,15 +320,20 @@ func (cs *CSCloud) EnsureLoadBalancerDeleted(ctx context.Context, clusterName st
 			if err != nil {
 				klog.Errorf("Error parsing port: %v", err)
 			} else {
+				klog.Infof("Attempting to delete Fw / ACL for port: %v", port)
 				network, count, err := lb.Network.GetNetworkByID(lb.networkID, cloudstack.WithProject(lb.projectID))
 				if err != nil {
 					if count == 0 {
+						klog.Infof("No network found")
 						return err
 					}
+					klog.Infof("Returning err")
 					return err
 				}
-
+				klog.Infof("network vpc id: %v", network.Vpcid)
+				klog.Infof("Network belongs to VPC: %v", network.Vpcid == "")
 				if network.Vpcid == "" {
+					klog.Infof("Deleting firewall rule - as network doesn't belong to a VPC")
 					_, err = lb.deleteFirewallRule(lbRule.Publicipid, int(port), protocol)
 					if err != nil {
 						klog.Errorf("Error deleting firewall rule: %v", err)
