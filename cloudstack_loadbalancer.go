@@ -212,6 +212,11 @@ func (cs *CSCloud) EnsureLoadBalancer(ctx context.Context, clusterName string, s
 			return nil, err
 		}
 
+		klog.V(4).Infof("Deleting Network ACL rules associated with load balancer rule: %v (%v:%v)", lbRule.Name, protocol, port)
+		if _, err := lb.deleteNetworkACLRule(int(port), protocol); err != nil {
+			return nil, err
+		}
+
 		klog.V(4).Infof("Deleting obsolete load balancer rule: %v", lbRule.Name)
 		if err := lb.deleteLoadBalancerRule(lbRule); err != nil {
 			return nil, err
@@ -859,6 +864,43 @@ func (lb *loadBalancer) deleteFirewallRule(publicIpId string, publicPort int, pr
 		_, err = lb.Firewall.DeleteFirewallRule(p)
 		if err != nil {
 			klog.Errorf("Error deleting old firewall rule %v: %v", rule.Id, err)
+		} else {
+			deleted = true
+		}
+	}
+
+	return deleted, err
+}
+
+// Delete Network ACLs deletes the Network ACL rule associated with the ip:port:protocol combo
+func (lb *loadBalancer) deleteNetworkACLRule(publicPort int, protocol LoadBalancerProtocol) (bool, error) {
+	p := lb.NetworkACL.NewListNetworkACLsParams()
+	p.SetListall(true)
+	p.SetNetworkid(lb.networkID)
+	if lb.projectID != "" {
+		p.SetProjectid(lb.projectID)
+	}
+
+	r, err := lb.NetworkACL.ListNetworkACLs(p)
+	if err != nil {
+		return false, fmt.Errorf("error fetching Network ACL rules Network ID %v: %v", lb.networkID, err)
+	}
+
+	// filter by proto:port
+	filtered := make([]*cloudstack.NetworkACL, 0, 1)
+	for _, rule := range r.NetworkACLs {
+		if rule.Protocol == protocol.IPProtocol() && rule.Startport == strconv.Itoa(publicPort) && rule.Endport == strconv.Itoa(publicPort) {
+			filtered = append(filtered, rule)
+		}
+	}
+
+	// delete all rules
+	deleted := false
+	for _, rule := range filtered {
+		p := lb.NetworkACL.NewDeleteNetworkACLParams(rule.Id)
+		_, err = lb.NetworkACL.DeleteNetworkACL(p)
+		if err != nil {
+			klog.Errorf("Error deleting old Network ACL rule %v: %v", rule.Id, err)
 		} else {
 			deleted = true
 		}
