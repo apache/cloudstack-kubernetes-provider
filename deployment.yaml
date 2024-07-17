@@ -143,7 +143,7 @@ spec:
     spec:
       containers:
       - name: cloud-controller-manager
-        image: pearl1594/cloudstack-kubernetes-provider:v2
+        image: pearl1594/cloudstack-kubernetes-provider:v3
         imagePullPolicy: IfNotPresent
         args:
         - --leader-elect=true

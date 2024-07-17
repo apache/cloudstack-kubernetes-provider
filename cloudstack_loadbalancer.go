@@ -212,7 +212,7 @@ func (cs *CSCloud) EnsureLoadBalancer(ctx context.Context, clusterName string, s
 			return nil, err
 		}
 
-		klog.V(4).Infof("Deleting Network ACL rules associated with load balancer rule: %v (%v:%v)", lbRule.Name, protocol, port)
+		klog.Infof("Deleting Network ACL rules associated with load balancer rule: %v (%v:%v)", lbRule.Name, protocol, port)
 		if _, err := lb.deleteNetworkACLRule(int(port), protocol); err != nil {
 			return nil, err
 		}
@@ -311,7 +311,7 @@ func (cs *CSCloud) EnsureLoadBalancerDeleted(ctx context.Context, clusterName st
 	}
 
 	for _, lbRule := range lb.rules {
-		klog.V(4).Infof("Deleting firewall rules for load balancer: %v", lbRule.Name)
+		klog.Infof("Deleting firewall rules for load balancer: %v", lbRule.Name)
 		protocol := ProtocolFromLoadBalancer(lbRule.Protocol)
 		if protocol == LoadBalancerProtocolInvalid {
 			klog.Errorf("Error parsing protocol: %v", lbRule.Protocol)
@@ -320,9 +320,25 @@ func (cs *CSCloud) EnsureLoadBalancerDeleted(ctx context.Context, clusterName st
 			if err != nil {
 				klog.Errorf("Error parsing port: %v", err)
 			} else {
-				_, err = lb.deleteFirewallRule(lbRule.Publicipid, int(port), protocol)
+				network, count, err := lb.Network.GetNetworkByID(lb.networkID, cloudstack.WithProject(lb.projectID))
 				if err != nil {
-					klog.Errorf("Error deleting firewall rule: %v", err)
+					if count == 0 {
+						return err
+					}
+					return err
+				}
+
+				if network.Vpcid == "" {
+					_, err = lb.deleteFirewallRule(lbRule.Publicipid, int(port), protocol)
+					if err != nil {
+						klog.Errorf("Error deleting firewall rule: %v", err)
+					}
+				} else {
+					klog.Infof("Deleting network ACLs for %v - %v", int(port), protocol)
+					_, err = lb.deleteNetworkACLRule(int(port), protocol)
+					if err != nil {
+						klog.Errorf("Error deleting Network ACL rule: %v", err)
+					}
 				}
 			}
 
@@ -885,6 +901,8 @@ func (lb *loadBalancer) deleteNetworkACLRule(publicPort int, protocol LoadBalanc
 	if err != nil {
 		return false, fmt.Errorf("error fetching Network ACL rules Network ID %v: %v", lb.networkID, err)
 	}
+
+	klog.Infof("found the following network acl for port %v: %v", publicPort, r.NetworkACLs)
 
 	// filter by proto:port
 	filtered := make([]*cloudstack.NetworkACL, 0, 1)
