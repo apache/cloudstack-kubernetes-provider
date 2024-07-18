@@ -173,6 +173,7 @@ func (cs *CSCloud) EnsureLoadBalancer(ctx context.Context, clusterName string, s
 			}
 		}
 
+		klog.Infof("Creating ACL for network ID: %v", lb.networkID)
 		network, count, err := lb.Network.GetNetworkByID(lb.networkID, cloudstack.WithProject(lb.projectID))
 		if err != nil {
 			if count == 0 {
@@ -213,7 +214,7 @@ func (cs *CSCloud) EnsureLoadBalancer(ctx context.Context, clusterName string, s
 		}
 
 		klog.Infof("Deleting Network ACL rules associated with load balancer rule: %v (%v:%v)", lbRule.Name, protocol, port)
-		if _, err := lb.deleteNetworkACLRule(int(port), protocol); err != nil {
+		if _, err := lb.deleteNetworkACLRule(int(port), protocol, lb.networkID); err != nil {
 			return nil, err
 		}
 
@@ -320,8 +321,13 @@ func (cs *CSCloud) EnsureLoadBalancerDeleted(ctx context.Context, clusterName st
 			if err != nil {
 				klog.Errorf("Error parsing port: %v", err)
 			} else {
-				klog.Infof("Attempting to delete Fw / ACL for port: %v", port)
-				network, count, err := lb.Network.GetNetworkByID(lb.networkID, cloudstack.WithProject(lb.projectID))
+				klog.Infof("LB IP Addr: %v ", lb.ipAddrID)
+				networkId, err := cs.getNetworkIDFromIPAddress(lb.ipAddrID)
+				if err != nil {
+					return err
+				}
+				klog.Infof("Attempting to delete Fw / ACL for port: %v for network ID: %v", port, networkId)
+				network, count, err := lb.Network.GetNetworkByID(networkId, cloudstack.WithProject(lb.projectID))
 				if err != nil {
 					if count == 0 {
 						klog.Infof("No network found")
@@ -340,7 +346,7 @@ func (cs *CSCloud) EnsureLoadBalancerDeleted(ctx context.Context, clusterName st
 					}
 				} else {
 					klog.Infof("Deleting network ACLs for %v - %v", int(port), protocol)
-					_, err = lb.deleteNetworkACLRule(int(port), protocol)
+					_, err = lb.deleteNetworkACLRule(int(port), protocol, networkId)
 					if err != nil {
 						klog.Errorf("Error deleting Network ACL rule: %v", err)
 					}
@@ -405,6 +411,27 @@ func (cs *CSCloud) getLoadBalancer(service *corev1.Service) (*loadBalancer, erro
 	klog.V(4).Infof("Load balancer %v contains %d rule(s)", lb.name, len(lb.rules))
 
 	return lb, nil
+}
+
+// Get network ID from Public IP Address
+func (cs *CSCloud) getNetworkIDFromIPAddress(publicIpId string) (string, error) {
+	ip, count, err := cs.client.Address.GetPublicIpAddressByID(publicIpId)
+	if err != nil {
+		klog.Errorf("Failed to fetch the public IP for id: %v", publicIpId)
+		return "", err
+	}
+	if count == 0 {
+		return "", err
+	}
+	if ip.Networkid != "" {
+		network, _, netErr := cs.client.Network.GetNetworkByID(ip.Networkid)
+		if netErr != nil {
+			klog.Errorf("Failed to fetch the network for id: %v", ip.Networkid)
+			return "", err
+		}
+		return network.Id, nil
+	}
+	return "", nil
 }
 
 // verifyHosts verifies if all hosts belong to the same network, and returns the host ID's and network ID.
@@ -894,17 +921,17 @@ func (lb *loadBalancer) deleteFirewallRule(publicIpId string, publicPort int, pr
 }
 
 // Delete Network ACLs deletes the Network ACL rule associated with the ip:port:protocol combo
-func (lb *loadBalancer) deleteNetworkACLRule(publicPort int, protocol LoadBalancerProtocol) (bool, error) {
+func (lb *loadBalancer) deleteNetworkACLRule(publicPort int, protocol LoadBalancerProtocol, networkID string) (bool, error) {
 	p := lb.NetworkACL.NewListNetworkACLsParams()
 	p.SetListall(true)
-	p.SetNetworkid(lb.networkID)
+	p.SetNetworkid(networkID)
 	if lb.projectID != "" {
 		p.SetProjectid(lb.projectID)
 	}
 
 	r, err := lb.NetworkACL.ListNetworkACLs(p)
 	if err != nil {
-		return false, fmt.Errorf("error fetching Network ACL rules Network ID %v: %v", lb.networkID, err)
+		return false, fmt.Errorf("error fetching Network ACL rules Network ID %v: %v", networkID, err)
 	}
 
 	klog.Infof("found the following network acl for port %v: %v", publicPort, r.NetworkACLs)

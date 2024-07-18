@@ -49,7 +49,7 @@ test:
 
 docker:
 	docker build . -t apache/cloudstack-kubernetes-provider:${GIT_COMMIT_SHORT}
-	docker tag apache/cloudstack-kubernetes-provider:${GIT_COMMIT_SHORT} pearl1594/cloudstack-kubernetes-provider:v4
+	docker tag apache/cloudstack-kubernetes-provider:${GIT_COMMIT_SHORT} pearl1594/cloudstack-kubernetes-provider:v7
 ifneq (${GIT_IS_TAG},NOT_A_TAG)
 	docker tag apache/cloudstack-kubernetes-provider:${GIT_COMMIT_SHORT} pearl1594/cloudstack-kubernetes-provider:${GIT_TAG}
 endif
