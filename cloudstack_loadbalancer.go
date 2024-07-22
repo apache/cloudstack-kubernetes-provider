@@ -937,14 +937,13 @@ func (lb *loadBalancer) deleteNetworkACLRule(publicPort int, protocol LoadBalanc
 
 	// delete all rules
 	deleted := false
-	for _, rule := range filtered {
-		p := lb.NetworkACL.NewDeleteNetworkACLParams(rule.Id)
-		_, err = lb.NetworkACL.DeleteNetworkACL(p)
-		if err != nil {
-			klog.Errorf("Error deleting old Network ACL rule %v: %v", rule.Id, err)
-		} else {
-			deleted = true
-		}
+	ruleToBeDeleted := filtered[0]
+	deleteAclParams := lb.NetworkACL.NewDeleteNetworkACLParams(ruleToBeDeleted.Id)
+	_, err = lb.NetworkACL.DeleteNetworkACL(deleteAclParams)
+	if err != nil {
+		klog.Errorf("Error deleting old Network ACL rule %v: %v", ruleToBeDeleted.Id, err)
+	} else {
+		deleted = true
 	}
 
 	return deleted, err
