@@ -935,7 +935,11 @@ func (lb *loadBalancer) deleteNetworkACLRule(publicPort int, protocol LoadBalanc
 		}
 	}
 
-	// delete all rules
+	// delete first filtered rules
+	if len(filtered) == 0 {
+		klog.V(4).Infof("No ACL rules found matching protocol: %v and port: %v", protocol, publicPort)
+		return true, nil
+	}
 	deleted := false
 	ruleToBeDeleted := filtered[0]
 	deleteAclParams := lb.NetworkACL.NewDeleteNetworkACLParams(ruleToBeDeleted.Id)
