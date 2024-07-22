@@ -327,7 +327,7 @@ func (cs *CSCloud) EnsureLoadBalancerDeleted(ctx context.Context, clusterName st
 				network, count, err := lb.Network.GetNetworkByID(networkId, cloudstack.WithProject(lb.projectID))
 				if err != nil {
 					if count == 0 {
-						klog.Errorf("No network found")
+						klog.Errorf("No network found with ID: %v", networkId)
 						return err
 					}
 					return err
