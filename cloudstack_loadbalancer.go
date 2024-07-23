@@ -858,6 +858,20 @@ func (lb *loadBalancer) updateNetworkACL(publicPort int, protocol LoadBalancerPr
 		return false, fmt.Errorf("error fetching Network with ID: %v, due to: %s", networkId, err)
 	}
 
+	networkAcl, count, err := lb.NetworkACL.GetNetworkACLListByID(network.Aclid)
+	if err != nil {
+		return false, fmt.Errorf("error fetching Network ACL List with ID: %v, due to: %s", network.Aclid, err)
+	}
+
+	if count == 0 {
+		return false, fmt.Errorf("failed to find network ACL List with id: %v", network.Aclid)
+	}
+
+	if networkAcl.Name == "default_allow" || networkAcl.Name == "default_deny" {
+		klog.Infof("Network is using a default network ACL. Cannot add ACL rules to default ACLs")
+		return true, err
+	}
+
 	// create ACL rule
 	acl := lb.NetworkACL.NewCreateNetworkACLParams(protocol.CSProtocol())
 	acl.SetAclid(network.Aclid)
