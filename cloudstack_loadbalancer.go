@@ -858,7 +858,7 @@ func (lb *loadBalancer) updateNetworkACL(publicPort int, protocol LoadBalancerPr
 		return false, fmt.Errorf("error fetching Network with ID: %v, due to: %s", networkId, err)
 	}
 
-	networkAcl, count, err := lb.NetworkACL.GetNetworkACLListByID(network.Aclid)
+	networkAclList, count, err := lb.NetworkACL.GetNetworkACLListByID(network.Aclid)
 	if err != nil {
 		return false, fmt.Errorf("error fetching Network ACL List with ID: %v, due to: %s", network.Aclid, err)
 	}
@@ -867,8 +867,32 @@ func (lb *loadBalancer) updateNetworkACL(publicPort int, protocol LoadBalancerPr
 		return false, fmt.Errorf("failed to find network ACL List with id: %v", network.Aclid)
 	}
 
-	if networkAcl.Name == "default_allow" || networkAcl.Name == "default_deny" {
+	if networkAclList.Name == "default_allow" || networkAclList.Name == "default_deny" {
 		klog.Infof("Network is using a default network ACL. Cannot add ACL rules to default ACLs")
+		return true, err
+	}
+
+	networkAclParams := lb.NetworkACL.NewListNetworkACLsParams()
+	networkAclParams.SetAclid(network.Aclid)
+	networkAclParams.SetNetworkid(networkId)
+
+	networkAclResponse, err := lb.NetworkACL.ListNetworkACLs(networkAclParams)
+
+	if err != nil {
+		return false, fmt.Errorf("error fetching Network ACL with ID: %v for network with id: %v, due to: %s", network.Aclid, networkId, err)
+	}
+
+	// find all network ACL rules that have a matching proto+port
+	// a map may or may not be faster, but is a bit easier to understand
+	filtered := make(map[*cloudstack.NetworkACL]bool)
+	for _, netAclRule := range networkAclResponse.NetworkACLs {
+		if netAclRule.Protocol == protocol.IPProtocol() && netAclRule.Startport == strconv.Itoa(publicPort) && netAclRule.Endport == strconv.Itoa(publicPort) {
+			filtered[netAclRule] = true
+		}
+	}
+
+	if len(filtered) > 0 {
+		klog.Infof("Network ACL rule for port %v and protocol %v already exists. No need to added a duplicate rule")
 		return true, err
 	}
 
