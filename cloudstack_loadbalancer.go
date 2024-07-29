@@ -892,7 +892,7 @@ func (lb *loadBalancer) updateNetworkACL(publicPort int, protocol LoadBalancerPr
 	}
 
 	if len(filtered) > 0 {
-		klog.Infof("Network ACL rule for port %v and protocol %v already exists. No need to added a duplicate rule")
+		klog.V(4).Infof("Network ACL rule for port %v and protocol %v already exists. No need to added a duplicate rule", publicPort, protocol)
 		return true, err
 	}
 
