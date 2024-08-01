@@ -143,7 +143,7 @@ spec:
     spec:
       containers:
       - name: cloud-controller-manager
-        image: apache/cloudstack-kubernetes-provider:v1.1.0
+        image: apache/cloudstack-kubernetes-provider:v1.1.1
         imagePullPolicy: IfNotPresent
         args:
         - --leader-elect=true
