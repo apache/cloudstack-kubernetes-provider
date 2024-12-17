@@ -24,7 +24,7 @@ metadata:
     app.kubernetes.io/name: ingress-nginx
     app.kubernetes.io/part-of: ingress-nginx
   annotations:
-    service.beta.kubernetes.io/cloudstack-load-balancer-proxy-protocol: enabled
+    service.beta.kubernetes.io/cloudstack-load-balancer-proxy-protocol: 'true'
 spec:
   type: LoadBalancer
   selector:
