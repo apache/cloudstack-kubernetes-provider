@@ -20,7 +20,7 @@ kind: Service
 metadata:
   name: traefik
   annotations:
-    service.beta.kubernetes.io/cloudstack-load-balancer-proxy-protocol: enabled
+    service.beta.kubernetes.io/cloudstack-load-balancer-proxy-protocol: 'true'
 spec:
   type: LoadBalancer
   ports:
