@@ -15,10 +15,13 @@
 # specific language governing permissions and limitations
 # under the License.
 
-FROM golang:1.21 as builder
+FROM --platform=$BUILDPLATFORM golang:1.23 AS builder
+ARG BUILDPLATFORM
+ARG TARGETOS
+ARG TARGETARCH
 COPY . /go/src/github.com/apache/cloudstack-kubernetes-provider
 WORKDIR /go/src/github.com/apache/cloudstack-kubernetes-provider
-RUN make clean && CGO_ENABLED=0 GOOS=linux make
+RUN make clean && CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} make
 
 FROM gcr.io/distroless/static:nonroot
 COPY --from=builder /go/src/github.com/apache/cloudstack-kubernetes-provider/cloudstack-ccm /app/cloudstack-ccm
