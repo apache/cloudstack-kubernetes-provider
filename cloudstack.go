@@ -200,7 +200,7 @@ func (cs *CSCloud) GetZoneByProviderID(ctx context.Context, providerID string) (
 	zone := cloudprovider.Zone{}
 
 	instance, count, err := cs.client.VirtualMachine.GetVirtualMachineByID(
-		providerID,
+		cs.getInstanceIDFromProviderID(providerID),
 		cloudstack.WithProject(cs.projectID),
 	)
 	if err != nil {
