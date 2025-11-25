@@ -126,7 +126,7 @@ Instead, it first obtains the name of the node from Kubernetes, then fetches inf
 
 ### Building
 
-At least Go 1.21 is required to build cloudstack-ccm.
+At least Go 1.23 is required to build cloudstack-ccm.
 
 To build the controller with correct versioning, some build flags need to be passed.
 A Makefile is provided that sets these build flags to automatically derived values.
@@ -151,12 +151,49 @@ The CCM supports the same cloud-config configuration file format used by [the cs
 so you can simply point it to that.
 
 ```bash
-./cloudstack-ccm --cloud-provider external-cloudstack --cloud-config ~/.cloud-config --master k8s-apiserver
+./cloudstack-ccm --cloud-provider external-cloudstack --cloud-config ./cloud-config --kubeconfig ~/.kube/config
 ```
 
 Replace k8s-apiserver with the host name of your Kubernetes development clusters's API server.
 
 If you don't have a 'real' CloudStack installation, you can also launch a local [simulator instance](https://hub.docker.com/r/cloudstack/simulator) instead. This is very useful for dry-run testing.
+
+### Debugging
+
+You can use the VSCode extension [Go](https://marketplace.visualstudio.com/items?itemName=golang.go) to debug the CCM.
+Add the following configuration to the `.vscode/launch.json` file use it to launch the CCM.
+
+```json
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Launch CloudStack CCM",
+            "type": "go",
+            "request": "launch",
+            "mode": "auto",
+            "program": "${workspaceFolder}/cmd/cloudstack-ccm",
+            "env": {},
+            "args": [
+                "--cloud-provider=external-cloudstack",
+                "--cloud-config=${workspaceFolder}/cloud-config",
+                "--kubeconfig=${env:HOME}/.kube/config",
+                "--leader-elect=false",
+                "--v=5"
+            ],
+            "showLog": true,
+            "trace": "verbose"
+        },
+        {
+            "name": "Attach to Process",
+            "type": "go",
+            "request": "attach",
+            "mode": "local",
+            "processId": 0
+        }
+    ]
+}
+```
 
 ## Copyright
 

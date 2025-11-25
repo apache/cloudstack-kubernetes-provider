@@ -59,3 +59,4 @@ lint:
 	golangci-lint run
 	@(echo "Running gofmt...")
 	@(echo "gofmt -l"; FMTFILES="$$(gofmt -l .)"; if test -n "$${FMTFILES}"; then echo "Go files that need to be reformatted (use 'go fmt'):\n$${FMTFILES}"; exit 1; fi)
+
