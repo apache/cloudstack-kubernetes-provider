@@ -53,3 +53,9 @@ docker:
 ifneq (${GIT_IS_TAG},NOT_A_TAG)
 	docker tag apache/cloudstack-kubernetes-provider:${GIT_COMMIT_SHORT} apache/cloudstack-kubernetes-provider:${GIT_TAG}
 endif
+
+lint:
+	@(echo "Running golangci-lint...")
+	golangci-lint run
+	@(echo "Running gofmt...")
+	@(echo "gofmt -l"; FMTFILES="$$(gofmt -l .)"; if test -n "$${FMTFILES}"; then echo "Go files that need to be reformatted (use 'go fmt'):\n$${FMTFILES}"; exit 1; fi)
