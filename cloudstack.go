@@ -45,6 +45,7 @@ type CSConfig struct {
 		SSLNoVerify bool   `gcfg:"ssl-no-verify"`
 		ProjectID   string `gcfg:"project-id"`
 		Zone        string `gcfg:"zone"`
+		Region      string `gcfg:"region"`
 	}
 }
 
@@ -53,6 +54,7 @@ type CSCloud struct {
 	client    *cloudstack.CloudStackClient
 	projectID string // If non-"", all resources will be created within this project
 	zone      string
+	region    string
 }
 
 func init() {
@@ -85,6 +87,7 @@ func newCSCloud(cfg *CSConfig) (*CSCloud, error) {
 	cs := &CSCloud{
 		projectID: cfg.Global.ProjectID,
 		zone:      cfg.Global.Zone,
+		region:    cfg.Global.Region,
 	}
 
 	if cfg.Global.APIURL != "" && cfg.Global.APIKey != "" && cfg.Global.SecretKey != "" {
@@ -190,7 +193,8 @@ func (cs *CSCloud) GetZone(ctx context.Context) (cloudprovider.Zone, error) {
 
 	klog.V(2).Infof("Current zone is %v", cs.zone)
 	zone.FailureDomain = cs.zone
-	zone.Region = cs.zone
+
+	zone.Region = cs.getRegionFromZone(cs.zone)
 
 	return zone, nil
 }
@@ -212,7 +216,7 @@ func (cs *CSCloud) GetZoneByProviderID(ctx context.Context, providerID string) (
 
 	klog.V(2).Infof("Current zone is %v", cs.zone)
 	zone.FailureDomain = instance.Zonename
-	zone.Region = instance.Zonename
+	zone.Region = cs.getRegionFromZone(instance.Zonename)
 
 	return zone, nil
 }
@@ -234,7 +238,14 @@ func (cs *CSCloud) GetZoneByNodeName(ctx context.Context, nodeName types.NodeNam
 
 	klog.V(2).Infof("Current zone is %v", cs.zone)
 	zone.FailureDomain = instance.Zonename
-	zone.Region = instance.Zonename
+	zone.Region = cs.getRegionFromZone(instance.Zonename)
 
 	return zone, nil
+}
+
+func (cs *CSCloud) getRegionFromZone(zone string) string {
+	if cs.region != "" {
+		return cs.region
+	}
+	return zone
 }
