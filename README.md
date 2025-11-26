@@ -161,7 +161,7 @@ If you don't have a 'real' CloudStack installation, you can also launch a local 
 ### Debugging
 
 You can use the VSCode extension [Go](https://marketplace.visualstudio.com/items?itemName=golang.go) to debug the CCM.
-Add the following configuration to the `.vscode/launch.json` file use it to launch the CCM.
+Add the following configuration to the `.vscode/launch.json` file to launch the CCM and debug it.
 
 ```json
 {
@@ -179,7 +179,7 @@ Add the following configuration to the `.vscode/launch.json` file use it to laun
                 "--cloud-config=${workspaceFolder}/cloud-config",
                 "--kubeconfig=${env:HOME}/.kube/config",
                 "--leader-elect=false",
-                "--v=5"
+                "--v=4"
             ],
             "showLog": true,
             "trace": "verbose"

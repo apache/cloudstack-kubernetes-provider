@@ -7,6 +7,10 @@ linters:
     - goheader
     - gosec
     - misspell
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
   settings:
     goheader:
       template: |-
