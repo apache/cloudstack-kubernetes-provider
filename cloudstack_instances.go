@@ -201,7 +201,7 @@ func (cs *CSCloud) InstanceMetadata(ctx context.Context, node *corev1.Node) (*cl
 		return nil, err
 	}
 
-	zone, err := cs.GetZone(ctx)
+	zone, err := cs.GetZoneByNodeName(ctx, types.NodeName(node.Name))
 	if err != nil {
 		return nil, err
 	}
@@ -210,7 +210,7 @@ func (cs *CSCloud) InstanceMetadata(ctx context.Context, node *corev1.Node) (*cl
 		ProviderID:    cs.getProviderIDFromInstanceID(instanceID),
 		InstanceType:  instanceType,
 		NodeAddresses: addresses,
-		Zone:          cs.zone,
+		Zone:          zone.FailureDomain,
 		Region:        zone.Region,
 	}, nil
 }
