@@ -27,6 +27,7 @@ import (
 	"strings"
 
 	"github.com/apache/cloudstack-go/v2/cloudstack"
+	"github.com/blang/semver/v4"
 	"k8s.io/klog/v2"
 
 	corev1 "k8s.io/api/core/v1"
@@ -44,7 +45,12 @@ const (
 	// CloudStack >= 4.6 is required for it to work.
 	ServiceAnnotationLoadBalancerProxyProtocol        = "service.beta.kubernetes.io/cloudstack-load-balancer-proxy-protocol"
 	ServiceAnnotationLoadBalancerLoadbalancerHostname = "service.beta.kubernetes.io/cloudstack-load-balancer-hostname"
-	ServiceAnnotationLoadBalancerSourceCidrs          = "service.beta.kubernetes.io/cloudstack-load-balancer-source-cidrs"
+
+	// ServiceAnnotationLoadBalancerSourceCidrs is the annotation used on the
+	// service to specify the source CIDR list for a CloudStack load balancer.
+	// The CIDR list is a comma-separated list of CIDR ranges (e.g., "10.0.0.0/8,192.168.1.0/24").
+	// If not specified, the default is to allow all sources ("0.0.0.0/0").
+	ServiceAnnotationLoadBalancerSourceCidrs = "service.beta.kubernetes.io/cloudstack-load-balancer-source-cidrs"
 )
 
 type loadBalancer struct {
@@ -143,7 +149,7 @@ func (cs *CSCloud) EnsureLoadBalancer(ctx context.Context, clusterName string, s
 		lbRuleName := fmt.Sprintf("%s-%s-%d", lb.name, protocol, port.Port)
 
 		// If the load balancer rule exists and is up-to-date, we move on to the next rule.
-		lbRule, needsUpdate, err := lb.checkLoadBalancerRule(lbRuleName, port, protocol)
+		lbRule, needsUpdate, err := lb.checkLoadBalancerRule(lbRuleName, port, protocol, service, cs.version)
 		if err != nil {
 			return nil, err
 		}
@@ -151,7 +157,7 @@ func (cs *CSCloud) EnsureLoadBalancer(ctx context.Context, clusterName string, s
 		if lbRule != nil {
 			if needsUpdate {
 				klog.V(4).Infof("Updating load balancer rule: %v", lbRuleName)
-				if err := lb.updateLoadBalancerRule(lbRuleName, protocol); err != nil {
+				if err := lb.updateLoadBalancerRule(lbRuleName, protocol, service, cs.version); err != nil {
 					return nil, err
 				}
 				// Delete the rule from the map, to prevent it being deleted.
@@ -561,36 +567,109 @@ func (lb *loadBalancer) releaseLoadBalancerIP() error {
 	return nil
 }
 
+func (lb *loadBalancer) getCIDRList(service *corev1.Service) ([]string, error) {
+	sourceCIDRs := getStringFromServiceAnnotation(service, ServiceAnnotationLoadBalancerSourceCidrs, defaultAllowedCIDR)
+	var cidrList []string
+	if sourceCIDRs != "" {
+		cidrList = strings.Split(sourceCIDRs, ",")
+		for i, cidr := range cidrList {
+			cidr = strings.TrimSpace(cidr)
+			if _, _, err := net.ParseCIDR(cidr); err != nil {
+				return nil, fmt.Errorf("invalid CIDR %s in annotation %s: %w", cidr, ServiceAnnotationLoadBalancerSourceCidrs, err)
+			}
+			cidrList[i] = cidr
+		}
+	}
+	return cidrList, nil
+}
+
 // checkLoadBalancerRule checks if the rule already exists and if it does, if it can be updated. If
 // it does exist but cannot be updated, it will delete the existing rule so it can be created again.
-func (lb *loadBalancer) checkLoadBalancerRule(lbRuleName string, port corev1.ServicePort, protocol LoadBalancerProtocol) (*cloudstack.LoadBalancerRule, bool, error) {
+func (lb *loadBalancer) checkLoadBalancerRule(lbRuleName string, port corev1.ServicePort, protocol LoadBalancerProtocol, service *corev1.Service, version semver.Version) (*cloudstack.LoadBalancerRule, bool, error) {
 	lbRule, ok := lb.rules[lbRuleName]
 	if !ok {
 		return nil, false, nil
 	}
 
-	// Check if any of the values we cannot update (those that require a new load balancer rule) are changed.
-	if lbRule.Publicip == lb.ipAddr && lbRule.Privateport == strconv.Itoa(int(port.NodePort)) && lbRule.Publicport == strconv.Itoa(int(port.Port)) {
-		updateAlgo := lbRule.Algorithm != lb.algorithm
-		updateProto := lbRule.Protocol != protocol.CSProtocol()
-		return lbRule, updateAlgo || updateProto, nil
-	}
-
-	// Delete the load balancer rule so we can create a new one using the new values.
-	if err := lb.deleteLoadBalancerRule(lbRule); err != nil {
+	cidrList, err := lb.getCIDRList(service)
+	if err != nil {
 		return nil, false, err
 	}
 
-	return nil, false, nil
+	var lbRuleCidrList []string
+	if lbRule.Cidrlist != "" {
+		lbRuleCidrList = strings.Split(lbRule.Cidrlist, " ")
+		for i, cidr := range lbRuleCidrList {
+			cidr = strings.TrimSpace(cidr)
+			lbRuleCidrList[i] = cidr
+		}
+	}
+
+	// Check if basic properties match (IP and ports). If not, we need to recreate the rule.
+	basicPropsMatch := lbRule.Publicip == lb.ipAddr &&
+		lbRule.Privateport == strconv.Itoa(int(port.NodePort)) &&
+		lbRule.Publicport == strconv.Itoa(int(port.Port))
+
+	cidrListChanged := len(cidrList) != len(lbRuleCidrList) || !setsEqual(cidrList, lbRuleCidrList)
+
+	// Check if CIDR list also changed and version < 4.22, then we must recreate the rule.
+	if !basicPropsMatch || (cidrListChanged && version.LT(semver.Version{Major: 4, Minor: 22, Patch: 0})) {
+		// Delete the load balancer rule so we can create a new one using the new values.
+		if err := lb.deleteLoadBalancerRule(lbRule); err != nil {
+			return nil, false, err
+		}
+		return nil, false, nil
+	}
+
+	// Rule can be updated. Check what needs updating.
+	updateAlgo := lbRule.Algorithm != lb.algorithm
+	updateProto := lbRule.Protocol != protocol.CSProtocol()
+
+	return lbRule, updateAlgo || updateProto || cidrListChanged, nil
+}
+
+// setsEqual checks if two slices contain the exact same unique elements, regardless of order.
+func setsEqual(listA, listB []string) bool {
+	createSet := func(list []string) map[string]bool {
+		set := make(map[string]bool)
+		for _, item := range list {
+			set[item] = true
+		}
+		return set
+	}
+
+	setA := createSet(listA)
+	setB := createSet(listB)
+
+	if len(setA) != len(setB) {
+		return false
+	}
+
+	for item := range setA {
+		if _, found := setB[item]; !found {
+			return false
+		}
+	}
+
+	return true
 }
 
 // updateLoadBalancerRule updates a load balancer rule.
-func (lb *loadBalancer) updateLoadBalancerRule(lbRuleName string, protocol LoadBalancerProtocol) error {
+func (lb *loadBalancer) updateLoadBalancerRule(lbRuleName string, protocol LoadBalancerProtocol, service *corev1.Service, version semver.Version) error {
 	lbRule := lb.rules[lbRuleName]
 
 	p := lb.LoadBalancer.NewUpdateLoadBalancerRuleParams(lbRule.Id)
 	p.SetAlgorithm(lb.algorithm)
 	p.SetProtocol(protocol.CSProtocol())
+
+	// If version >= 4.22, we can update the CIDR list.
+	if version.GTE(semver.Version{Major: 4, Minor: 22, Patch: 0}) {
+		cidrList, err := lb.getCIDRList(service)
+		if err != nil {
+			return err
+		}
+		p.SetCidrlist(cidrList)
+	}
 
 	_, err := lb.LoadBalancer.UpdateLoadBalancerRule(p)
 	return err
@@ -613,19 +692,9 @@ func (lb *loadBalancer) createLoadBalancerRule(lbRuleName string, port corev1.Se
 	p.SetOpenfirewall(false)
 
 	// Read the source CIDR annotation
-	sourceCIDRs, ok := service.Annotations[ServiceAnnotationLoadBalancerSourceCidrs]
-	var cidrList []string
-	if ok && sourceCIDRs != "" {
-		cidrList = strings.Split(sourceCIDRs, ",")
-		for i, cidr := range cidrList {
-			cidr = strings.TrimSpace(cidr)
-			if _, _, err := net.ParseCIDR(cidr); err != nil {
-				return nil, fmt.Errorf("invalid CIDR in annotation %s: %s", ServiceAnnotationLoadBalancerSourceCidrs, cidr)
-			}
-			cidrList[i] = cidr
-		}
-	} else {
-		cidrList = []string{defaultAllowedCIDR}
+	cidrList, err := lb.getCIDRList(service)
+	if err != nil {
+		return nil, err
 	}
 
 	// Set the CIDR list in the parameters

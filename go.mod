@@ -4,6 +4,7 @@ go 1.23.0
 
 require (
 	github.com/apache/cloudstack-go/v2 v2.19.0
+	github.com/blang/semver/v4 v4.0.0
 	github.com/spf13/pflag v1.0.5
 	gopkg.in/gcfg.v1 v1.2.3
 	k8s.io/api v0.24.17
@@ -17,7 +18,6 @@ require (
 	github.com/Azure/go-ansiterm v0.0.0-20210617225240-d185dfc1b5a1 // indirect
 	github.com/NYTimes/gziphandler v1.1.1 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
-	github.com/blang/semver/v4 v4.0.0 // indirect
 	github.com/cespare/xxhash/v2 v2.2.0 // indirect
 	github.com/coreos/go-semver v0.3.0 // indirect
 	github.com/coreos/go-systemd/v22 v22.3.2 // indirect
