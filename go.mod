@@ -3,7 +3,7 @@ module github.com/apache/cloudstack-kubernetes-provider
 go 1.23.0
 
 require (
-	github.com/apache/cloudstack-go/v2 v2.17.1
+	github.com/apache/cloudstack-go/v2 v2.19.0
 	github.com/spf13/pflag v1.0.5
 	gopkg.in/gcfg.v1 v1.2.3
 	k8s.io/api v0.24.17
