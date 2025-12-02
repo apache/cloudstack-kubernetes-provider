@@ -173,6 +173,70 @@ list, which briefly interrupts traffic on that port.
 Setting it to an empty value (`""`) sends an empty CIDR list to CloudStack — it does not block all
 traffic.
 
+#### `service.beta.kubernetes.io/cloudstack-load-balancer-stickiness-method-name`
+
+**Type:** String
+
+**Default:** Not set (no stickiness policy)
+
+**Description:** Creates a CloudStack **LB stickiness policy** on every load balancer rule belonging
+to the service, making the load balancer keep a client on the same backend node between requests.
+
+The value is the CloudStack stickiness method name and is passed through to CloudStack, which
+validates it against the methods the network's load balancer provider offers. The VirtualRouter
+(HAProxy) provider supports `LbCookie`, `AppCookie` and `SourceBased`. An unsupported method makes
+the service fail to sync with an `error creating stickiness policy` error.
+
+Each service port has its own load balancer rule, so a service exposing several ports gets one
+policy per port, all with the same method and parameters.
+
+**Use Case:** Applications that keep per-client state in the backend — a session held in process
+memory, for example — and therefore need successive requests from one client to land on the same
+node.
+
+**Example:**
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: my-service
+  annotations:
+    service.beta.kubernetes.io/cloudstack-load-balancer-stickiness-method-name: "LbCookie"
+    service.beta.kubernetes.io/cloudstack-load-balancer-stickiness-method-param: "name=SERVERID"
+spec:
+  type: LoadBalancer
+```
+
+**Note:** Removing the annotation deletes the stickiness policy and leaves the load balancer rule in
+place. Changing either the method name or the parameters replaces the policy: the controller deletes
+the existing policy and creates a new one, which resets whatever affinity state the load balancer
+was holding.
+
+#### `service.beta.kubernetes.io/cloudstack-load-balancer-stickiness-method-param`
+
+**Type:** String (comma-separated `key=value` list)
+
+**Default:** Not set (no parameters)
+
+**Description:** Parameters for the stickiness method selected by
+`service.beta.kubernetes.io/cloudstack-load-balancer-stickiness-method-name`. Which keys are
+accepted depends on the method — `LbCookie` and `AppCookie` take a cookie `name`, `SourceBased`
+takes `tablesize` and `expire`. CloudStack validates the keys, so an unknown parameter makes the
+service fail to sync.
+
+This annotation has no effect on its own: without a method name no policy is created.
+
+**Format:** Comma-separated `key=value` pairs. Spaces around entries are trimmed, and only the first
+`=` separates key from value, so a value may itself contain `=`. Entries without a `=` are ignored
+rather than rejected, an empty value (`key=`) is passed through as an empty string, and if a key
+repeats, the last occurrence wins.
+
+**Example:**
+```yaml
+    service.beta.kubernetes.io/cloudstack-load-balancer-stickiness-method-name: "AppCookie"
+    service.beta.kubernetes.io/cloudstack-load-balancer-stickiness-method-param: "name=JSESSIONID,mode=insert"
+```
+
 #### `service.beta.kubernetes.io/cloudstack-load-balancer-ip-associated-by-controller`
 
 **Type:** Boolean (`"true"` or `"false"`)
@@ -261,6 +325,14 @@ annotation for it.
 
 Any other value makes the service fail to sync with `unsupported load balancer affinity`. Other
 CloudStack algorithms, such as `leastconn`, cannot currently be selected.
+
+The algorithm is separate from stickiness. `spec.sessionAffinity: ClientIP` picks the load balancer
+algorithm, while a CloudStack stickiness policy — cookie-based affinity, for instance — is
+configured with the
+[`stickiness-method-name`](#servicebetakubernetesiocloudstack-load-balancer-stickiness-method-name)
+and
+[`stickiness-method-param`](#servicebetakubernetesiocloudstack-load-balancer-stickiness-method-param)
+annotations. The two can be used together.
 
 ### VPC Networks
 
