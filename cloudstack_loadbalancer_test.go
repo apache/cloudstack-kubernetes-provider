@@ -3992,3 +3992,732 @@ func TestVerifyHosts(t *testing.T) {
 		}
 	})
 }
+
+func TestParseStickinessParams(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  map[string]string
+	}{
+		{
+			name:  "empty string returns empty map",
+			input: "",
+			want:  map[string]string{},
+		},
+		{
+			name:  "single pair",
+			input: "cookie-name=SERVERID",
+			want:  map[string]string{"cookie-name": "SERVERID"},
+		},
+		{
+			name:  "multiple pairs",
+			input: "cookie-name=SERVERID,mode=insert",
+			want:  map[string]string{"cookie-name": "SERVERID", "mode": "insert"},
+		},
+		{
+			name:  "whitespace around entries is trimmed",
+			input: " cookie-name=SERVERID , mode=insert ",
+			want:  map[string]string{"cookie-name": "SERVERID", "mode": "insert"},
+		},
+		{
+			name:  "whitespace around keys and values is trimmed",
+			input: "cookie-name = SERVERID, mode =insert",
+			want:  map[string]string{"cookie-name": "SERVERID", "mode": "insert"},
+		},
+		{
+			name:  "entry without separator is ignored",
+			input: "cookie-name=SERVERID,bogus",
+			want:  map[string]string{"cookie-name": "SERVERID"},
+		},
+		{
+			name:  "trailing comma is ignored",
+			input: "mode=insert,",
+			want:  map[string]string{"mode": "insert"},
+		},
+		{
+			name:  "only separators returns empty map",
+			input: ",,,",
+			want:  map[string]string{},
+		},
+		{
+			name:  "empty value is preserved",
+			input: "cookie-name=",
+			want:  map[string]string{"cookie-name": ""},
+		},
+		{
+			name:  "value containing separator is kept intact",
+			input: "expr=a=b",
+			want:  map[string]string{"expr": "a=b"},
+		},
+		{
+			name:  "duplicate key keeps last value",
+			input: "mode=insert,mode=rewrite",
+			want:  map[string]string{"mode": "rewrite"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := parseStickinessParams(tt.input)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("parseStickinessParams(%q) = %v, want %v", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+// stickinessTestService builds a service carrying the stickiness annotations. An
+// empty method or param string omits that annotation entirely.
+func stickinessTestService(methodName, params string) *corev1.Service {
+	annotations := map[string]string{}
+	if methodName != "" {
+		annotations[ServiceAnnotationLoadBalancerStickinessMethodName] = methodName
+	}
+	if params != "" {
+		annotations[ServiceAnnotationLoadBalancerStickinessParam] = params
+	}
+	return &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "test-service",
+			Namespace:   "default",
+			Annotations: annotations,
+		},
+	}
+}
+
+func TestCheckStickinessPolicy(t *testing.T) {
+	lbRule := &cloudstack.LoadBalancerRule{Id: "rule-id", Name: "test-service-tcp-80"}
+
+	tests := []struct {
+		name            string
+		existingPolicy  *cloudstack.LBStickinessPolicyStickinesspolicy
+		methodName      string
+		params          string
+		wantPolicy      bool // true when the existing policy is expected back
+		wantNeedsUpdate bool
+	}{
+		{
+			name:            "no policy and no annotation is a no-op",
+			existingPolicy:  nil,
+			methodName:      "",
+			wantPolicy:      false,
+			wantNeedsUpdate: false,
+		},
+		{
+			name:            "no policy with annotation needs creation",
+			existingPolicy:  nil,
+			methodName:      "LbCookie",
+			wantPolicy:      false,
+			wantNeedsUpdate: true,
+		},
+		{
+			name: "policy with annotation removed needs deletion",
+			existingPolicy: &cloudstack.LBStickinessPolicyStickinesspolicy{
+				Id:         "policy-id",
+				Methodname: "LbCookie",
+			},
+			methodName:      "",
+			wantPolicy:      true,
+			wantNeedsUpdate: true,
+		},
+		{
+			name: "matching method with no params is up-to-date",
+			existingPolicy: &cloudstack.LBStickinessPolicyStickinesspolicy{
+				Id:         "policy-id",
+				Methodname: "LbCookie",
+				Params:     map[string]string{},
+			},
+			methodName:      "LbCookie",
+			params:          "",
+			wantPolicy:      true,
+			wantNeedsUpdate: false,
+		},
+		{
+			name: "matching method and params is up-to-date",
+			existingPolicy: &cloudstack.LBStickinessPolicyStickinesspolicy{
+				Id:         "policy-id",
+				Methodname: "AppCookie",
+				Params:     map[string]string{"cookie-name": "SERVERID", "mode": "insert"},
+			},
+			methodName:      "AppCookie",
+			params:          "cookie-name=SERVERID,mode=insert",
+			wantPolicy:      true,
+			wantNeedsUpdate: false,
+		},
+		{
+			name: "method name mismatch needs recreation",
+			existingPolicy: &cloudstack.LBStickinessPolicyStickinesspolicy{
+				Id:         "policy-id",
+				Methodname: "LbCookie",
+			},
+			methodName:      "AppCookie",
+			wantPolicy:      true,
+			wantNeedsUpdate: true,
+		},
+		{
+			name: "extra desired param needs recreation",
+			existingPolicy: &cloudstack.LBStickinessPolicyStickinesspolicy{
+				Id:         "policy-id",
+				Methodname: "AppCookie",
+				Params:     map[string]string{"cookie-name": "SERVERID"},
+			},
+			methodName:      "AppCookie",
+			params:          "cookie-name=SERVERID,mode=insert",
+			wantPolicy:      true,
+			wantNeedsUpdate: true,
+		},
+		{
+			name: "removed desired param needs recreation",
+			existingPolicy: &cloudstack.LBStickinessPolicyStickinesspolicy{
+				Id:         "policy-id",
+				Methodname: "AppCookie",
+				Params:     map[string]string{"cookie-name": "SERVERID", "mode": "insert"},
+			},
+			methodName:      "AppCookie",
+			params:          "cookie-name=SERVERID",
+			wantPolicy:      true,
+			wantNeedsUpdate: true,
+		},
+		{
+			name: "param value mismatch needs recreation",
+			existingPolicy: &cloudstack.LBStickinessPolicyStickinesspolicy{
+				Id:         "policy-id",
+				Methodname: "AppCookie",
+				Params:     map[string]string{"cookie-name": "SERVERID"},
+			},
+			methodName:      "AppCookie",
+			params:          "cookie-name=JSESSIONID",
+			wantPolicy:      true,
+			wantNeedsUpdate: true,
+		},
+		{
+			name: "renamed param key of equal count needs recreation",
+			existingPolicy: &cloudstack.LBStickinessPolicyStickinesspolicy{
+				Id:         "policy-id",
+				Methodname: "AppCookie",
+				Params:     map[string]string{"cookie-name": ""},
+			},
+			methodName:      "AppCookie",
+			params:          "mode=",
+			wantPolicy:      true,
+			wantNeedsUpdate: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			lb := &loadBalancer{
+				stickinessPolicies: map[string]*cloudstack.LBStickinessPolicyStickinesspolicy{},
+			}
+			if tt.existingPolicy != nil {
+				lb.stickinessPolicies[lbRule.Id] = tt.existingPolicy
+			}
+
+			policy, needsUpdate := lb.checkStickinessPolicy(lbRule, stickinessTestService(tt.methodName, tt.params))
+			if tt.wantPolicy && policy != tt.existingPolicy {
+				t.Errorf("policy = %v, want the existing policy %v", policy, tt.existingPolicy)
+			}
+			if !tt.wantPolicy && policy != nil {
+				t.Errorf("policy = %v, want nil", policy)
+			}
+			if needsUpdate != tt.wantNeedsUpdate {
+				t.Errorf("needsUpdate = %v, want %v", needsUpdate, tt.wantNeedsUpdate)
+			}
+		})
+	}
+}
+
+func TestCreateStickinessPolicy(t *testing.T) {
+	t.Run("no method annotation is a no-op", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+
+		// No expectations on the mock; any API call would fail the test.
+		mockLB := cloudstack.NewMockLoadBalancerServiceIface(ctrl)
+
+		lb := &loadBalancer{
+			CloudStackClient: &cloudstack.CloudStackClient{
+				LoadBalancer: mockLB,
+			},
+		}
+
+		policy, err := lb.createStickinessPolicy("test-service-tcp-80", "rule-id", stickinessTestService("", ""))
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if policy != nil {
+			t.Errorf("policy = %v, want nil", policy)
+		}
+	})
+
+	t.Run("creates policy from annotations", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+
+		mockLB := cloudstack.NewMockLoadBalancerServiceIface(ctrl)
+		createParams := &cloudstack.CreateLBStickinessPolicyParams{}
+		createResp := &cloudstack.CreateLBStickinessPolicyResponse{
+			Lbruleid: "rule-id",
+			Stickinesspolicy: []cloudstack.CreateLBStickinessPolicyResponseStickinesspolicy{
+				{
+					Id:         "policy-id",
+					Name:       "test-service-tcp-80",
+					Methodname: "AppCookie",
+					Params:     map[string]string{"cookie-name": "SERVERID"},
+					State:      "Active",
+				},
+			},
+		}
+
+		gomock.InOrder(
+			mockLB.EXPECT().NewCreateLBStickinessPolicyParams("rule-id", "AppCookie", "test-service-tcp-80").Return(createParams),
+			mockLB.EXPECT().CreateLBStickinessPolicy(createParams).Return(createResp, nil),
+		)
+
+		lb := &loadBalancer{
+			CloudStackClient: &cloudstack.CloudStackClient{
+				LoadBalancer: mockLB,
+			},
+		}
+
+		policy, err := lb.createStickinessPolicy("test-service-tcp-80", "rule-id", stickinessTestService("AppCookie", "cookie-name=SERVERID"))
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if policy == nil {
+			t.Fatal("expected a policy, got nil")
+		}
+		if policy.Id != "policy-id" {
+			t.Errorf("policy ID = %q, want %q", policy.Id, "policy-id")
+		}
+		if policy.Methodname != "AppCookie" {
+			t.Errorf("policy method = %q, want %q", policy.Methodname, "AppCookie")
+		}
+		if policy.Name != "test-service-tcp-80" {
+			t.Errorf("policy name = %q, want %q", policy.Name, "test-service-tcp-80")
+		}
+		if policy.State != "Active" {
+			t.Errorf("policy state = %q, want %q", policy.State, "Active")
+		}
+		if !reflect.DeepEqual(policy.Params, map[string]string{"cookie-name": "SERVERID"}) {
+			t.Errorf("policy params = %v, want %v", policy.Params, map[string]string{"cookie-name": "SERVERID"})
+		}
+	})
+
+	t.Run("API error is returned", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+
+		mockLB := cloudstack.NewMockLoadBalancerServiceIface(ctrl)
+		createParams := &cloudstack.CreateLBStickinessPolicyParams{}
+		apiErr := fmt.Errorf("create policy API error")
+
+		gomock.InOrder(
+			mockLB.EXPECT().NewCreateLBStickinessPolicyParams("rule-id", "LbCookie", "test-service-tcp-80").Return(createParams),
+			mockLB.EXPECT().CreateLBStickinessPolicy(createParams).Return(nil, apiErr),
+		)
+
+		lb := &loadBalancer{
+			CloudStackClient: &cloudstack.CloudStackClient{
+				LoadBalancer: mockLB,
+			},
+		}
+
+		policy, err := lb.createStickinessPolicy("test-service-tcp-80", "rule-id", stickinessTestService("LbCookie", ""))
+		if err == nil {
+			t.Fatal("expected an error, got nil")
+		}
+		if policy != nil {
+			t.Errorf("policy = %v, want nil", policy)
+		}
+		if !strings.Contains(err.Error(), "error creating stickiness policy") {
+			t.Errorf("error = %q, want it to mention creating the stickiness policy", err.Error())
+		}
+	})
+}
+
+func TestDeleteStickinessPolicy(t *testing.T) {
+	t.Run("deletes policy by ID", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+
+		mockLB := cloudstack.NewMockLoadBalancerServiceIface(ctrl)
+		deleteParams := &cloudstack.DeleteLBStickinessPolicyParams{}
+
+		gomock.InOrder(
+			mockLB.EXPECT().NewDeleteLBStickinessPolicyParams("policy-id").Return(deleteParams),
+			mockLB.EXPECT().DeleteLBStickinessPolicy(deleteParams).Return(&cloudstack.DeleteLBStickinessPolicyResponse{Success: true}, nil),
+		)
+
+		lb := &loadBalancer{
+			CloudStackClient: &cloudstack.CloudStackClient{
+				LoadBalancer: mockLB,
+			},
+		}
+
+		if err := lb.deleteStickinessPolicy("policy-id"); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("API error is returned", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+
+		mockLB := cloudstack.NewMockLoadBalancerServiceIface(ctrl)
+		deleteParams := &cloudstack.DeleteLBStickinessPolicyParams{}
+		apiErr := fmt.Errorf("delete policy API error")
+
+		gomock.InOrder(
+			mockLB.EXPECT().NewDeleteLBStickinessPolicyParams("policy-id").Return(deleteParams),
+			mockLB.EXPECT().DeleteLBStickinessPolicy(deleteParams).Return(nil, apiErr),
+		)
+
+		lb := &loadBalancer{
+			CloudStackClient: &cloudstack.CloudStackClient{
+				LoadBalancer: mockLB,
+			},
+		}
+
+		err := lb.deleteStickinessPolicy("policy-id")
+		if err == nil {
+			t.Fatal("expected an error, got nil")
+		}
+		if !strings.Contains(err.Error(), "error deleting stickiness policy policy-id") {
+			t.Errorf("error = %q, want it to mention deleting the stickiness policy", err.Error())
+		}
+	})
+}
+
+// The shape CloudStack actually returns for a rule with no stickiness policy is
+// a policy wrapper with an empty inner Stickinesspolicy list.
+func TestLoadStickinessPolicies(t *testing.T) {
+	newLB := func(mockLB *cloudstack.MockLoadBalancerServiceIface, rules ...*cloudstack.LoadBalancerRule) *loadBalancer {
+		lb := &loadBalancer{
+			CloudStackClient:   &cloudstack.CloudStackClient{LoadBalancer: mockLB},
+			rules:              map[string]*cloudstack.LoadBalancerRule{},
+			stickinessPolicies: map[string]*cloudstack.LBStickinessPolicyStickinesspolicy{},
+		}
+		for _, rule := range rules {
+			lb.rules[rule.Name] = rule
+		}
+		return lb
+	}
+	withPolicy := &cloudstack.ListLBStickinessPoliciesResponse{
+		Count: 1,
+		LBStickinessPolicies: []*cloudstack.LBStickinessPolicy{{
+			Lbruleid: "rule-1",
+			Stickinesspolicy: []cloudstack.LBStickinessPolicyStickinesspolicy{
+				{Id: "policy-1", Name: "test-service-tcp-80", Methodname: "LbCookie", Params: map[string]string{"cookie-name": "SERVERID"}},
+			},
+		}},
+	}
+	emptyWrapper := &cloudstack.ListLBStickinessPoliciesResponse{
+		Count:                1,
+		LBStickinessPolicies: []*cloudstack.LBStickinessPolicy{{Lbruleid: "rule-2", Stickinesspolicy: []cloudstack.LBStickinessPolicyStickinesspolicy{}}},
+	}
+
+	t.Run("policies are keyed by rule ID and rules without one are skipped", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+		mockLB := cloudstack.NewMockLoadBalancerServiceIface(ctrl)
+		mockLB.EXPECT().NewListLBStickinessPoliciesParams().Return(&cloudstack.ListLBStickinessPoliciesParams{}).Times(2)
+		mockLB.EXPECT().ListLBStickinessPolicies(gomock.Any()).DoAndReturn(
+			func(p *cloudstack.ListLBStickinessPoliciesParams) (*cloudstack.ListLBStickinessPoliciesResponse, error) {
+				if id, _ := p.GetLbruleid(); id == "rule-1" {
+					return withPolicy, nil
+				}
+				return emptyWrapper, nil
+			}).Times(2)
+
+		lb := newLB(mockLB,
+			&cloudstack.LoadBalancerRule{Id: "rule-1", Name: "test-service-tcp-80"},
+			&cloudstack.LoadBalancerRule{Id: "rule-2", Name: "test-service-tcp-443"})
+		if err := lb.loadStickinessPolicies(); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(lb.stickinessPolicies) != 1 {
+			t.Fatalf("stickinessPolicies = %v, want only rule-1", lb.stickinessPolicies)
+		}
+		if policy := lb.stickinessPolicies["rule-1"]; policy == nil || policy.Id != "policy-1" {
+			t.Errorf("policy for rule-1 = %v, want policy-1", policy)
+		}
+	})
+
+	t.Run("an empty response leaves the map empty", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+		mockLB := cloudstack.NewMockLoadBalancerServiceIface(ctrl)
+		mockLB.EXPECT().NewListLBStickinessPoliciesParams().Return(&cloudstack.ListLBStickinessPoliciesParams{})
+		mockLB.EXPECT().ListLBStickinessPolicies(gomock.Any()).Return(&cloudstack.ListLBStickinessPoliciesResponse{}, nil)
+
+		lb := newLB(mockLB, &cloudstack.LoadBalancerRule{Id: "rule-1", Name: "test-service-tcp-80"})
+		if err := lb.loadStickinessPolicies(); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(lb.stickinessPolicies) != 0 {
+			t.Errorf("stickinessPolicies = %v, want none", lb.stickinessPolicies)
+		}
+	})
+
+	t.Run("API error is returned", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+		mockLB := cloudstack.NewMockLoadBalancerServiceIface(ctrl)
+		mockLB.EXPECT().NewListLBStickinessPoliciesParams().Return(&cloudstack.ListLBStickinessPoliciesParams{})
+		mockLB.EXPECT().ListLBStickinessPolicies(gomock.Any()).Return(nil, fmt.Errorf("list API error"))
+
+		lb := newLB(mockLB, &cloudstack.LoadBalancerRule{Id: "rule-1", Name: "test-service-tcp-80"})
+		err := lb.loadStickinessPolicies()
+		if err == nil || !strings.Contains(err.Error(), "list API error") {
+			t.Errorf("error = %v, want the list failure", err)
+		}
+	})
+}
+
+func TestSyncRuleHosts(t *testing.T) {
+	rule := &cloudstack.LoadBalancerRule{Id: "rule-123", Name: "test-service-tcp-80"}
+	instances := func(ids ...string) *cloudstack.ListLoadBalancerRuleInstancesResponse {
+		resp := &cloudstack.ListLoadBalancerRuleInstancesResponse{Count: len(ids)}
+		for _, id := range ids {
+			resp.LoadBalancerRuleInstances = append(resp.LoadBalancerRuleInstances, &cloudstack.VirtualMachine{Id: id})
+		}
+		return resp
+	}
+	newLB := func(t *testing.T, current *cloudstack.ListLoadBalancerRuleInstancesResponse, listErr error, hostIDs ...string) (*loadBalancer, *cloudstack.MockLoadBalancerServiceIface) {
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+		mockLB := cloudstack.NewMockLoadBalancerServiceIface(ctrl)
+		mockLB.EXPECT().NewListLoadBalancerRuleInstancesParams("rule-123").Return(&cloudstack.ListLoadBalancerRuleInstancesParams{})
+		mockLB.EXPECT().ListLoadBalancerRuleInstances(gomock.Any()).Return(current, listErr)
+		lb := &loadBalancer{CloudStackClient: &cloudstack.CloudStackClient{LoadBalancer: mockLB}, hostIDs: hostIDs}
+		return lb, mockLB
+	}
+
+	t.Run("missing hosts are assigned", func(t *testing.T) {
+		lb, mockLB := newLB(t, instances(), nil, "vm-1", "vm-2")
+		mockLB.EXPECT().NewAssignToLoadBalancerRuleParams("rule-123").Return(&cloudstack.AssignToLoadBalancerRuleParams{})
+		mockLB.EXPECT().AssignToLoadBalancerRule(gomock.Any()).Return(&cloudstack.AssignToLoadBalancerRuleResponse{}, nil)
+		if err := lb.syncRuleHosts(rule); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("stale hosts are removed", func(t *testing.T) {
+		lb, mockLB := newLB(t, instances("vm-1", "vm-gone"), nil, "vm-1")
+		mockLB.EXPECT().NewRemoveFromLoadBalancerRuleParams("rule-123").Return(&cloudstack.RemoveFromLoadBalancerRuleParams{})
+		mockLB.EXPECT().RemoveFromLoadBalancerRule(gomock.Any()).Return(&cloudstack.RemoveFromLoadBalancerRuleResponse{}, nil)
+		if err := lb.syncRuleHosts(rule); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("a rule already in sync is left alone", func(t *testing.T) {
+		lb, _ := newLB(t, instances("vm-1"), nil, "vm-1")
+		if err := lb.syncRuleHosts(rule); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("list error is returned", func(t *testing.T) {
+		lb, _ := newLB(t, nil, fmt.Errorf("list API error"), "vm-1")
+		err := lb.syncRuleHosts(rule)
+		if err == nil || !strings.Contains(err.Error(), "list API error") {
+			t.Errorf("error = %v, want the list failure", err)
+		}
+	})
+}
+
+// Replacing a policy deletes the old one first, so a rejected replacement has to
+// put the original back instead of leaving the live rule without stickiness.
+func TestReplaceStickinessPolicy(t *testing.T) {
+	lbRule := &cloudstack.LoadBalancerRule{Id: "rule-123", Name: "test-service-tcp-80"}
+	existing := &cloudstack.LBStickinessPolicyStickinesspolicy{
+		Id: "policy-old", Name: "test-service-tcp-80", Methodname: "LbCookie",
+		Params: map[string]string{"cookie-name": "SERVERID"},
+	}
+	newLB := func(t *testing.T) (*loadBalancer, *cloudstack.MockLoadBalancerServiceIface) {
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+		mockLB := cloudstack.NewMockLoadBalancerServiceIface(ctrl)
+		mockLB.EXPECT().NewDeleteLBStickinessPolicyParams("policy-old").Return(&cloudstack.DeleteLBStickinessPolicyParams{})
+		mockLB.EXPECT().DeleteLBStickinessPolicy(gomock.Any()).Return(&cloudstack.DeleteLBStickinessPolicyResponse{}, nil)
+		lb := &loadBalancer{
+			CloudStackClient:   &cloudstack.CloudStackClient{LoadBalancer: mockLB},
+			stickinessPolicies: map[string]*cloudstack.LBStickinessPolicyStickinesspolicy{"rule-123": existing},
+		}
+		return lb, mockLB
+	}
+
+	t.Run("a rejected replacement restores the previous policy", func(t *testing.T) {
+		lb, mockLB := newLB(t)
+		mockLB.EXPECT().NewCreateLBStickinessPolicyParams("rule-123", "NoSuchMethod", "test-service-tcp-80").Return(&cloudstack.CreateLBStickinessPolicyParams{})
+		mockLB.EXPECT().CreateLBStickinessPolicy(gomock.Any()).Return(nil, fmt.Errorf("Failed to match Stickiness method name"))
+		mockLB.EXPECT().NewCreateLBStickinessPolicyParams("rule-123", "LbCookie", "test-service-tcp-80").Return(&cloudstack.CreateLBStickinessPolicyParams{})
+		mockLB.EXPECT().CreateLBStickinessPolicy(gomock.Any()).Return(&cloudstack.CreateLBStickinessPolicyResponse{
+			Stickinesspolicy: []cloudstack.CreateLBStickinessPolicyResponseStickinesspolicy{{Id: "policy-old"}},
+		}, nil)
+
+		err := lb.replaceStickinessPolicy("test-service-tcp-80", lbRule, existing, stickinessTestService("NoSuchMethod", ""))
+		if err == nil || !strings.Contains(err.Error(), "Failed to match Stickiness method name") {
+			t.Errorf("error = %v, want the rejection that triggered the rollback", err)
+		}
+		if strings.Contains(err.Error(), "restoring the previous stickiness policy failed") {
+			t.Errorf("error = %v, want it to report a successful restore", err)
+		}
+	})
+
+	t.Run("a failed restore is reported alongside the cause", func(t *testing.T) {
+		lb, mockLB := newLB(t)
+		mockLB.EXPECT().NewCreateLBStickinessPolicyParams("rule-123", "NoSuchMethod", "test-service-tcp-80").Return(&cloudstack.CreateLBStickinessPolicyParams{})
+		mockLB.EXPECT().CreateLBStickinessPolicy(gomock.Any()).Return(nil, fmt.Errorf("method rejected"))
+		mockLB.EXPECT().NewCreateLBStickinessPolicyParams("rule-123", "LbCookie", "test-service-tcp-80").Return(&cloudstack.CreateLBStickinessPolicyParams{})
+		mockLB.EXPECT().CreateLBStickinessPolicy(gomock.Any()).Return(nil, fmt.Errorf("restore API down"))
+
+		err := lb.replaceStickinessPolicy("test-service-tcp-80", lbRule, existing, stickinessTestService("NoSuchMethod", ""))
+		if err == nil || !strings.Contains(err.Error(), "method rejected") || !strings.Contains(err.Error(), "restore API down") {
+			t.Errorf("error = %v, want both the cause and the restore failure", err)
+		}
+	})
+
+	t.Run("removing the annotation deletes the policy without creating one", func(t *testing.T) {
+		lb, _ := newLB(t)
+		if err := lb.replaceStickinessPolicy("test-service-tcp-80", lbRule, existing, &corev1.Service{}); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+}
+
+// A method name that differs only in case names the same CloudStack method, so
+// the policy must be left alone instead of being recreated on every sync.
+func TestCheckStickinessPolicyIgnoresMethodNameCase(t *testing.T) {
+	lbRule := &cloudstack.LoadBalancerRule{Id: "rule-123", Name: "test-service-tcp-80"}
+	lb := &loadBalancer{stickinessPolicies: map[string]*cloudstack.LBStickinessPolicyStickinesspolicy{
+		"rule-123": {Id: "policy-1", Methodname: "LbCookie", Params: map[string]string{"cookie-name": "SERVERID"}},
+	}}
+
+	policy, needsUpdate := lb.checkStickinessPolicy(lbRule, stickinessTestService("lbcookie", "cookie-name=SERVERID"))
+	if needsUpdate {
+		t.Errorf("needsUpdate = true for a method name differing only in case, want false")
+	}
+	if policy == nil || policy.Id != "policy-1" {
+		t.Errorf("policy = %v, want the existing policy-1", policy)
+	}
+}
+
+// A rule that cannot be fully configured is removed again, so the next sync
+// recreates it instead of adopting a rule that never gets its hosts assigned.
+func TestCreateConfiguredLoadBalancerRuleRollsBackOnFailure(t *testing.T) {
+	port := corev1.ServicePort{Port: 80, NodePort: 30000, Protocol: corev1.ProtocolTCP}
+	created := &cloudstack.CreateLoadBalancerRuleResponse{Id: "rule-123", Name: "test-service-tcp-80"}
+	policyCreated := &cloudstack.CreateLBStickinessPolicyResponse{
+		Stickinesspolicy: []cloudstack.CreateLBStickinessPolicyResponseStickinesspolicy{{Id: "policy-1", Methodname: "LbCookie"}},
+	}
+
+	newLB := func(t *testing.T) (*loadBalancer, *cloudstack.MockLoadBalancerServiceIface) {
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+		mockLB := cloudstack.NewMockLoadBalancerServiceIface(ctrl)
+		mockLB.EXPECT().NewCreateLoadBalancerRuleParams("roundrobin", "test-service-tcp-80", 30000, 80).Return(&cloudstack.CreateLoadBalancerRuleParams{})
+		mockLB.EXPECT().CreateLoadBalancerRule(gomock.Any()).Return(created, nil)
+		mockLB.EXPECT().NewCreateLBStickinessPolicyParams("rule-123", "LbCookie", "test-service-tcp-80").Return(&cloudstack.CreateLBStickinessPolicyParams{})
+		lb := &loadBalancer{
+			CloudStackClient: &cloudstack.CloudStackClient{LoadBalancer: mockLB},
+			algorithm:        "roundrobin",
+			hostIDs:          []string{"vm-1"},
+			rules:            map[string]*cloudstack.LoadBalancerRule{},
+		}
+		return lb, mockLB
+	}
+	expectRollback := func(mockLB *cloudstack.MockLoadBalancerServiceIface, deleteErr error) {
+		mockLB.EXPECT().NewDeleteLoadBalancerRuleParams("rule-123").Return(&cloudstack.DeleteLoadBalancerRuleParams{})
+		mockLB.EXPECT().DeleteLoadBalancerRule(gomock.Any()).Return(&cloudstack.DeleteLoadBalancerRuleResponse{}, deleteErr)
+	}
+
+	t.Run("policy creation failure deletes the rule", func(t *testing.T) {
+		lb, mockLB := newLB(t)
+		mockLB.EXPECT().CreateLBStickinessPolicy(gomock.Any()).Return(nil, fmt.Errorf("Failed to match Stickiness method name"))
+		expectRollback(mockLB, nil)
+
+		rule, err := lb.createConfiguredLoadBalancerRule("test-service-tcp-80", port, LoadBalancerProtocolTCP, stickinessTestService("LbCookie", ""))
+		if rule != nil {
+			t.Errorf("rule = %v, want nil", rule)
+		}
+		if err == nil || !strings.Contains(err.Error(), "Failed to match Stickiness method name") {
+			t.Errorf("error = %v, want the policy creation failure", err)
+		}
+	})
+
+	t.Run("a failed rollback is reported alongside the cause", func(t *testing.T) {
+		lb, mockLB := newLB(t)
+		mockLB.EXPECT().CreateLBStickinessPolicy(gomock.Any()).Return(nil, fmt.Errorf("policy rejected"))
+		expectRollback(mockLB, fmt.Errorf("delete API down"))
+
+		_, err := lb.createConfiguredLoadBalancerRule("test-service-tcp-80", port, LoadBalancerProtocolTCP, stickinessTestService("LbCookie", ""))
+		if err == nil || !strings.Contains(err.Error(), "policy rejected") || !strings.Contains(err.Error(), "delete API down") {
+			t.Errorf("error = %v, want both the cause and the rollback failure", err)
+		}
+	})
+
+	t.Run("host assignment failure deletes the rule", func(t *testing.T) {
+		lb, mockLB := newLB(t)
+		mockLB.EXPECT().CreateLBStickinessPolicy(gomock.Any()).Return(policyCreated, nil)
+		mockLB.EXPECT().NewAssignToLoadBalancerRuleParams("rule-123").Return(&cloudstack.AssignToLoadBalancerRuleParams{})
+		mockLB.EXPECT().AssignToLoadBalancerRule(gomock.Any()).Return(nil, fmt.Errorf("assign API error"))
+		expectRollback(mockLB, nil)
+
+		rule, err := lb.createConfiguredLoadBalancerRule("test-service-tcp-80", port, LoadBalancerProtocolTCP, stickinessTestService("LbCookie", ""))
+		if rule != nil || err == nil || !strings.Contains(err.Error(), "assign API error") {
+			t.Errorf("rule, error = %v, %v; want nil and the assignment failure", rule, err)
+		}
+	})
+
+	t.Run("a fully configured rule is kept", func(t *testing.T) {
+		lb, mockLB := newLB(t)
+		mockLB.EXPECT().CreateLBStickinessPolicy(gomock.Any()).Return(policyCreated, nil)
+		mockLB.EXPECT().NewAssignToLoadBalancerRuleParams("rule-123").Return(&cloudstack.AssignToLoadBalancerRuleParams{})
+		mockLB.EXPECT().AssignToLoadBalancerRule(gomock.Any()).Return(&cloudstack.AssignToLoadBalancerRuleResponse{}, nil)
+
+		rule, err := lb.createConfiguredLoadBalancerRule("test-service-tcp-80", port, LoadBalancerProtocolTCP, stickinessTestService("LbCookie", ""))
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if rule == nil || rule.Id != "rule-123" {
+			t.Errorf("rule = %v, want rule-123", rule)
+		}
+	})
+}
+
+func TestCreateStickinessPolicyEmptyResponse(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	t.Cleanup(ctrl.Finish)
+
+	mockLB := cloudstack.NewMockLoadBalancerServiceIface(ctrl)
+	createParams := &cloudstack.CreateLBStickinessPolicyParams{}
+	createResp := &cloudstack.CreateLBStickinessPolicyResponse{
+		Lbruleid:         "rule-id",
+		Stickinesspolicy: []cloudstack.CreateLBStickinessPolicyResponseStickinesspolicy{},
+	}
+
+	gomock.InOrder(
+		mockLB.EXPECT().NewCreateLBStickinessPolicyParams("rule-id", "LbCookie", "test-service-tcp-80").Return(createParams),
+		mockLB.EXPECT().CreateLBStickinessPolicy(createParams).Return(createResp, nil),
+	)
+
+	lb := &loadBalancer{
+		CloudStackClient: &cloudstack.CloudStackClient{
+			LoadBalancer: mockLB,
+		},
+	}
+
+	policy, err := lb.createStickinessPolicy("test-service-tcp-80", "rule-id", stickinessTestService("LbCookie", ""))
+	if err == nil {
+		t.Fatal("expected an error, got nil")
+	}
+	if policy != nil {
+		t.Errorf("policy = %v, want nil", policy)
+	}
+	if !strings.Contains(err.Error(), "no policy returned") {
+		t.Errorf("error = %q, want it to mention that no policy was returned", err.Error())
+	}
+}

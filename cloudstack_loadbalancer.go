@@ -56,6 +56,9 @@ const (
 	// associated the IP address. This annotation is set by the controller when it associates
 	// an unallocated IP, and is used to determine if the IP should be disassociated on deletion.
 	ServiceAnnotationLoadBalancerIPAssociatedByController = "service.beta.kubernetes.io/cloudstack-load-balancer-ip-associated-by-controller" //nolint:gosec
+
+	ServiceAnnotationLoadBalancerStickinessMethodName = "service.beta.kubernetes.io/cloudstack-load-balancer-stickiness-method-name"
+	ServiceAnnotationLoadBalancerStickinessParam      = "service.beta.kubernetes.io/cloudstack-load-balancer-stickiness-method-param"
 )
 
 type loadBalancer struct {
@@ -70,6 +73,7 @@ type loadBalancer struct {
 	projectID                string
 	rules                    map[string]*cloudstack.LoadBalancerRule
 	duplicateRules           []*cloudstack.LoadBalancerRule
+	stickinessPolicies       map[string]*cloudstack.LBStickinessPolicyStickinesspolicy
 	ipAssociatedByController bool
 }
 
@@ -111,6 +115,10 @@ func (cs *CSCloud) EnsureLoadBalancer(ctx context.Context, clusterName string, s
 	}
 
 	if err := lb.deleteDuplicateRules(); err != nil {
+		return nil, err
+	}
+
+	if err := lb.loadStickinessPolicies(); err != nil {
 		return nil, err
 	}
 
@@ -186,15 +194,18 @@ func (cs *CSCloud) EnsureLoadBalancer(ctx context.Context, clusterName string, s
 				// Delete the rule from the map, to prevent it being deleted.
 				delete(lb.rules, lbRuleName)
 			}
-		} else {
-			klog.V(4).Infof("Creating load balancer rule: %v", lbRuleName)
-			lbRule, err = lb.createLoadBalancerRule(lbRuleName, port, protocol, service)
-			if err != nil {
+
+			if err := lb.syncRuleHosts(lbRule); err != nil {
 				return nil, err
 			}
 
-			klog.V(4).Infof("Assigning hosts (%v) to load balancer rule: %v", lb.hostIDs, lbRuleName)
-			if err = lb.assignHostsToRule(lbRule, lb.hostIDs); err != nil {
+			if err := lb.reconcileStickinessPolicy(lbRuleName, lbRule, service); err != nil {
+				return nil, err
+			}
+		} else {
+			klog.V(4).Infof("Creating load balancer rule: %v", lbRuleName)
+			lbRule, err = lb.createConfiguredLoadBalancerRule(lbRuleName, port, protocol, service)
+			if err != nil {
 				return nil, err
 			}
 		}
@@ -279,28 +290,38 @@ func (cs *CSCloud) UpdateLoadBalancer(ctx context.Context, clusterName string, s
 	}
 
 	for _, lbRule := range lb.rules {
-		p := lb.LoadBalancer.NewListLoadBalancerRuleInstancesParams(lbRule.Id)
-
-		// Retrieve all VMs currently associated to this load balancer rule.
-		l, err := lb.LoadBalancer.ListLoadBalancerRuleInstances(p)
-		if err != nil {
-			return fmt.Errorf("error retrieving associated instances: %v", err)
+		if err := lb.syncRuleHosts(lbRule); err != nil {
+			return err
 		}
+	}
 
-		assign, remove := symmetricDifference(lb.hostIDs, l.LoadBalancerRuleInstances)
+	return nil
+}
 
-		if len(assign) > 0 {
-			klog.V(4).Infof("Assigning new hosts (%v) to load balancer rule: %v", assign, lbRule.Name)
-			if err := lb.assignHostsToRule(lbRule, assign); err != nil {
-				return err
-			}
+// syncRuleHosts brings the VMs assigned to a rule in line with the current
+// hosts, so a rule that was adopted in a half-configured state, or whose
+// membership drifted, converges on the next sync instead of waiting for a node
+// change.
+func (lb *loadBalancer) syncRuleHosts(lbRule *cloudstack.LoadBalancerRule) error {
+	p := lb.LoadBalancer.NewListLoadBalancerRuleInstancesParams(lbRule.Id)
+	l, err := lb.LoadBalancer.ListLoadBalancerRuleInstances(p)
+	if err != nil {
+		return fmt.Errorf("error retrieving associated instances: %v", err)
+	}
+
+	assign, remove := symmetricDifference(lb.hostIDs, l.LoadBalancerRuleInstances)
+
+	if len(assign) > 0 {
+		klog.V(4).Infof("Assigning new hosts (%v) to load balancer rule: %v", assign, lbRule.Name)
+		if err := lb.assignHostsToRule(lbRule, assign); err != nil {
+			return err
 		}
+	}
 
-		if len(remove) > 0 {
-			klog.V(4).Infof("Removing old hosts (%v) from load balancer rule: %v", assign, lbRule.Name)
-			if err := lb.removeHostsFromRule(lbRule, remove); err != nil {
-				return err
-			}
+	if len(remove) > 0 {
+		klog.V(4).Infof("Removing old hosts (%v) from load balancer rule: %v", remove, lbRule.Name)
+		if err := lb.removeHostsFromRule(lbRule, remove); err != nil {
+			return err
 		}
 	}
 
@@ -446,10 +467,11 @@ func (cs *CSCloud) GetLoadBalancerName(ctx context.Context, clusterName string, 
 // getLoadBalancer retrieves the IP address and ID and all the existing rules it can find.
 func (cs *CSCloud) getLoadBalancer(service *corev1.Service) (*loadBalancer, error) {
 	lb := &loadBalancer{
-		CloudStackClient: cs.client,
-		name:             cs.GetLoadBalancerName(context.TODO(), "", service),
-		projectID:        cs.projectID,
-		rules:            make(map[string]*cloudstack.LoadBalancerRule),
+		CloudStackClient:   cs.client,
+		name:               cs.GetLoadBalancerName(context.TODO(), "", service),
+		projectID:          cs.projectID,
+		rules:              make(map[string]*cloudstack.LoadBalancerRule),
+		stickinessPolicies: make(map[string]*cloudstack.LBStickinessPolicyStickinesspolicy),
 	}
 
 	p := cs.client.LoadBalancer.NewListLoadBalancerRulesParams()
@@ -497,6 +519,26 @@ func (cs *CSCloud) getLoadBalancer(service *corev1.Service) (*loadBalancer, erro
 	klog.V(4).Infof("Load balancer %v contains %d rule(s)", lb.name, len(lb.rules))
 
 	return lb, nil
+}
+
+// loadStickinessPolicies fetches the stickiness policy of every rule the load
+// balancer keeps. Only EnsureLoadBalancer reconciles policies, so the lookups
+// stay off the host-update and delete paths. CloudStack answers with a wrapper
+// per rule even when the rule has no policy, with an empty list inside it.
+func (lb *loadBalancer) loadStickinessPolicies() error {
+	for _, lbRule := range lb.rules {
+		p := lb.LoadBalancer.NewListLBStickinessPoliciesParams()
+		p.SetLbruleid(lbRule.Id)
+		l, err := lb.LoadBalancer.ListLBStickinessPolicies(p)
+		if err != nil {
+			return fmt.Errorf("error retrieving stickiness policies for rule %v: %v", lbRule.Name, err)
+		}
+		if len(l.LBStickinessPolicies) > 0 && len(l.LBStickinessPolicies[0].Stickinesspolicy) > 0 {
+			lb.stickinessPolicies[lbRule.Id] = &l.LBStickinessPolicies[0].Stickinesspolicy[0]
+		}
+	}
+
+	return nil
 }
 
 // Get network ID from Public IP Address
@@ -681,6 +723,52 @@ func (lb *loadBalancer) getCIDRList(service *corev1.Service) ([]string, error) {
 	return cidrList, nil
 }
 
+// checkStickinessPolicy returns the rule's current stickiness policy, if it has
+// one, and whether that policy differs from what the service annotations ask for.
+func (lb *loadBalancer) checkStickinessPolicy(lbRule *cloudstack.LoadBalancerRule, service *corev1.Service) (*cloudstack.LBStickinessPolicyStickinesspolicy, bool) {
+	policy := lb.stickinessPolicies[lbRule.Id]
+	wantedMethod := wantedStickinessMethod(service)
+	wantedParams := parseStickinessParams(getStringFromServiceAnnotation(service, ServiceAnnotationLoadBalancerStickinessParam, ""))
+
+	if policy == nil {
+		if wantedMethod == "" {
+			return nil, false
+		}
+		klog.V(4).Infof("Stickiness policy missing from rule %v", lbRule.Name)
+		return nil, true
+	}
+	if wantedMethod == "" {
+		klog.V(4).Infof("Stickiness annotation removed from rule %v", lbRule.Name)
+		return policy, true
+	}
+	if !strings.EqualFold(policy.Methodname, wantedMethod) {
+		klog.V(4).Infof("Stickiness method of rule %v changed to %v", lbRule.Name, wantedMethod)
+		return policy, true
+	}
+	if !stickinessParamsMatch(policy.Params, wantedParams) {
+		klog.V(4).Infof("Stickiness parameters of rule %v changed to %v", lbRule.Name, wantedParams)
+		return policy, true
+	}
+
+	return policy, false
+}
+
+// stickinessParamsMatch reports whether a policy carries exactly the parameters
+// asked for. A key that is absent differs from one set to an empty value, so the
+// two maps have to agree on keys as well as values.
+func stickinessParamsMatch(current, wanted map[string]string) bool {
+	if len(current) != len(wanted) {
+		return false
+	}
+	for key, value := range current {
+		if wantedValue, ok := wanted[key]; !ok || wantedValue != value {
+			return false
+		}
+	}
+
+	return true
+}
+
 // checkLoadBalancerRule checks if the rule already exists and if it does, if it can be updated. If
 // it does exist but cannot be updated, it will delete the existing rule so it can be created again.
 func (lb *loadBalancer) checkLoadBalancerRule(lbRuleName string, port corev1.ServicePort, protocol LoadBalancerProtocol, service *corev1.Service, version semver.Version) (*cloudstack.LoadBalancerRule, bool, error) {
@@ -747,6 +835,100 @@ func (lb *loadBalancer) updateLoadBalancerRule(lbRuleName string, protocol LoadB
 	return err
 }
 
+// wantedStickinessMethod returns the stickiness method the service asks for, or
+// an empty string when the service does not want a stickiness policy.
+func wantedStickinessMethod(service *corev1.Service) string {
+	return getStringFromServiceAnnotation(service, ServiceAnnotationLoadBalancerStickinessMethodName, "")
+}
+
+// reconcileStickinessPolicy brings a rule's stickiness policy in line with the
+// service annotations.
+func (lb *loadBalancer) reconcileStickinessPolicy(lbRuleName string, lbRule *cloudstack.LoadBalancerRule, service *corev1.Service) error {
+	existing, needsUpdate := lb.checkStickinessPolicy(lbRule, service)
+	if !needsUpdate {
+		return nil
+	}
+	if existing == nil {
+		klog.V(4).Infof("Creating stickiness policy on rule %v", lbRuleName)
+		_, err := lb.createStickinessPolicy(lbRuleName, lbRule.Id, service)
+		return err
+	}
+	return lb.replaceStickinessPolicy(lbRuleName, lbRule, existing, service)
+}
+
+// replaceStickinessPolicy swaps a rule's policy for the one the annotations ask
+// for, or drops it when the annotation is gone. CloudStack keeps at most one
+// policy per rule, so the old one has to go first, and a rejected replacement
+// is rolled back rather than leaving a live rule with no stickiness at all.
+func (lb *loadBalancer) replaceStickinessPolicy(lbRuleName string, lbRule *cloudstack.LoadBalancerRule, existing *cloudstack.LBStickinessPolicyStickinesspolicy, service *corev1.Service) error {
+	if wantedStickinessMethod(service) == "" {
+		klog.V(4).Infof("Removing stickiness policy from rule %v", lbRuleName)
+	} else {
+		klog.V(4).Infof("Replacing stickiness policy on rule %v", lbRuleName)
+	}
+	if err := lb.deleteStickinessPolicy(existing.Id); err != nil {
+		return err
+	}
+
+	if _, err := lb.createStickinessPolicy(lbRuleName, lbRule.Id, service); err != nil {
+		return lb.restoreStickinessPolicy(lbRuleName, lbRule.Id, existing, err)
+	}
+
+	return nil
+}
+
+// restoreStickinessPolicy puts a deleted policy back after its replacement could
+// not be created, and returns the failure that triggered the rollback.
+func (lb *loadBalancer) restoreStickinessPolicy(lbRuleName string, lbRuleID string, policy *cloudstack.LBStickinessPolicyStickinesspolicy, cause error) error {
+	klog.V(4).Infof("Restoring the previous stickiness policy on rule %v after a failed replacement: %v", lbRuleName, cause)
+	p := lb.LoadBalancer.NewCreateLBStickinessPolicyParams(lbRuleID, policy.Methodname, policy.Name)
+	p.SetParam(policy.Params)
+	if _, err := lb.LoadBalancer.CreateLBStickinessPolicy(p); err != nil {
+		return fmt.Errorf("%v (restoring the previous stickiness policy failed too: %v)", cause, err)
+	}
+
+	return cause
+}
+
+// createStickinessPolicy creates a new stickiness policy and returns it.
+func (lb *loadBalancer) createStickinessPolicy(lbRuleName string, lbRuleId string, service *corev1.Service) (*cloudstack.LBStickinessPolicyStickinesspolicy, error) {
+	stickinessMethodName := wantedStickinessMethod(service)
+	stickinessMethodParam := getStringFromServiceAnnotation(service, ServiceAnnotationLoadBalancerStickinessParam, "")
+	// If the stickiness method name is not set, we don't need to create a stickiness policy.
+	if stickinessMethodName == "" {
+		return nil, nil
+	}
+	p := lb.LoadBalancer.NewCreateLBStickinessPolicyParams(lbRuleId, stickinessMethodName, lbRuleName)
+
+	params := parseStickinessParams(stickinessMethodParam)
+	p.SetParam(params)
+
+	stickinessPolicy, err := lb.LoadBalancer.CreateLBStickinessPolicy(p)
+	if err != nil {
+		return nil, fmt.Errorf("error creating stickiness policy: %v", err)
+	}
+	if len(stickinessPolicy.Stickinesspolicy) == 0 {
+		return nil, fmt.Errorf("error creating stickiness policy: no policy returned for load balancer rule %v", lbRuleName)
+	}
+	return &cloudstack.LBStickinessPolicyStickinesspolicy{
+		Methodname: stickinessPolicy.Stickinesspolicy[0].Methodname,
+		Params:     stickinessPolicy.Stickinesspolicy[0].Params,
+		Id:         stickinessPolicy.Stickinesspolicy[0].Id,
+		Name:       stickinessPolicy.Stickinesspolicy[0].Name,
+		State:      stickinessPolicy.Stickinesspolicy[0].State,
+	}, nil
+}
+
+// deleteStickinessPolicy deletes a stickiness policy.
+func (lb *loadBalancer) deleteStickinessPolicy(stickinessPolicyId string) error {
+	p := lb.LoadBalancer.NewDeleteLBStickinessPolicyParams(stickinessPolicyId)
+
+	if _, err := lb.LoadBalancer.DeleteLBStickinessPolicy(p); err != nil {
+		return fmt.Errorf("error deleting stickiness policy %v: %v", stickinessPolicyId, err)
+	}
+	return nil
+}
+
 // createLoadBalancerRule creates a new load balancer rule and returns it's ID.
 func (lb *loadBalancer) createLoadBalancerRule(lbRuleName string, port corev1.ServicePort, protocol LoadBalancerProtocol, service *corev1.Service) (*cloudstack.LoadBalancerRule, error) {
 	p := lb.LoadBalancer.NewCreateLoadBalancerRuleParams(
@@ -794,6 +976,38 @@ func (lb *loadBalancer) createLoadBalancerRule(lbRuleName string, port corev1.Se
 	return lbRule, nil
 }
 
+// createConfiguredLoadBalancerRule creates a load balancer rule together with
+// its stickiness policy and host assignments. A failure after the rule exists
+// removes the rule again: a later sync would otherwise find it, take the
+// existing-rule path, and never assign its hosts.
+func (lb *loadBalancer) createConfiguredLoadBalancerRule(lbRuleName string, port corev1.ServicePort, protocol LoadBalancerProtocol, service *corev1.Service) (*cloudstack.LoadBalancerRule, error) {
+	lbRule, err := lb.createLoadBalancerRule(lbRuleName, port, protocol, service)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := lb.createStickinessPolicy(lbRuleName, lbRule.Id, service); err != nil {
+		return nil, lb.rollBackLoadBalancerRule(lbRule, err)
+	}
+
+	klog.V(4).Infof("Assigning hosts (%v) to load balancer rule: %v", lb.hostIDs, lbRuleName)
+	if err := lb.assignHostsToRule(lbRule, lb.hostIDs); err != nil {
+		return nil, lb.rollBackLoadBalancerRule(lbRule, err)
+	}
+
+	return lbRule, nil
+}
+
+// rollBackLoadBalancerRule deletes a rule whose configuration failed part way
+// through and returns the original failure, extended with the cleanup error
+// when the rule could not be removed either.
+func (lb *loadBalancer) rollBackLoadBalancerRule(lbRule *cloudstack.LoadBalancerRule, cause error) error {
+	klog.V(4).Infof("Rolling back load balancer rule %v after a configuration failure: %v", lbRule.Name, cause)
+	if err := lb.deleteLoadBalancerRule(lbRule); err != nil {
+		return fmt.Errorf("%v (rolling back the rule failed too: %v)", cause, err)
+	}
+	return cause
+}
+
 // deleteLoadBalancerRule deletes a load balancer rule.
 func (lb *loadBalancer) deleteLoadBalancerRule(lbRule *cloudstack.LoadBalancerRule) error {
 	p := lb.LoadBalancer.NewDeleteLoadBalancerRuleParams(lbRule.Id)
@@ -806,6 +1020,7 @@ func (lb *loadBalancer) deleteLoadBalancerRule(lbRule *cloudstack.LoadBalancerRu
 	if kept, ok := lb.rules[lbRule.Name]; ok && kept.Id == lbRule.Id {
 		delete(lb.rules, lbRule.Name)
 	}
+	delete(lb.stickinessPolicies, lbRule.Id)
 
 	return nil
 }
@@ -1234,6 +1449,21 @@ func getStringFromServiceAnnotation(service *corev1.Service, annotationKey strin
 		klog.V(4).Infof("Could not find a Service Annotation; falling back on cloud-config setting: %v = %v", annotationKey, defaultSetting)
 	}
 	return defaultSetting
+}
+
+// parseStickinessParams parses a comma-separated string of key=value pairs into a map.
+// Whitespace around entries, keys and values is trimmed. Empty entries and entries
+// without a "=" are skipped, while an empty value ("key=") is kept as an empty string.
+func parseStickinessParams(paramString string) map[string]string {
+	params := make(map[string]string)
+	for _, param := range strings.Split(paramString, ",") {
+		parts := strings.SplitN(param, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		params[strings.TrimSpace(parts[0])] = strings.TrimSpace(parts[1])
+	}
+	return params
 }
 
 // getBoolFromServiceAnnotation searches a given v1.Service for a specific annotationKey and either returns the annotation's boolean value or a specified defaultSetting

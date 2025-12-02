@@ -40,6 +40,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -362,6 +363,55 @@ func (f *Framework) WaitForLBRules(lbName string, want int) []*cloudstack.LoadBa
 			return true, nil
 		})
 	return rules
+}
+
+// StickinessPolicy returns the stickiness policy attached to a load balancer
+// rule, or nil when the rule has none. CloudStack answers with a wrapper per
+// rule whose inner list is empty for a rule without a policy.
+func (f *Framework) StickinessPolicy(ruleID string) (*cloudstack.LBStickinessPolicyStickinesspolicy, error) {
+	p := f.CS.LoadBalancer.NewListLBStickinessPoliciesParams()
+	p.SetLbruleid(ruleID)
+	resp, err := f.CS.LoadBalancer.ListLBStickinessPolicies(p)
+	if err != nil {
+		return nil, err
+	}
+	for _, wrapper := range resp.LBStickinessPolicies {
+		if len(wrapper.Stickinesspolicy) > 0 {
+			return &wrapper.Stickinesspolicy[0], nil
+		}
+	}
+	return nil, nil
+}
+
+// WaitForStickinessPolicy waits until the rule carries a stickiness policy
+// with the given method and parameters and returns it.
+func (f *Framework) WaitForStickinessPolicy(ruleID, method string, params map[string]string) *cloudstack.LBStickinessPolicyStickinesspolicy {
+	f.T.Helper()
+	var policy *cloudstack.LBStickinessPolicyStickinesspolicy
+	f.Eventually(lbSyncTimeout, lbSyncInterval,
+		fmt.Sprintf("rule %s to carry a %s stickiness policy with params %v", ruleID, method, params),
+		func() (bool, error) {
+			current, err := f.StickinessPolicy(ruleID)
+			if err != nil || current == nil {
+				return false, err
+			}
+			if current.Methodname != method || !reflect.DeepEqual(current.Params, params) {
+				return false, fmt.Errorf("policy is %s %v", current.Methodname, current.Params)
+			}
+			policy = current
+			return true, nil
+		})
+	return policy
+}
+
+// RuleInstanceCount returns how many VMs are assigned to a load balancer rule.
+func (f *Framework) RuleInstanceCount(ruleID string) (int, error) {
+	p := f.CS.LoadBalancer.NewListLoadBalancerRuleInstancesParams(ruleID)
+	resp, err := f.CS.LoadBalancer.ListLoadBalancerRuleInstances(p)
+	if err != nil {
+		return 0, err
+	}
+	return len(resp.LoadBalancerRuleInstances), nil
 }
 
 // FirewallRules lists the firewall rules on a public IP.
