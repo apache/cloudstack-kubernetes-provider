@@ -39,6 +39,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"maps"
 	"os"
 	"strconv"
 	"strings"
@@ -57,6 +58,13 @@ import (
 const (
 	lbSyncTimeout  = 3 * time.Minute
 	lbSyncInterval = 3 * time.Second
+
+	// resyncAnnotation is changed by ResyncAndWait to make the service controller sync a Service
+	// again. The CCM ignores it.
+	resyncAnnotation = "e2e.cloudstack.apache.org/resync"
+
+	// stickinessPolicyMarker is the description the CCM gives the stickiness policies it creates.
+	stickinessPolicyMarker = "Managed by the CloudStack Kubernetes Provider"
 )
 
 // Framework bundles the clients and helpers shared by all e2e tests.
@@ -362,6 +370,163 @@ func (f *Framework) WaitForLBRules(lbName string, want int) []*cloudstack.LoadBa
 			return true, nil
 		})
 	return rules
+}
+
+// StickinessPolicies lists the stickiness policies of a rule, skipping revoked ones CloudStack
+// has not removed yet.
+func (f *Framework) StickinessPolicies(ruleID string) ([]cloudstack.LBStickinessPolicyStickinesspolicy, error) {
+	p := f.CS.LoadBalancer.NewListLBStickinessPoliciesParams()
+	p.SetLbruleid(ruleID)
+	resp, err := f.CS.LoadBalancer.ListLBStickinessPolicies(p)
+	if err != nil {
+		return nil, err
+	}
+	var live []cloudstack.LBStickinessPolicyStickinesspolicy
+	for _, wrapper := range resp.LBStickinessPolicies {
+		for _, policy := range wrapper.Stickinesspolicy {
+			if !strings.EqualFold(policy.State, "Revoked") {
+				live = append(live, policy)
+			}
+		}
+	}
+	return live, nil
+}
+
+// WaitForStickinessPolicy waits until the rule has exactly one policy, with the given method and
+// parameters, and returns it.
+func (f *Framework) WaitForStickinessPolicy(ruleID, method string, params map[string]string) cloudstack.LBStickinessPolicyStickinesspolicy {
+	f.T.Helper()
+	var policy cloudstack.LBStickinessPolicyStickinesspolicy
+	f.Eventually(lbSyncTimeout, lbSyncInterval,
+		fmt.Sprintf("rule %s to carry one %s stickiness policy with params %v", ruleID, method, params),
+		func() (bool, error) {
+			live, err := f.StickinessPolicies(ruleID)
+			if err != nil {
+				return false, err
+			}
+			if len(live) != 1 {
+				return false, fmt.Errorf("rule has %d live policies", len(live))
+			}
+			if !strings.EqualFold(live[0].Methodname, method) || !maps.Equal(live[0].Params, params) {
+				return false, fmt.Errorf("policy is %s %v", live[0].Methodname, live[0].Params)
+			}
+			policy = live[0]
+			return true, nil
+		})
+	return policy
+}
+
+// WaitForNoStickinessPolicy waits until the rule has no stickiness policy.
+func (f *Framework) WaitForNoStickinessPolicy(ruleID string) {
+	f.T.Helper()
+	f.Eventually(lbSyncTimeout, lbSyncInterval, fmt.Sprintf("rule %s to carry no stickiness policy", ruleID),
+		func() (bool, error) {
+			live, err := f.StickinessPolicies(ruleID)
+			if err != nil {
+				return false, err
+			}
+			if len(live) != 0 {
+				return false, fmt.Errorf("rule has %d live policies", len(live))
+			}
+			return true, nil
+		})
+}
+
+// CreateStickinessPolicy adds a policy to a rule through the CloudStack API, the way an operator
+// would by hand, and returns its ID.
+func (f *Framework) CreateStickinessPolicy(ruleID, name, method string, params map[string]string) string {
+	f.T.Helper()
+	p := f.CS.LoadBalancer.NewCreateLBStickinessPolicyParams(ruleID, method, name)
+	p.SetParam(params)
+	resp, err := f.CS.LoadBalancer.CreateLBStickinessPolicy(p)
+	if err != nil {
+		f.T.Fatalf("creating stickiness policy %s on rule %s: %v", name, ruleID, err)
+	}
+	if len(resp.Stickinesspolicy) == 0 {
+		f.T.Fatalf("creating stickiness policy %s on rule %s returned no policy", name, ruleID)
+	}
+	return resp.Stickinesspolicy[0].Id
+}
+
+// ResyncAndWait makes the service controller sync svc again, by changing an annotation the CCM
+// ignores, and waits for the sync to succeed. EnsureLoadBalancer only runs when a Service changes
+// or the controller restarts, so tests need this to check what a sync leaves alone.
+func (f *Framework) ResyncAndWait(svc *corev1.Service) {
+	f.T.Helper()
+	before, err := f.ensuredCount(svc)
+	if err != nil {
+		f.T.Fatalf("counting reconciles of service %s/%s: %v", svc.Namespace, svc.Name, err)
+	}
+	f.UpdateService(svc, func(s *corev1.Service) {
+		if s.Annotations == nil {
+			s.Annotations = map[string]string{}
+		}
+		s.Annotations[resyncAnnotation] = strconv.FormatInt(time.Now().UnixNano(), 10)
+	})
+	f.Eventually(lbSyncTimeout, lbSyncInterval, fmt.Sprintf("service %s/%s to be reconciled again", svc.Namespace, svc.Name),
+		func() (bool, error) {
+			after, err := f.ensuredCount(svc)
+			return after > before, err
+		})
+}
+
+// ensuredCount counts the successful syncs recorded for svc, including repeats that Kubernetes
+// folded into one event.
+func (f *Framework) ensuredCount(svc *corev1.Service) (int32, error) {
+	events, err := f.K8s.CoreV1().Events(svc.Namespace).List(context.Background(), metav1.ListOptions{
+		FieldSelector: "involvedObject.name=" + svc.Name + ",reason=EnsuredLoadBalancer",
+	})
+	if err != nil {
+		return 0, err
+	}
+	var total int32
+	for _, event := range events.Items {
+		count := max(event.Count, 1)
+		if event.Series != nil {
+			count = max(count, event.Series.Count)
+		}
+		total += count
+	}
+	return total, nil
+}
+
+// WaitForSyncFailure waits until a failed sync of svc is reported with a message containing substr.
+func (f *Framework) WaitForSyncFailure(svc *corev1.Service, substr string) {
+	f.T.Helper()
+	f.Eventually(lbSyncTimeout, lbSyncInterval, fmt.Sprintf("a failed sync of service %s/%s mentioning %q", svc.Namespace, svc.Name, substr),
+		func() (bool, error) {
+			events, err := f.K8s.CoreV1().Events(svc.Namespace).List(context.Background(), metav1.ListOptions{
+				FieldSelector: "involvedObject.name=" + svc.Name + ",reason=SyncLoadBalancerFailed",
+			})
+			if err != nil {
+				return false, err
+			}
+			for _, event := range events.Items {
+				if strings.Contains(event.Message, substr) {
+					return true, nil
+				}
+			}
+			return false, nil
+		})
+}
+
+// ruleIDsByPort maps the public port of each load balancer rule to the rule's id.
+func ruleIDsByPort(rules []*cloudstack.LoadBalancerRule) map[string]string {
+	ids := make(map[string]string, len(rules))
+	for _, rule := range rules {
+		ids[rule.Publicport] = rule.Id
+	}
+	return ids
+}
+
+// RuleInstanceCount returns how many VMs are assigned to a load balancer rule.
+func (f *Framework) RuleInstanceCount(ruleID string) (int, error) {
+	p := f.CS.LoadBalancer.NewListLoadBalancerRuleInstancesParams(ruleID)
+	resp, err := f.CS.LoadBalancer.ListLoadBalancerRuleInstances(p)
+	if err != nil {
+		return 0, err
+	}
+	return len(resp.LoadBalancerRuleInstances), nil
 }
 
 // FirewallRules lists the firewall rules on a public IP.

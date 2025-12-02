@@ -22,6 +22,7 @@ package cloudstack
 import (
 	"context"
 	"fmt"
+	"maps"
 	"reflect"
 	"slices"
 	"sort"
@@ -4619,8 +4620,14 @@ type ensureLBTestEnv struct {
 	vm       *cloudstack.MockVirtualMachineServiceIface
 	network  *cloudstack.MockNetworkServiceIface
 	firewall *cloudstack.MockFirewallServiceIface
+	address  *cloudstack.MockAddressServiceIface
 	service  *corev1.Service
 	nodes    []*corev1.Node
+
+	instances     []*cloudstack.VirtualMachine
+	policies      map[string][]cloudstack.LBStickinessPolicyStickinesspolicy
+	policyErr     error
+	policyLookups []string
 }
 
 func newEnsureLBTestEnv(ctrl *gomock.Controller, annotations map[string]string, ports []corev1.ServicePort) *ensureLBTestEnv {
@@ -4629,6 +4636,7 @@ func newEnsureLBTestEnv(ctrl *gomock.Controller, annotations map[string]string, 
 		vm:       cloudstack.NewMockVirtualMachineServiceIface(ctrl),
 		network:  cloudstack.NewMockNetworkServiceIface(ctrl),
 		firewall: cloudstack.NewMockFirewallServiceIface(ctrl),
+		address:  cloudstack.NewMockAddressServiceIface(ctrl),
 	}
 
 	e.cs = &CSCloud{
@@ -4637,6 +4645,7 @@ func newEnsureLBTestEnv(ctrl *gomock.Controller, annotations map[string]string, 
 			VirtualMachine: e.vm,
 			Network:        e.network,
 			Firewall:       e.firewall,
+			Address:        e.address,
 		},
 		version: semver.Version{Major: 4, Minor: 22, Patch: 0},
 	}
@@ -4657,7 +4666,38 @@ func newEnsureLBTestEnv(ctrl *gomock.Controller, annotations map[string]string, 
 
 	e.nodes = []*corev1.Node{{ObjectMeta: metav1.ObjectMeta{Name: "node-1"}}}
 
+	// A sync counts the hosts of each adopted rule and lists its stickiness policies. By default
+	// the rule already has the node and no policies, so tests that change neither work as before.
+	e.instances = []*cloudstack.VirtualMachine{{Id: "vm-1"}}
+	e.policies = map[string][]cloudstack.LBStickinessPolicyStickinesspolicy{}
+	e.lb.EXPECT().NewListLoadBalancerRuleInstancesParams(gomock.Any()).DoAndReturn(func(string) *cloudstack.ListLoadBalancerRuleInstancesParams {
+		return &cloudstack.ListLoadBalancerRuleInstancesParams{}
+	}).AnyTimes()
+	e.lb.EXPECT().ListLoadBalancerRuleInstances(gomock.Any()).DoAndReturn(e.listRuleInstances).AnyTimes()
+	e.lb.EXPECT().NewListLBStickinessPoliciesParams().DoAndReturn(func() *cloudstack.ListLBStickinessPoliciesParams {
+		return &cloudstack.ListLBStickinessPoliciesParams{}
+	}).AnyTimes()
+	e.lb.EXPECT().ListLBStickinessPolicies(gomock.Any()).DoAndReturn(e.listStickinessPolicies).AnyTimes()
+
 	return e
+}
+
+// listRuleInstances answers a rule instance lookup with e.instances.
+func (e *ensureLBTestEnv) listRuleInstances(*cloudstack.ListLoadBalancerRuleInstancesParams) (*cloudstack.ListLoadBalancerRuleInstancesResponse, error) {
+	return &cloudstack.ListLoadBalancerRuleInstancesResponse{Count: len(e.instances), LoadBalancerRuleInstances: e.instances}, nil
+}
+
+// listStickinessPolicies answers a policy lookup from e.policies, one entry per rule like
+// CloudStack, and records which rule was looked up.
+func (e *ensureLBTestEnv) listStickinessPolicies(p *cloudstack.ListLBStickinessPoliciesParams) (*cloudstack.ListLBStickinessPoliciesResponse, error) {
+	ruleID, _ := p.GetLbruleid()
+	e.policyLookups = append(e.policyLookups, ruleID)
+	if e.policyErr != nil {
+		return nil, e.policyErr
+	}
+	wrapper := &cloudstack.LBStickinessPolicy{Lbruleid: ruleID, Stickinesspolicy: e.policies[ruleID]}
+
+	return &cloudstack.ListLBStickinessPoliciesResponse{Count: 1, LBStickinessPolicies: []*cloudstack.LBStickinessPolicy{wrapper}}, nil
 }
 
 // expectHosts registers the node lookup every run performs before resolving rules.
@@ -4673,11 +4713,31 @@ func (e *ensureLBTestEnv) expectHosts() {
 
 // expectHostsAndNetwork registers the host and network lookups every run performs.
 func (e *ensureLBTestEnv) expectHostsAndNetwork() {
-	e.expectHosts()
-	e.network.EXPECT().GetNetworkByID("net-1", gomock.Any()).Return(&cloudstack.Network{
+	e.expectHostsAndNetworkWith(&cloudstack.Network{
 		Id:      "net-1",
 		Service: []cloudstack.NetworkServiceInternal{{Name: "Firewall"}},
-	}, 1, nil)
+	})
+}
+
+// expectHostsAndNetworkWith registers the host lookup and answers the network lookup with network.
+func (e *ensureLBTestEnv) expectHostsAndNetworkWith(network *cloudstack.Network) {
+	e.expectHosts()
+	e.network.EXPECT().GetNetworkByID("net-1", gomock.Any()).Return(network, 1, nil)
+}
+
+// expectRules answers the run's load balancer rule listing with rules.
+func (e *ensureLBTestEnv) expectRules(rules ...*cloudstack.LoadBalancerRule) {
+	e.lb.EXPECT().NewListLoadBalancerRulesParams().Return(&cloudstack.ListLoadBalancerRulesParams{})
+	e.lb.EXPECT().ListLoadBalancerRules(gomock.Any()).Return(&cloudstack.ListLoadBalancerRulesResponse{
+		Count:             len(rules),
+		LoadBalancerRules: rules,
+	}, nil)
+}
+
+// expectFirewallListings answers each of the run's firewall listings, one per port, with resp.
+func (e *ensureLBTestEnv) expectFirewallListings(resp *cloudstack.ListFirewallRulesResponse, times int) {
+	e.firewall.EXPECT().NewListFirewallRulesParams().Return(&cloudstack.ListFirewallRulesParams{}).Times(times)
+	e.firewall.EXPECT().ListFirewallRules(gomock.Any()).Return(resp, nil).Times(times)
 }
 
 func TestEnsureLoadBalancer(t *testing.T) {
@@ -4900,7 +4960,7 @@ func TestEnsureLoadBalancer(t *testing.T) {
 		movedPort80 := corev1.ServicePort{Port: 80, NodePort: 30001, Protocol: corev1.ProtocolTCP}
 		sctpPort := corev1.ServicePort{Port: 9000, NodePort: 30900, Protocol: corev1.ProtocolSCTP}
 		env := newEnsureLBTestEnv(ctrl, nil, []corev1.ServicePort{movedPort80, sctpPort})
-		env.expectHosts()
+		env.expectHostsAndNetwork()
 
 		// No delete expectation: the existing port 80 rule must survive.
 		gomock.InOrder(
@@ -5668,6 +5728,796 @@ func TestPruneRulesScopesNetworkACLsToTheirNetwork(t *testing.T) {
 		}
 		if networkID, _ := listParams.GetNetworkid(); networkID != "net-new" {
 			t.Errorf("ACL rules listed on network %q, want the reconciled %q", networkID, "net-new")
+		}
+	})
+}
+
+// virtualRouterStickinessCapability is the SupportedStickinessMethods capability of a VirtualRouter
+// network, copied from the 4.22.1 simulator. It has not changed since 4.16.
+const virtualRouterStickinessCapability = `[{"methodname":"LbCookie","paramlist":[{"paramname":"cookie-name","required":false,"isflag":false,"description":" "},{"paramname":"mode","required":false,"isflag":false,"description":" "},{"paramname":"nocache","required":false,"isflag":true,"description":" "},{"paramname":"indirect","required":false,"isflag":true,"description":" "},{"paramname":"postonly","required":false,"isflag":true,"description":" "},{"paramname":"domain","required":false,"isflag":false,"description":" "}],"description":"This is loadbalancer cookie based stickiness method."},{"methodname":"AppCookie","paramlist":[{"paramname":"cookie-name","required":false,"isflag":false,"description":" "},{"paramname":"length","required":false,"isflag":false,"description":" "},{"paramname":"holdtime","required":false,"isflag":false,"description":" "},{"paramname":"request-learn","required":false,"isflag":true,"description":" "},{"paramname":"prefix","required":false,"isflag":true,"description":" "},{"paramname":"mode","required":false,"isflag":false,"description":" "}],"description":"This is App session based sticky method."},{"methodname":"SourceBased","paramlist":[{"paramname":"tablesize","required":false,"isflag":false,"description":" "},{"paramname":"expire","required":false,"isflag":false,"description":" "}],"description":"This is source based Stickiness method, it can be used for any type of protocol."}]`
+
+// virtualRouterNetwork returns a network that lists the VirtualRouter's stickiness methods.
+func virtualRouterNetwork() *cloudstack.Network {
+	return &cloudstack.Network{
+		Id: "net-1",
+		Service: []cloudstack.NetworkServiceInternal{
+			{Name: "Firewall"},
+			{Name: "Lb", Capability: []cloudstack.NetworkServiceInternalCapability{
+				{Name: "SupportedStickinessMethods", Value: virtualRouterStickinessCapability},
+			}},
+		},
+	}
+}
+
+// stickinessService builds a Service with the given ports and stickiness annotations. An empty
+// value leaves the annotation out.
+func stickinessService(method, params string, servicePorts ...corev1.ServicePort) *corev1.Service {
+	annotations := map[string]string{}
+	for key, value := range map[string]string{
+		ServiceAnnotationLoadBalancerStickinessMethodName:  method,
+		ServiceAnnotationLoadBalancerStickinessMethodParam: params,
+	} {
+		if value != "" {
+			annotations[key] = value
+		}
+	}
+
+	return &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-service", Namespace: "default", Annotations: annotations},
+		Spec:       corev1.ServiceSpec{Ports: servicePorts},
+	}
+}
+
+func TestParseStickinessSpec(t *testing.T) {
+	http := corev1.ServicePort{Name: "http", Port: 80, Protocol: corev1.ProtocolTCP}
+	https := corev1.ServicePort{Name: "https", Port: 443, Protocol: corev1.ProtocolTCP}
+	dns := corev1.ServicePort{Name: "dns", Port: 53, Protocol: corev1.ProtocolUDP}
+	declaredHTTP := withAppProtocol(http, "http")
+	declaredHTTPS := withAppProtocol(https, "https")
+
+	tests := []struct {
+		name       string
+		service    *corev1.Service
+		wantErr    string
+		wantNil    bool
+		wantParams map[string]string
+		wantPorts  []int32
+	}{
+		{name: "no method means no stickiness", service: stickinessService("", "cookie-name=X", http), wantNil: true},
+		{name: "LbCookie goes only on ports declaring appProtocol http", service: stickinessService("LbCookie", "", declaredHTTP, declaredHTTPS, dns), wantParams: map[string]string{}, wantPorts: []int32{80}},
+		{name: "appProtocol is matched ignoring case", service: stickinessService("LbCookie", "", withAppProtocol(http, "HTTP"), https), wantParams: map[string]string{}, wantPorts: []int32{80}},
+		{name: "LbCookie needs appProtocol http even on a single TCP port", service: stickinessService("LbCookie", "", http, dns), wantErr: "appProtocol: http"},
+		{name: "LbCookie on several undeclared TCP ports needs appProtocol", service: stickinessService("LbCookie", "", http, https), wantErr: "appProtocol: http"},
+		{name: "LbCookie on a port declaring https is rejected", service: stickinessService("LbCookie", "", declaredHTTPS), wantErr: "appProtocol: http"},
+		{name: "SourceBased goes on every TCP port whatever appProtocol says", service: stickinessService("SourceBased", "", declaredHTTP, declaredHTTPS, dns), wantParams: map[string]string{}, wantPorts: []int32{80, 443}},
+		{name: "AppCookie is rejected", service: stickinessService("appcookie", "", http), wantErr: "appsession"},
+		{name: "params are trimmed and empty entries dropped", service: stickinessService("LbCookie", ", cookie-name = SERVERID ,nocache=true,", declaredHTTP), wantParams: map[string]string{"cookie-name": "SERVERID", "nocache": "true"}, wantPorts: []int32{80}},
+		{name: "an empty value is rejected with a hint for flags", service: stickinessService("LbCookie", "nocache=", declaredHTTP), wantErr: "nocache=true"},
+		{name: "an entry without = is rejected", service: stickinessService("LbCookie", "nocache", declaredHTTP), wantErr: "expected key=value"},
+		{name: "= in a value is rejected", service: stickinessService("LbCookie", "cookie-name=a=b", declaredHTTP), wantErr: "are not allowed"},
+		{name: "& in a value is rejected", service: stickinessService("LbCookie", "domain=x&y", declaredHTTP), wantErr: "are not allowed"},
+		{name: "a quote in a value is rejected", service: stickinessService("LbCookie", `cookie-name=SERVER"ID`, declaredHTTP), wantErr: "are not allowed"},
+		{name: "# in a value is rejected", service: stickinessService("LbCookie", "domain=a#b", declaredHTTP), wantErr: "are not allowed"},
+		{name: "a backslash in a value is rejected", service: stickinessService("LbCookie", `cookie-name=a\b`, declaredHTTP), wantErr: "are not allowed"},
+		{name: "whitespace in a value is rejected", service: stickinessService("LbCookie", "cookie-name=my cookie", declaredHTTP), wantErr: "are not allowed"},
+		{name: "whitespace in a key is rejected", service: stickinessService("LbCookie", "cookie name=x", declaredHTTP), wantErr: "are not allowed"},
+		{name: "a key set twice is rejected whatever its case", service: stickinessService("LbCookie", "mode=insert,MODE=rewrite", declaredHTTP), wantErr: "set twice"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			spec, err := parseStickinessSpec(tt.service)
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) || !strings.Contains(err.Error(), "stickiness") {
+					t.Fatalf("error = %v, want it to mention %q and stickiness", err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if tt.wantNil {
+				if spec != nil {
+					t.Fatalf("spec = %+v, want nil", spec)
+				}
+				return
+			}
+			if !reflect.DeepEqual(spec.params, tt.wantParams) {
+				t.Errorf("params = %v, want %v", spec.params, tt.wantParams)
+			}
+			gotPorts := slices.Sorted(maps.Keys(spec.ports))
+			if !slices.Equal(gotPorts, tt.wantPorts) {
+				t.Errorf("ports = %v, want %v", gotPorts, tt.wantPorts)
+			}
+		})
+	}
+}
+
+func TestStickinessSpecWants(t *testing.T) {
+	spec := &stickinessSpec{method: "LbCookie", ports: map[int32]bool{80: true}}
+	tests := []struct {
+		name string
+		spec *stickinessSpec
+		port corev1.ServicePort
+		want bool
+	}{
+		{name: "a selected TCP port", spec: spec, port: corev1.ServicePort{Port: 80, Protocol: corev1.ProtocolTCP}, want: true},
+		{name: "an unselected TCP port", spec: spec, port: corev1.ServicePort{Port: 443, Protocol: corev1.ProtocolTCP}},
+		{name: "a UDP port with a selected number", spec: spec, port: corev1.ServicePort{Port: 80, Protocol: corev1.ProtocolUDP}},
+		{name: "no spec", port: corev1.ServicePort{Port: 80, Protocol: corev1.ProtocolTCP}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.spec.wants(tt.port); got != tt.want {
+				t.Errorf("wants = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestSupportedStickinessMethods(t *testing.T) {
+	if got := supportedStickinessMethods(virtualRouterNetwork()); len(got) != 3 || got[0].Name != "LbCookie" || !got[0].Params[2].IsFlag {
+		t.Errorf("methods = %+v, want the VirtualRouter's three with nocache as a flag", got)
+	}
+	if got := supportedStickinessMethods(&cloudstack.Network{Service: []cloudstack.NetworkServiceInternal{{Name: "Firewall"}}}); got != nil {
+		t.Errorf("methods = %+v, want nil for a network without the Lb service", got)
+	}
+	unreadable := &cloudstack.Network{Service: []cloudstack.NetworkServiceInternal{{Name: "Lb", Capability: []cloudstack.NetworkServiceInternalCapability{
+		{Name: "SupportedStickinessMethods", Value: "not json"},
+	}}}}
+	if got := supportedStickinessMethods(unreadable); got != nil {
+		t.Errorf("methods = %+v, want nil for an unreadable capability", got)
+	}
+}
+
+func TestStickinessSpecNormalise(t *testing.T) {
+	methods := supportedStickinessMethods(virtualRouterNetwork())
+	tests := []struct {
+		name       string
+		method     string
+		params     map[string]string
+		methods    []stickinessMethod
+		wantMethod string
+		wantParams map[string]string
+		wantErr    string
+	}{
+		{name: "method and param names take the advertised spelling", method: "lbcookie", params: map[string]string{"Cookie-Name": "SERVERID"}, methods: methods, wantMethod: "LbCookie", wantParams: map[string]string{"cookie-name": "SERVERID"}},
+		{name: "a true flag is sent as true", method: "LbCookie", params: map[string]string{"nocache": "1"}, methods: methods, wantMethod: "LbCookie", wantParams: map[string]string{"nocache": "true"}},
+		{name: "a false flag is left out", method: "LbCookie", params: map[string]string{"nocache": "false", "indirect": "True"}, methods: methods, wantMethod: "LbCookie", wantParams: map[string]string{"indirect": "true"}},
+		{name: "a flag that is not a boolean is rejected", method: "LbCookie", params: map[string]string{"nocache": "maybe"}, methods: methods, wantErr: "true or false"},
+		{name: "the cookie mode is lower-cased", method: "LbCookie", params: map[string]string{"mode": "INSERT"}, methods: methods, wantMethod: "LbCookie", wantParams: map[string]string{"mode": "insert"}},
+		{name: "an unknown cookie mode is rejected", method: "LbCookie", params: map[string]string{"mode": "bogus"}, methods: methods, wantErr: "insert, rewrite, prefix"},
+		{name: "an unknown method lists the supported ones", method: "NoSuchMethod", methods: methods, wantErr: "supported methods: LbCookie, SourceBased"},
+		{name: "an unknown param lists the method's", method: "SourceBased", params: map[string]string{"cookie-name": "x"}, methods: methods, wantErr: "tablesize, expire"},
+		{name: "a missing required param is rejected", method: "Custom", methods: []stickinessMethod{{Name: "Custom", Params: []stickinessMethodParam{{Name: "key", Required: true}}}}, wantErr: "needs parameter key"},
+		{name: "without advertised methods nothing changes", method: "lbcookie", params: map[string]string{"nocache": "false"}, wantMethod: "lbcookie", wantParams: map[string]string{"nocache": "false"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			spec := &stickinessSpec{method: tt.method, params: tt.params}
+			if spec.params == nil {
+				spec.params = map[string]string{}
+			}
+			err := spec.normalise(tt.methods)
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) || !strings.Contains(err.Error(), "stickiness") {
+					t.Fatalf("error = %v, want it to mention %q and stickiness", err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if spec.method != tt.wantMethod || !maps.Equal(spec.params, tt.wantParams) {
+				t.Errorf("spec = %s %v, want %s %v", spec.method, spec.params, tt.wantMethod, tt.wantParams)
+			}
+		})
+	}
+
+	var none *stickinessSpec
+	if err := none.normalise(methods); err != nil {
+		t.Errorf("normalising no spec: %v", err)
+	}
+}
+
+func TestStickinessChanges(t *testing.T) {
+	spec := &stickinessSpec{method: "LbCookie", params: map[string]string{"cookie-name": "SERVERID"}}
+	ours := func(id string, params map[string]string) cloudstack.LBStickinessPolicyStickinesspolicy {
+		return cloudstack.LBStickinessPolicyStickinesspolicy{Id: id, Methodname: "LbCookie", Params: params, Description: stickinessPolicyDescription}
+	}
+	foreign := func(id string) cloudstack.LBStickinessPolicyStickinesspolicy {
+		return cloudstack.LBStickinessPolicyStickinesspolicy{Id: id, Methodname: "LbCookie", Params: map[string]string{"cookie-name": "SERVERID"}}
+	}
+	matching := ours("ours", map[string]string{"cookie-name": "SERVERID"})
+
+	tests := []struct {
+		name        string
+		live        []cloudstack.LBStickinessPolicyStickinesspolicy
+		want        bool
+		wantCreate  bool
+		wantDeletes []string
+		wantErr     string
+	}{
+		{name: "a selected rule without a policy gets one", want: true, wantCreate: true},
+		{name: "a selected rule with our matching policy is left alone", live: append([]cloudstack.LBStickinessPolicyStickinesspolicy{}, matching), want: true},
+		{name: "a changed policy of ours is replaced by one create", live: append([]cloudstack.LBStickinessPolicyStickinesspolicy{}, ours("ours", map[string]string{"cookie-name": "OLD"})), want: true, wantCreate: true},
+		{name: "an identical hand-made policy on a selected rule is replaced", live: append([]cloudstack.LBStickinessPolicyStickinesspolicy{}, foreign("manual")), want: true, wantCreate: true},
+		{name: "ours and a hand-made policy are reported and nothing is deleted", live: append([]cloudstack.LBStickinessPolicyStickinesspolicy{}, matching, foreign("manual")), want: true, wantErr: "remove the extra ones"},
+		{name: "two hand-made policies are reported and nothing is deleted", live: append([]cloudstack.LBStickinessPolicyStickinesspolicy{}, foreign("a"), foreign("b")), want: true, wantErr: "remove the extra ones"},
+		{name: "an unselected rule loses only our policies", live: append([]cloudstack.LBStickinessPolicyStickinesspolicy{}, matching, foreign("manual"))},
+		{name: "an unselected rule without policies is left alone"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			wantSpec := spec
+			if !tt.want {
+				wantSpec = nil
+			}
+			create, deletes, err := stickinessChanges(tt.live, wantSpec, tt.want)
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("error = %v, want it to mention %q", err, tt.wantErr)
+				}
+				if create || len(deletes) > 0 {
+					t.Errorf("create, deletes = %v, %v; want no changes with the error", create, deletes)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			wantDeletes := tt.wantDeletes
+			if !tt.want && len(tt.live) > 0 {
+				wantDeletes = []string{"ours"}
+			}
+			if create != tt.wantCreate || !slices.Equal(deletes, wantDeletes) {
+				t.Errorf("create, deletes = %v, %v; want %v, %v", create, deletes, tt.wantCreate, wantDeletes)
+			}
+		})
+	}
+}
+
+func TestLiveStickinessPolicies(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	t.Cleanup(ctrl.Finish)
+	mockLB := cloudstack.NewMockLoadBalancerServiceIface(ctrl)
+	params := &cloudstack.ListLBStickinessPoliciesParams{}
+	mockLB.EXPECT().NewListLBStickinessPoliciesParams().Return(params)
+	mockLB.EXPECT().ListLBStickinessPolicies(params).Return(&cloudstack.ListLBStickinessPoliciesResponse{
+		Count: 1,
+		LBStickinessPolicies: []*cloudstack.LBStickinessPolicy{{Stickinesspolicy: []cloudstack.LBStickinessPolicyStickinesspolicy{
+			{Id: "revoked", State: "Revoked"},
+			{Id: "live"},
+		}}},
+	}, nil)
+
+	lb := &loadBalancer{CloudStackClient: &cloudstack.CloudStackClient{LoadBalancer: mockLB}}
+	live, err := lb.liveStickinessPolicies("rule-1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(live) != 1 || live[0].Id != "live" {
+		t.Errorf("live = %+v, want only the live policy", live)
+	}
+	if ruleID, _ := params.GetLbruleid(); ruleID != "rule-1" {
+		t.Errorf("lbruleid = %q, want rule-1", ruleID)
+	}
+}
+
+// stickinessTestRule returns an up-to-date TCP rule of the "atestuid" load balancer for a port.
+func stickinessTestRule(id string, port corev1.ServicePort) *cloudstack.LoadBalancerRule {
+	return &cloudstack.LoadBalancerRule{
+		Id:          id,
+		Name:        fmt.Sprintf("atestuid-tcp-%d", port.Port),
+		Publicip:    "10.0.0.1",
+		Publicipid:  "ip-1",
+		Publicport:  fmt.Sprint(port.Port),
+		Privateport: fmt.Sprint(port.NodePort),
+		Cidrlist:    defaultAllowedCIDR,
+		Algorithm:   "roundrobin",
+		Protocol:    "tcp",
+		Networkid:   "net-1",
+	}
+}
+
+// firewallRulesFor returns firewall rules that already open the given ports to everyone.
+func firewallRulesFor(ports ...corev1.ServicePort) *cloudstack.ListFirewallRulesResponse {
+	resp := &cloudstack.ListFirewallRulesResponse{}
+	for _, port := range ports {
+		resp.FirewallRules = append(resp.FirewallRules, &cloudstack.FirewallRule{
+			Id:        fmt.Sprintf("fw-%d", port.Port),
+			Protocol:  "tcp",
+			Startport: int(port.Port),
+			Endport:   int(port.Port),
+			Cidrlist:  defaultAllowedCIDR,
+		})
+	}
+	resp.Count = len(resp.FirewallRules)
+
+	return resp
+}
+
+// stickinessAnnotations returns the stickiness annotations that are not empty.
+func stickinessAnnotations(method, params string) map[string]string {
+	return stickinessService(method, params).Annotations
+}
+
+// withAppProtocol returns the port declaring the given application protocol.
+func withAppProtocol(port corev1.ServicePort, appProtocol string) corev1.ServicePort {
+	port.AppProtocol = &appProtocol
+	return port
+}
+
+func TestEnsureLoadBalancerStickiness(t *testing.T) {
+	http := withAppProtocol(corev1.ServicePort{Name: "http", Port: 80, NodePort: 30000, Protocol: corev1.ProtocolTCP}, "http")
+	alt := corev1.ServicePort{Name: "alt", Port: 8080, NodePort: 30080, Protocol: corev1.ProtocolTCP}
+	cookie := map[string]string{"cookie-name": "SERVERID"}
+	ours := func(params map[string]string) cloudstack.LBStickinessPolicyStickinesspolicy {
+		return cloudstack.LBStickinessPolicyStickinesspolicy{Id: "policy-ours", Name: "atestuid-tcp-80", Methodname: "LbCookie", Params: params, Description: stickinessPolicyDescription}
+	}
+	manual := func(id string) cloudstack.LBStickinessPolicyStickinesspolicy {
+		return cloudstack.LBStickinessPolicyStickinesspolicy{Id: id, Name: "manual", Methodname: "LbCookie", Params: cookie}
+	}
+	newEnv := func(t *testing.T, annotations map[string]string, ports ...corev1.ServicePort) *ensureLBTestEnv {
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+		return newEnsureLBTestEnv(ctrl, annotations, ports)
+	}
+	ensure := func(env *ensureLBTestEnv) error {
+		_, err := env.cs.EnsureLoadBalancer(context.TODO(), "test-cluster", env.service, env.nodes)
+		return err
+	}
+	expectCreate := func(env *ensureLBTestEnv, ruleID, method, ruleName string, createErr error) *cloudstack.CreateLBStickinessPolicyParams {
+		params := &cloudstack.CreateLBStickinessPolicyParams{}
+		env.lb.EXPECT().NewCreateLBStickinessPolicyParams(ruleID, method, ruleName).Return(params)
+		env.lb.EXPECT().CreateLBStickinessPolicy(params).Return(&cloudstack.CreateLBStickinessPolicyResponse{}, createErr)
+		return params
+	}
+	expectDelete := func(env *ensureLBTestEnv, policyID string) {
+		params := &cloudstack.DeleteLBStickinessPolicyParams{}
+		env.lb.EXPECT().NewDeleteLBStickinessPolicyParams(policyID).Return(params)
+		env.lb.EXPECT().DeleteLBStickinessPolicy(params).Return(&cloudstack.DeleteLBStickinessPolicyResponse{}, nil)
+	}
+	sentParams := func(t *testing.T, params *cloudstack.CreateLBStickinessPolicyParams) map[string]string {
+		t.Helper()
+		if description, _ := params.GetDescription(); description != stickinessPolicyDescription {
+			t.Errorf("policy description = %q, want the controller's marker", description)
+		}
+		sent, _ := params.GetParam()
+		return sent
+	}
+
+	t.Run("a policy is created once the rule and its firewall are in place", func(t *testing.T) {
+		env := newEnv(t, stickinessAnnotations("lbcookie", "Cookie-Name=SERVERID, nocache=1"), http)
+		env.expectHostsAndNetworkWith(virtualRouterNetwork())
+		env.expectRules(stickinessTestRule("rule-1", http))
+		create := &cloudstack.CreateLBStickinessPolicyParams{}
+		gomock.InOrder(
+			env.firewall.EXPECT().NewListFirewallRulesParams().Return(&cloudstack.ListFirewallRulesParams{}),
+			env.firewall.EXPECT().ListFirewallRules(gomock.Any()).Return(firewallRulesFor(http), nil),
+			env.lb.EXPECT().NewCreateLBStickinessPolicyParams("rule-1", "LbCookie", "atestuid-tcp-80").Return(create),
+			env.lb.EXPECT().CreateLBStickinessPolicy(create).Return(&cloudstack.CreateLBStickinessPolicyResponse{}, nil),
+		)
+
+		if err := ensure(env); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if sent := sentParams(t, create); !maps.Equal(sent, map[string]string{"cookie-name": "SERVERID", "nocache": "true"}) {
+			t.Errorf("sent params = %v, want the normalised cookie-name and nocache=true", sent)
+		}
+		if !slices.Equal(env.policyLookups, []string{"rule-1"}) {
+			t.Errorf("policy lookups = %v, want one for rule-1", env.policyLookups)
+		}
+	})
+
+	t.Run("the controller's matching policy is left alone", func(t *testing.T) {
+		env := newEnv(t, stickinessAnnotations("LbCookie", "cookie-name=SERVERID"), http)
+		env.expectHostsAndNetworkWith(virtualRouterNetwork())
+		env.expectRules(stickinessTestRule("rule-1", http))
+		env.expectFirewallListings(firewallRulesFor(http), 1)
+		env.policies["rule-1"] = []cloudstack.LBStickinessPolicyStickinesspolicy{ours(cookie)}
+
+		if err := ensure(env); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("a changed parameter is swapped by one create, with no delete", func(t *testing.T) {
+		env := newEnv(t, stickinessAnnotations("LbCookie", "cookie-name=SERVERID"), http)
+		env.expectHostsAndNetworkWith(virtualRouterNetwork())
+		env.expectRules(stickinessTestRule("rule-1", http))
+		env.expectFirewallListings(firewallRulesFor(http), 1)
+		env.policies["rule-1"] = []cloudstack.LBStickinessPolicyStickinesspolicy{ours(map[string]string{"cookie-name": "OLD"})}
+		create := expectCreate(env, "rule-1", "LbCookie", "atestuid-tcp-80", nil)
+
+		if err := ensure(env); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if sent := sentParams(t, create); !maps.Equal(sent, cookie) {
+			t.Errorf("sent params = %v, want %v", sent, cookie)
+		}
+	})
+
+	t.Run("a hand-made policy on a selected port is replaced by the controller's", func(t *testing.T) {
+		env := newEnv(t, stickinessAnnotations("LbCookie", "cookie-name=SERVERID"), http)
+		env.expectHostsAndNetworkWith(virtualRouterNetwork())
+		env.expectRules(stickinessTestRule("rule-1", http))
+		env.expectFirewallListings(firewallRulesFor(http), 1)
+		env.policies["rule-1"] = []cloudstack.LBStickinessPolicyStickinesspolicy{manual("policy-manual")}
+		expectCreate(env, "rule-1", "LbCookie", "atestuid-tcp-80", nil)
+
+		if err := ensure(env); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("a hand-made policy on an unannotated Service is kept", func(t *testing.T) {
+		env := newEnv(t, nil, http)
+		env.expectHostsAndNetwork()
+		env.expectRules(stickinessTestRule("rule-1", http))
+		env.expectFirewallListings(firewallRulesFor(http), 1)
+		env.policies["rule-1"] = []cloudstack.LBStickinessPolicyStickinesspolicy{manual("policy-manual")}
+
+		if err := ensure(env); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("removing the annotation deletes only the controller's policy", func(t *testing.T) {
+		env := newEnv(t, nil, http)
+		env.expectHostsAndNetwork()
+		env.expectRules(stickinessTestRule("rule-1", http))
+		env.expectFirewallListings(firewallRulesFor(http), 1)
+		env.policies["rule-1"] = []cloudstack.LBStickinessPolicyStickinesspolicy{ours(cookie), manual("policy-manual")}
+		expectDelete(env, "policy-ours")
+
+		if err := ensure(env); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("LbCookie follows appProtocol http and leaves other ports", func(t *testing.T) {
+		env := newEnv(t, stickinessAnnotations("LbCookie", "cookie-name=SERVERID"), withAppProtocol(http, "https"), withAppProtocol(alt, "http"))
+		env.expectHostsAndNetworkWith(virtualRouterNetwork())
+		env.expectRules(stickinessTestRule("rule-1", http), stickinessTestRule("rule-2", alt))
+		env.expectFirewallListings(firewallRulesFor(http, alt), 2)
+		env.policies["rule-1"] = []cloudstack.LBStickinessPolicyStickinesspolicy{ours(cookie)}
+		expectDelete(env, "policy-ours")
+		expectCreate(env, "rule-2", "LbCookie", "atestuid-tcp-8080", nil)
+
+		if err := ensure(env); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("LbCookie on ports declaring no appProtocol fails before any CloudStack call", func(t *testing.T) {
+		undeclared := http
+		undeclared.AppProtocol = nil
+		env := newEnv(t, stickinessAnnotations("LbCookie", ""), undeclared, alt)
+
+		if err := ensure(env); err == nil || !strings.Contains(err.Error(), "appProtocol: http") {
+			t.Fatalf("error = %v, want it to ask for appProtocol: http", err)
+		}
+	})
+
+	t.Run("an invalid parameter fails before any CloudStack call", func(t *testing.T) {
+		env := newEnv(t, stickinessAnnotations("LbCookie", "cookie-name="), http)
+
+		if err := ensure(env); err == nil || !strings.Contains(err.Error(), "missing value") {
+			t.Fatalf("error = %v, want the empty value rejected", err)
+		}
+	})
+
+	t.Run("a method the network does not offer fails before any write", func(t *testing.T) {
+		env := newEnv(t, stickinessAnnotations("NoSuchMethod", ""), http)
+		env.expectHostsAndNetworkWith(virtualRouterNetwork())
+		env.expectRules(stickinessTestRule("rule-1", http))
+
+		if err := ensure(env); err == nil || !strings.Contains(err.Error(), "supported methods: LbCookie, SourceBased") {
+			t.Fatalf("error = %v, want it to list the supported methods", err)
+		}
+	})
+
+	t.Run("a false flag is not sent", func(t *testing.T) {
+		env := newEnv(t, stickinessAnnotations("LbCookie", "cookie-name=SERVERID,nocache=false"), http)
+		env.expectHostsAndNetworkWith(virtualRouterNetwork())
+		env.expectRules(stickinessTestRule("rule-1", http))
+		env.expectFirewallListings(firewallRulesFor(http), 1)
+		create := expectCreate(env, "rule-1", "LbCookie", "atestuid-tcp-80", nil)
+
+		if err := ensure(env); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if sent := sentParams(t, create); !maps.Equal(sent, cookie) {
+			t.Errorf("sent params = %v, want %v without nocache", sent, cookie)
+		}
+	})
+
+	t.Run("without the capability parameters pass through unchanged", func(t *testing.T) {
+		env := newEnv(t, stickinessAnnotations("LbCookie", "nocache=false"), http)
+		env.expectHostsAndNetwork()
+		env.expectRules(stickinessTestRule("rule-1", http))
+		env.expectFirewallListings(firewallRulesFor(http), 1)
+		create := expectCreate(env, "rule-1", "LbCookie", "atestuid-tcp-80", nil)
+
+		if err := ensure(env); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if sent := sentParams(t, create); !maps.Equal(sent, map[string]string{"nocache": "false"}) {
+			t.Errorf("sent params = %v, want nocache=false passed through", sent)
+		}
+	})
+
+	t.Run("a rejected policy keeps the rule and its firewall opening", func(t *testing.T) {
+		env := newEnv(t, stickinessAnnotations("SourceBased", "tablesize=abc"), http)
+		env.expectHostsAndNetworkWith(virtualRouterNetwork())
+		env.expectRules(stickinessTestRule("rule-1", http))
+		create := &cloudstack.CreateLBStickinessPolicyParams{}
+		gomock.InOrder(
+			env.firewall.EXPECT().NewListFirewallRulesParams().Return(&cloudstack.ListFirewallRulesParams{}),
+			env.firewall.EXPECT().ListFirewallRules(gomock.Any()).Return(firewallRulesFor(http), nil),
+			env.lb.EXPECT().NewCreateLBStickinessPolicyParams("rule-1", "SourceBased", "atestuid-tcp-80").Return(create),
+			env.lb.EXPECT().CreateLBStickinessPolicy(create).Return(nil, fmt.Errorf("CloudStack API error 431: tablesize is not in size format")),
+		)
+
+		err := ensure(env)
+		if err == nil || !strings.Contains(err.Error(), "error creating stickiness policy") || !strings.Contains(err.Error(), "tablesize") {
+			t.Fatalf("error = %v, want CloudStack's rejection of the policy", err)
+		}
+	})
+
+	t.Run("every port's failure is reported together", func(t *testing.T) {
+		env := newEnv(t, stickinessAnnotations("SourceBased", "tablesize=200k"), http, alt)
+		env.expectHostsAndNetworkWith(virtualRouterNetwork())
+		env.expectRules(stickinessTestRule("rule-1", http), stickinessTestRule("rule-2", alt))
+		env.expectFirewallListings(firewallRulesFor(http, alt), 2)
+		expectCreate(env, "rule-1", "SourceBased", "atestuid-tcp-80", fmt.Errorf("router A unavailable"))
+		expectCreate(env, "rule-2", "SourceBased", "atestuid-tcp-8080", fmt.Errorf("router B unavailable"))
+
+		err := ensure(env)
+		if err == nil || !strings.Contains(err.Error(), "router A unavailable") || !strings.Contains(err.Error(), "router B unavailable") {
+			t.Fatalf("error = %v, want both ports' failures", err)
+		}
+	})
+
+	t.Run("a recreated rule gets its policy without a lookup", func(t *testing.T) {
+		moved := http
+		moved.NodePort = 30001
+		env := newEnv(t, stickinessAnnotations("LbCookie", "cookie-name=SERVERID"), moved)
+		env.expectHostsAndNetworkWith(virtualRouterNetwork())
+		env.expectRules(stickinessTestRule("rule-1", http))
+		create := &cloudstack.CreateLBStickinessPolicyParams{}
+		gomock.InOrder(
+			env.lb.EXPECT().NewDeleteLoadBalancerRuleParams("rule-1").Return(&cloudstack.DeleteLoadBalancerRuleParams{}),
+			env.lb.EXPECT().DeleteLoadBalancerRule(gomock.Any()).Return(&cloudstack.DeleteLoadBalancerRuleResponse{}, nil),
+			env.lb.EXPECT().NewCreateLoadBalancerRuleParams("roundrobin", "atestuid-tcp-80", 30001, 80).Return(&cloudstack.CreateLoadBalancerRuleParams{}),
+			env.lb.EXPECT().CreateLoadBalancerRule(gomock.Any()).Return(&cloudstack.CreateLoadBalancerRuleResponse{
+				Id: "rule-new", Name: "atestuid-tcp-80", Publicip: "10.0.0.1", Publicipid: "ip-1", Protocol: "tcp",
+			}, nil),
+			env.lb.EXPECT().NewAssignToLoadBalancerRuleParams("rule-new").Return(&cloudstack.AssignToLoadBalancerRuleParams{}),
+			env.lb.EXPECT().AssignToLoadBalancerRule(gomock.Any()).Return(&cloudstack.AssignToLoadBalancerRuleResponse{}, nil),
+			env.firewall.EXPECT().NewListFirewallRulesParams().Return(&cloudstack.ListFirewallRulesParams{}),
+			env.firewall.EXPECT().ListFirewallRules(gomock.Any()).Return(firewallRulesFor(http), nil),
+			env.lb.EXPECT().NewCreateLBStickinessPolicyParams("rule-new", "LbCookie", "atestuid-tcp-80").Return(create),
+			env.lb.EXPECT().CreateLBStickinessPolicy(create).Return(&cloudstack.CreateLBStickinessPolicyResponse{}, nil),
+		)
+
+		if err := ensure(env); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(env.policyLookups) != 0 {
+			t.Errorf("policy lookups = %v, want none for a rule created in this run", env.policyLookups)
+		}
+	})
+
+	t.Run("a proxy protocol toggle keeps the renamed rule's policy", func(t *testing.T) {
+		annotations := stickinessAnnotations("LbCookie", "cookie-name=SERVERID")
+		annotations[ServiceAnnotationLoadBalancerProxyProtocol] = "true"
+		env := newEnv(t, annotations, http)
+		env.expectHostsAndNetworkWith(virtualRouterNetwork())
+		env.expectRules(stickinessTestRule("rule-1", http))
+		env.expectFirewallListings(firewallRulesFor(http), 1)
+		env.policies["rule-1"] = []cloudstack.LBStickinessPolicyStickinesspolicy{ours(cookie)}
+		update := &cloudstack.UpdateLoadBalancerRuleParams{}
+		env.lb.EXPECT().NewUpdateLoadBalancerRuleParams("rule-1").Return(update)
+		env.lb.EXPECT().UpdateLoadBalancerRule(update).Return(&cloudstack.UpdateLoadBalancerRuleResponse{}, nil)
+
+		if err := ensure(env); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if name, _ := update.GetName(); name != "atestuid-tcp-proxy-80" {
+			t.Errorf("updated name = %q, want atestuid-tcp-proxy-80", name)
+		}
+	})
+
+	t.Run("a prune failure still runs the stickiness phase", func(t *testing.T) {
+		env := newEnv(t, stickinessAnnotations("LbCookie", "cookie-name=SERVERID"), http)
+		env.expectHostsAndNetworkWith(virtualRouterNetwork())
+		obsolete := stickinessTestRule("rule-obsolete", alt)
+		env.expectRules(obsolete, stickinessTestRule("rule-1", http))
+		env.expectFirewallListings(firewallRulesFor(http), 2)
+		env.lb.EXPECT().NewDeleteLoadBalancerRuleParams("rule-obsolete").Return(&cloudstack.DeleteLoadBalancerRuleParams{})
+		env.lb.EXPECT().DeleteLoadBalancerRule(gomock.Any()).Return(nil, fmt.Errorf("delete rule API error"))
+		expectCreate(env, "rule-1", "LbCookie", "atestuid-tcp-80", nil)
+
+		err := ensure(env)
+		if err == nil || !strings.Contains(err.Error(), "delete rule API error") {
+			t.Fatalf("error = %v, want the prune failure reported", err)
+		}
+	})
+
+	t.Run("a rule with two policies is reported and keeps both", func(t *testing.T) {
+		for name, live := range map[string][]cloudstack.LBStickinessPolicyStickinesspolicy{
+			"ours and a hand-made one": {ours(map[string]string{"cookie-name": "OLD"}), manual("b")},
+			"two hand-made ones":       {manual("a"), manual("b")},
+		} {
+			t.Run(name, func(t *testing.T) {
+				env := newEnv(t, stickinessAnnotations("LbCookie", "cookie-name=SERVERID"), http)
+				env.expectHostsAndNetworkWith(virtualRouterNetwork())
+				env.expectRules(stickinessTestRule("rule-1", http))
+				env.expectFirewallListings(firewallRulesFor(http), 1)
+				env.policies["rule-1"] = live
+
+				if err := ensure(env); err == nil || !strings.Contains(err.Error(), "remove the extra ones") {
+					t.Fatalf("error = %v, want the hint to remove the extra policies", err)
+				}
+			})
+		}
+	})
+
+	notAllowed := fmt.Errorf("CloudStack API error 432 (CSExceptionErrorCode: 9999): The API [listLBStickinessPolicies] does not exist or is not available for the account")
+
+	t.Run("an account without the stickiness APIs still syncs a Service without stickiness", func(t *testing.T) {
+		env := newEnv(t, nil, http)
+		env.expectHostsAndNetwork()
+		env.expectRules(stickinessTestRule("rule-1", http))
+		env.expectFirewallListings(firewallRulesFor(http), 1)
+		env.policyErr = notAllowed
+
+		if err := ensure(env); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("an account without the stickiness APIs gets a clear error when stickiness is set", func(t *testing.T) {
+		env := newEnv(t, stickinessAnnotations("LbCookie", "cookie-name=SERVERID"), http)
+		env.expectHostsAndNetworkWith(virtualRouterNetwork())
+		env.expectRules(stickinessTestRule("rule-1", http))
+		env.expectFirewallListings(firewallRulesFor(http), 1)
+		env.policyErr = notAllowed
+
+		if err := ensure(env); err == nil || !strings.Contains(err.Error(), "stickiness needs the listLBStickinessPolicies") {
+			t.Fatalf("error = %v, want it to name the missing APIs", err)
+		}
+	})
+
+	t.Run("other policy lookup errors still fail the sync", func(t *testing.T) {
+		env := newEnv(t, nil, http)
+		env.expectHostsAndNetwork()
+		env.expectRules(stickinessTestRule("rule-1", http))
+		env.expectFirewallListings(firewallRulesFor(http), 1)
+		env.policyErr = fmt.Errorf("CloudStack API error 530: internal error")
+
+		if err := ensure(env); err == nil || !strings.Contains(err.Error(), "internal error") {
+			t.Fatalf("error = %v, want the lookup failure", err)
+		}
+	})
+
+	t.Run("a revoked policy is ignored", func(t *testing.T) {
+		env := newEnv(t, stickinessAnnotations("LbCookie", "cookie-name=SERVERID"), http)
+		env.expectHostsAndNetworkWith(virtualRouterNetwork())
+		env.expectRules(stickinessTestRule("rule-1", http))
+		env.expectFirewallListings(firewallRulesFor(http), 1)
+		revoked := ours(cookie)
+		revoked.State = "Revoked"
+		env.policies["rule-1"] = []cloudstack.LBStickinessPolicyStickinesspolicy{revoked}
+		expectCreate(env, "rule-1", "LbCookie", "atestuid-tcp-80", nil)
+
+		if err := ensure(env); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+}
+
+func TestEnsureLoadBalancerRepairsEmptyRules(t *testing.T) {
+	http := corev1.ServicePort{Name: "http", Port: 80, NodePort: 30000, Protocol: corev1.ProtocolTCP}
+
+	t.Run("an adopted rule with no hosts gets them", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+		env := newEnsureLBTestEnv(ctrl, nil, []corev1.ServicePort{http})
+		env.expectHostsAndNetwork()
+		env.expectRules(stickinessTestRule("rule-1", http))
+		env.expectFirewallListings(firewallRulesFor(http), 1)
+		env.instances = nil
+		assign := &cloudstack.AssignToLoadBalancerRuleParams{}
+		env.lb.EXPECT().NewAssignToLoadBalancerRuleParams("rule-1").Return(assign)
+		env.lb.EXPECT().AssignToLoadBalancerRule(assign).Return(&cloudstack.AssignToLoadBalancerRuleResponse{}, nil)
+
+		if _, err := env.cs.EnsureLoadBalancer(context.TODO(), "test-cluster", env.service, env.nodes); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if ids, _ := assign.GetVirtualmachineids(); !slices.Equal(ids, []string{"vm-1"}) {
+			t.Errorf("assigned VMs = %v, want [vm-1]", ids)
+		}
+	})
+
+	t.Run("an adopted rule with other hosts is left to node sync", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+		env := newEnsureLBTestEnv(ctrl, nil, []corev1.ServicePort{http})
+		env.expectHostsAndNetwork()
+		env.expectRules(stickinessTestRule("rule-1", http))
+		env.expectFirewallListings(firewallRulesFor(http), 1)
+		env.instances = []*cloudstack.VirtualMachine{{Id: "vm-2"}}
+
+		if _, err := env.cs.EnsureLoadBalancer(context.TODO(), "test-cluster", env.service, env.nodes); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+}
+
+func TestEnsureLoadBalancerFreshIP(t *testing.T) {
+	http := corev1.ServicePort{Name: "http", Port: 80, NodePort: 30000, Protocol: corev1.ProtocolTCP}
+	freshService := func(t *testing.T, annotations map[string]string, createRuleErr error) *ensureLBTestEnv {
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+		env := newEnsureLBTestEnv(ctrl, annotations, []corev1.ServicePort{http})
+		env.expectHosts()
+		env.expectRules()
+		env.network.EXPECT().GetNetworkByID("net-1", gomock.Any()).Return(virtualRouterNetwork(), 1, nil).Times(2)
+		env.address.EXPECT().NewAssociateIpAddressParams().Return(&cloudstack.AssociateIpAddressParams{})
+		env.address.EXPECT().AssociateIpAddress(gomock.Any()).Return(&cloudstack.AssociateIpAddressResponse{Id: "ip-new", Ipaddress: "10.0.0.9"}, nil)
+		env.lb.EXPECT().NewCreateLoadBalancerRuleParams("roundrobin", "atestuid-tcp-80", 30000, 80).Return(&cloudstack.CreateLoadBalancerRuleParams{})
+		if createRuleErr != nil {
+			env.lb.EXPECT().CreateLoadBalancerRule(gomock.Any()).Return(nil, createRuleErr)
+			return env
+		}
+		env.lb.EXPECT().CreateLoadBalancerRule(gomock.Any()).Return(&cloudstack.CreateLoadBalancerRuleResponse{
+			Id: "rule-new", Name: "atestuid-tcp-80", Publicip: "10.0.0.9", Publicipid: "ip-new", Protocol: "tcp",
+		}, nil)
+		env.lb.EXPECT().NewAssignToLoadBalancerRuleParams("rule-new").Return(&cloudstack.AssignToLoadBalancerRuleParams{})
+		env.lb.EXPECT().AssignToLoadBalancerRule(gomock.Any()).Return(&cloudstack.AssignToLoadBalancerRuleResponse{}, nil)
+		env.expectFirewallListings(&cloudstack.ListFirewallRulesResponse{}, 1)
+		env.firewall.EXPECT().NewCreateFirewallRuleParams("ip-new", "tcp").Return(&cloudstack.CreateFirewallRuleParams{})
+		env.firewall.EXPECT().CreateFirewallRule(gomock.Any()).Return(&cloudstack.CreateFirewallRuleResponse{}, nil)
+		return env
+	}
+
+	t.Run("an unsupported method fails before an IP is associated", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+		env := newEnsureLBTestEnv(ctrl, stickinessAnnotations("NoSuchMethod", ""), []corev1.ServicePort{http})
+		env.expectHosts()
+		env.expectRules()
+		env.network.EXPECT().GetNetworkByID("net-1", gomock.Any()).Return(virtualRouterNetwork(), 1, nil)
+
+		_, err := env.cs.EnsureLoadBalancer(context.TODO(), "test-cluster", env.service, env.nodes)
+		if err == nil || !strings.Contains(err.Error(), "not supported on this network") {
+			t.Fatalf("error = %v, want the unsupported method rejected", err)
+		}
+	})
+
+	t.Run("a rejected policy keeps the new IP and its rules", func(t *testing.T) {
+		env := freshService(t, stickinessAnnotations("SourceBased", "tablesize=abc"), nil)
+		env.lb.EXPECT().NewCreateLBStickinessPolicyParams("rule-new", "SourceBased", "atestuid-tcp-80").Return(&cloudstack.CreateLBStickinessPolicyParams{})
+		env.lb.EXPECT().CreateLBStickinessPolicy(gomock.Any()).Return(nil, fmt.Errorf("tablesize is not in size format"))
+
+		_, err := env.cs.EnsureLoadBalancer(context.TODO(), "test-cluster", env.service, env.nodes)
+		if err == nil || !strings.Contains(err.Error(), "stickiness") {
+			t.Fatalf("error = %v, want the policy rejection", err)
+		}
+	})
+
+	t.Run("a failure before the rules exist still releases the new IP", func(t *testing.T) {
+		env := freshService(t, nil, fmt.Errorf("create rule API error"))
+		release := &cloudstack.DisassociateIpAddressParams{}
+		env.address.EXPECT().NewDisassociateIpAddressParams("ip-new").Return(release)
+		env.address.EXPECT().DisassociateIpAddress(release).Return(&cloudstack.DisassociateIpAddressResponse{}, nil)
+
+		_, err := env.cs.EnsureLoadBalancer(context.TODO(), "test-cluster", env.service, env.nodes)
+		if err == nil || !strings.Contains(err.Error(), "create rule API error") {
+			t.Fatalf("error = %v, want the rule creation failure", err)
 		}
 	})
 }

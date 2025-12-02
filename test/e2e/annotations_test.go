@@ -24,6 +24,7 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"maps"
 	"strings"
 	"testing"
 
@@ -33,10 +34,12 @@ import (
 )
 
 const (
-	annotationSourceCidrs   = "service.beta.kubernetes.io/cloudstack-load-balancer-source-cidrs"
-	annotationHostname      = "service.beta.kubernetes.io/cloudstack-load-balancer-hostname"
-	annotationIPAssociated  = "service.beta.kubernetes.io/cloudstack-load-balancer-ip-associated-by-controller" //nolint:gosec
-	annotationProxyProtocol = "service.beta.kubernetes.io/cloudstack-load-balancer-proxy-protocol"
+	annotationSourceCidrs      = "service.beta.kubernetes.io/cloudstack-load-balancer-source-cidrs"
+	annotationHostname         = "service.beta.kubernetes.io/cloudstack-load-balancer-hostname"
+	annotationIPAssociated     = "service.beta.kubernetes.io/cloudstack-load-balancer-ip-associated-by-controller" //nolint:gosec
+	annotationProxyProtocol    = "service.beta.kubernetes.io/cloudstack-load-balancer-proxy-protocol"
+	annotationStickinessMethod = "service.beta.kubernetes.io/cloudstack-load-balancer-stickiness-method-name"
+	annotationStickinessParams = "service.beta.kubernetes.io/cloudstack-load-balancer-stickiness-method-param"
 )
 
 func TestAnnot_SourceCIDRs(t *testing.T) {
@@ -132,6 +135,166 @@ func TestAnnot_SessionAffinity(t *testing.T) {
 			}
 			return current[0].Algorithm == "roundrobin", nil
 		})
+}
+
+// LbCookie follows appProtocol: http, is kept by a sync that changes nothing, is replaced when a
+// parameter changes and is removed with the annotations. The rules stay throughout.
+func TestAnnot_Stickiness(t *testing.T) {
+	f := NewFramework(t)
+	http := "http"
+	svc := f.CreateLBService(func(s *corev1.Service) {
+		s.Annotations = map[string]string{
+			annotationStickinessMethod: "LbCookie",
+			annotationStickinessParams: "cookie-name=SERVERID,nocache=true",
+		}
+		s.Spec.Ports = []corev1.ServicePort{
+			{Name: "http", Port: 80, Protocol: corev1.ProtocolTCP, AppProtocol: &http},
+			{Name: "alt", Port: 8080, Protocol: corev1.ProtocolTCP},
+		}
+	})
+	lbName := defaultLoadBalancerName(svc)
+	f.WaitForIngressIP(svc)
+	rules := ruleIDsByPort(f.WaitForLBRules(lbName, 2))
+	cookie := map[string]string{"cookie-name": "SERVERID", "nocache": "true"}
+
+	policy := f.WaitForStickinessPolicy(rules["80"], "LbCookie", cookie)
+	if policy.Description != stickinessPolicyMarker {
+		t.Errorf("policy description = %q, want the controller's marker", policy.Description)
+	}
+	f.WaitForNoStickinessPolicy(rules["8080"])
+
+	// Recreating an unchanged policy on every sync would reset affinity each time.
+	f.ResyncAndWait(svc)
+	if again := f.WaitForStickinessPolicy(rules["80"], "LbCookie", cookie); again.Id != policy.Id {
+		t.Errorf("policy replaced %s -> %s by a reconcile that changed nothing", policy.Id, again.Id)
+	}
+
+	f.UpdateService(svc, func(s *corev1.Service) {
+		s.Spec.Ports[0].AppProtocol = nil
+		s.Spec.Ports[1].AppProtocol = &http
+	})
+	moved := f.WaitForStickinessPolicy(rules["8080"], "LbCookie", cookie)
+	f.WaitForNoStickinessPolicy(rules["80"])
+
+	f.UpdateService(svc, func(s *corev1.Service) {
+		s.Annotations[annotationStickinessParams] = "cookie-name=JSESSIONID"
+	})
+	if replaced := f.WaitForStickinessPolicy(rules["8080"], "LbCookie", map[string]string{"cookie-name": "JSESSIONID"}); replaced.Id == moved.Id {
+		t.Errorf("policy %s was kept across a parameter change, want it replaced", moved.Id)
+	}
+
+	f.UpdateService(svc, func(s *corev1.Service) {
+		delete(s.Annotations, annotationStickinessMethod)
+		delete(s.Annotations, annotationStickinessParams)
+	})
+	f.WaitForNoStickinessPolicy(rules["8080"])
+	if after := ruleIDsByPort(f.WaitForLBRules(lbName, 2)); !maps.Equal(after, rules) {
+		t.Errorf("rules changed %v -> %v, want them kept", rules, after)
+	}
+}
+
+// A policy added by hand stays on a Service that does not ask for stickiness.
+func TestAnnot_StickinessForeignPolicy(t *testing.T) {
+	f := NewFramework(t)
+	svc := f.CreateLBService(nil)
+	f.WaitForIngressIP(svc)
+	rules := f.WaitForLBRules(defaultLoadBalancerName(svc), 1)
+	manual := f.CreateStickinessPolicy(rules[0].Id, "manual", "SourceBased", map[string]string{"tablesize": "200k"})
+
+	f.ResyncAndWait(svc)
+	live, err := f.StickinessPolicies(rules[0].Id)
+	if err != nil {
+		t.Fatalf("listing stickiness policies: %v", err)
+	}
+	if len(live) != 1 || live[0].Id != manual {
+		t.Errorf("live policies = %+v, want the hand-made %s kept", live, manual)
+	}
+}
+
+// A stickiness change that cannot be applied fails the sync and leaves the current policies alone,
+// whether the controller or CloudStack rejects it. Each case uses its own Service, because failing
+// syncs keep recording events and Kubernetes drops events for an object that records too many.
+func TestAnnot_StickinessRejected(t *testing.T) {
+	cases := []struct {
+		name       string
+		method     string
+		params     string
+		undeclared bool
+		wantErr    string
+	}{
+		{name: "a value CloudStack rejects", method: "SourceBased", params: "tablesize=abc", wantErr: "tablesize"},
+		{name: "a method the network does not offer", method: "NoSuchMethod", wantErr: "not supported on this network"},
+		{name: "an LbCookie mode HAProxy does not know", method: "LbCookie", params: "mode=bogus", wantErr: "insert, rewrite, prefix"},
+		{name: "an empty parameter value", method: "LbCookie", params: "cookie-name=", wantErr: "missing value"},
+		{name: "a character HAProxy would misread", method: "LbCookie", params: "cookie-name=a#b", wantErr: "are not allowed"},
+		{name: "LbCookie on a port without appProtocol http", method: "LbCookie", undeclared: true, wantErr: "appProtocol: http"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := NewFramework(t)
+			http := "http"
+			svc := f.CreateLBService(func(s *corev1.Service) {
+				s.Annotations = map[string]string{
+					annotationStickinessMethod: "SourceBased",
+					annotationStickinessParams: "tablesize=200k",
+				}
+				if !tc.undeclared {
+					s.Spec.Ports[0].AppProtocol = &http
+				}
+			})
+			policies := map[string]string{}
+			for _, rule := range f.WaitForLBRules(defaultLoadBalancerName(svc), 1) {
+				policies[rule.Id] = f.WaitForStickinessPolicy(rule.Id, "SourceBased", map[string]string{"tablesize": "200k"}).Id
+			}
+
+			f.UpdateService(svc, func(s *corev1.Service) {
+				s.Annotations[annotationStickinessMethod] = tc.method
+				s.Annotations[annotationStickinessParams] = tc.params
+			})
+			f.WaitForSyncFailure(svc, tc.wantErr)
+
+			for ruleID, policyID := range policies {
+				live, err := f.StickinessPolicies(ruleID)
+				if err != nil {
+					t.Fatalf("listing stickiness policies of rule %s: %v", ruleID, err)
+				}
+				if len(live) != 1 || live[0].Id != policyID {
+					t.Errorf("rule %s policies = %+v, want %s untouched", ruleID, live, policyID)
+				}
+			}
+		})
+	}
+}
+
+// A new Service whose policy CloudStack rejects keeps its IP and rule and stays pending. Once the
+// annotation is fixed, it publishes the same IP.
+func TestAnnot_StickinessNewServiceRejected(t *testing.T) {
+	f := NewFramework(t)
+	svc := f.CreateLBService(func(s *corev1.Service) {
+		s.Annotations = map[string]string{
+			annotationStickinessMethod: "SourceBased",
+			annotationStickinessParams: "tablesize=abc",
+		}
+	})
+	lbName := defaultLoadBalancerName(svc)
+	f.WaitForSyncFailure(svc, "tablesize")
+	rules := f.WaitForLBRules(lbName, 1)
+
+	current, err := f.K8s.CoreV1().Services(svc.Namespace).Get(context.Background(), svc.Name, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("getting service: %v", err)
+	}
+	if len(current.Status.LoadBalancer.Ingress) != 0 {
+		t.Errorf("ingress = %v, want none while the sync fails", current.Status.LoadBalancer.Ingress)
+	}
+
+	f.UpdateService(svc, func(s *corev1.Service) {
+		s.Annotations[annotationStickinessParams] = "tablesize=200k"
+	})
+	if ingress := f.WaitForIngressIP(svc); ingress.IP != rules[0].Publicip {
+		t.Errorf("ingress IP = %q, want the IP the failed sync kept, %q", ingress.IP, rules[0].Publicip)
+	}
+	f.WaitForStickinessPolicy(rules[0].Id, "SourceBased", map[string]string{"tablesize": "200k"})
 }
 
 func TestAnnot_ExplicitLoadBalancerIP(t *testing.T) {
