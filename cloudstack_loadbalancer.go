@@ -45,19 +45,25 @@ const (
 	ServiceAnnotationLoadBalancerProxyProtocol        = "service.beta.kubernetes.io/cloudstack-load-balancer-proxy-protocol"
 	ServiceAnnotationLoadBalancerLoadbalancerHostname = "service.beta.kubernetes.io/cloudstack-load-balancer-hostname"
 	ServiceAnnotationLoadBalancerSourceCidrs          = "service.beta.kubernetes.io/cloudstack-load-balancer-source-cidrs"
+
+	// ServiceAnnotationLoadBalancerIPAssociatedByController indicates that the controller
+	// associated the IP address. This annotation is set by the controller when it associates
+	// an unallocated IP, and is used to determine if the IP should be disassociated on deletion.
+	ServiceAnnotationLoadBalancerIPAssociatedByController = "service.beta.kubernetes.io/cloudstack-load-balancer-ip-associated-by-controller" //nolint:gosec
 )
 
 type loadBalancer struct {
 	*cloudstack.CloudStackClient
 
-	name      string
-	algorithm string
-	hostIDs   []string
-	ipAddr    string
-	ipAddrID  string
-	networkID string
-	projectID string
-	rules     map[string]*cloudstack.LoadBalancerRule
+	name                     string
+	algorithm                string
+	hostIDs                  []string
+	ipAddr                   string
+	ipAddrID                 string
+	networkID                string
+	projectID                string
+	rules                    map[string]*cloudstack.LoadBalancerRule
+	ipAssociatedByController bool
 }
 
 // GetLoadBalancer returns whether the specified load balancer exists, and if so, what its status is.
@@ -127,6 +133,14 @@ func (cs *CSCloud) EnsureLoadBalancer(ctx context.Context, clusterName string, s
 					}
 				}
 			}(lb)
+		}
+
+		// If the controller associated the IP and matches the service spec, set the annotation to persist this information.
+		if lb.ipAssociatedByController && lb.ipAddr == service.Spec.LoadBalancerIP {
+			if err := cs.setServiceAnnotation(ctx, service, ServiceAnnotationLoadBalancerIPAssociatedByController, "true"); err != nil {
+				// Log the error but don't fail - the annotation is helpful but not critical
+				klog.Warningf("Failed to set annotation on service %s/%s: %v", service.Namespace, service.Name, err)
+			}
 		}
 	}
 
@@ -201,11 +215,11 @@ func (cs *CSCloud) EnsureLoadBalancer(ctx context.Context, clusterName string, s
 	for _, lbRule := range lb.rules {
 		protocol := ProtocolFromLoadBalancer(lbRule.Protocol)
 		if protocol == LoadBalancerProtocolInvalid {
-			return nil, fmt.Errorf("Error parsing protocol %v: %v", lbRule.Protocol, err)
+			return nil, fmt.Errorf("error parsing protocol %v: %v", lbRule.Protocol, err)
 		}
 		port, err := strconv.ParseInt(lbRule.Publicport, 10, 32)
 		if err != nil {
-			return nil, fmt.Errorf("Error parsing port %s: %v", lbRule.Publicport, err)
+			return nil, fmt.Errorf("error parsing port %s: %v", lbRule.Publicport, err)
 		}
 
 		klog.V(4).Infof("Deleting firewall rules associated with load balancer rule: %v (%v:%v:%v)", lbRule.Name, protocol, lbRule.Publicip, port)
@@ -354,10 +368,52 @@ func (cs *CSCloud) EnsureLoadBalancerDeleted(ctx context.Context, clusterName st
 		}
 	}
 
-	if lb.ipAddr != "" && lb.ipAddr != service.Spec.LoadBalancerIP {
-		klog.V(4).Infof("Releasing load balancer IP: %v", lb.ipAddr)
-		if err := lb.releaseLoadBalancerIP(); err != nil {
-			return err
+	if lb.ipAddr != "" {
+		// If the IP was allocated by the controller (not specified in service spec), release it.
+		if lb.ipAddr != service.Spec.LoadBalancerIP {
+			klog.V(4).Infof("Releasing load balancer IP: %v", lb.ipAddr)
+			if err := lb.releaseLoadBalancerIP(); err != nil {
+				return err
+			}
+		} else {
+			// If the IP was specified in service spec, check if it was associated by the controller.
+			// First, check if there's an annotation indicating the controller associated it.
+			// If not, check if there are any other load balancer rules using this IP.
+			shouldDisassociate := getBoolFromServiceAnnotation(service, ServiceAnnotationLoadBalancerIPAssociatedByController, false)
+
+			if shouldDisassociate {
+				// Annotation is set, so check if there are any other load balancer rules using this IP.
+				// Since we've already deleted all rules for this service, any remaining rules must belong
+				// to other services. If no other rules exist, it's safe to disassociate the IP.
+				ip, count, err := lb.Address.GetPublicIpAddressByID(lb.ipAddrID)
+				if err != nil {
+					klog.Errorf("Error retrieving IP address %v for disassociation check: %v", lb.ipAddr, err)
+					shouldDisassociate = false
+				} else if count > 0 && ip.Allocated != "" {
+					p := lb.LoadBalancer.NewListLoadBalancerRulesParams()
+					p.SetPublicipid(lb.ipAddrID)
+					p.SetListall(true)
+					if lb.projectID != "" {
+						p.SetProjectid(lb.projectID)
+					}
+					otherRules, err := lb.LoadBalancer.ListLoadBalancerRules(p)
+					if err != nil {
+						klog.Errorf("Error checking for other load balancer rules using IP %v: %v", lb.ipAddr, err)
+						shouldDisassociate = false
+					} else if otherRules.Count > 0 {
+						// Other load balancer rules are using this IP (other services are using it),
+						// so don't disassociate.
+						shouldDisassociate = false
+					}
+				}
+			}
+
+			if shouldDisassociate {
+				klog.V(4).Infof("Disassociating IP %v that was associated by the controller", lb.ipAddr)
+				if err := lb.releaseLoadBalancerIP(); err != nil {
+					return err
+				}
+			}
 		}
 	}
 
@@ -492,6 +548,7 @@ func (lb *loadBalancer) getPublicIPAddress(loadBalancerIP string) error {
 
 	p := lb.Address.NewListPublicIpAddressesParams()
 	p.SetIpaddress(loadBalancerIP)
+	p.SetAllocatedonly(false)
 	p.SetListall(true)
 
 	if lb.projectID != "" {
@@ -504,12 +561,16 @@ func (lb *loadBalancer) getPublicIPAddress(loadBalancerIP string) error {
 	}
 
 	if l.Count != 1 {
-		return fmt.Errorf("could not find IP address %v", loadBalancerIP)
+		return fmt.Errorf("could not find IP address %v. Found %d addresses", loadBalancerIP, l.Count)
 	}
 
 	lb.ipAddr = l.PublicIpAddresses[0].Ipaddress
 	lb.ipAddrID = l.PublicIpAddresses[0].Id
 
+	// If the IP is not allocated, associate it.
+	if l.PublicIpAddresses[0].Allocated == "" {
+		return lb.associatePublicIPAddress()
+	}
 	return nil
 }
 
@@ -538,6 +599,10 @@ func (lb *loadBalancer) associatePublicIPAddress() error {
 		p.SetProjectid(lb.projectID)
 	}
 
+	if lb.ipAddr != "" {
+		p.SetIpaddress(lb.ipAddr)
+	}
+
 	// Associate a new IP address
 	r, err := lb.Address.AssociateIpAddress(p)
 	if err != nil {
@@ -546,6 +611,7 @@ func (lb *loadBalancer) associatePublicIPAddress() error {
 
 	lb.ipAddr = r.Ipaddress
 	lb.ipAddrID = r.Id
+	lb.ipAssociatedByController = true
 
 	return nil
 }
