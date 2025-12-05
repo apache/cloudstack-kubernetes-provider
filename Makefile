@@ -43,7 +43,7 @@ cloudstack-ccm: ${CMD_SRC}
 	go build -ldflags ${LDFLAGS} -o $@ $^
 
 test: gofmt
-	go test -v
+	go test -v -coverprofile=coverage.txt -covermode=atomic
 	go vet
 
 docker: gofmt
