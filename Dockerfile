@@ -19,8 +19,13 @@ FROM --platform=$BUILDPLATFORM golang:1.23 AS builder
 ARG BUILDPLATFORM
 ARG TARGETOS
 ARG TARGETARCH
-COPY . /go/src/github.com/apache/cloudstack-kubernetes-provider
+
 WORKDIR /go/src/github.com/apache/cloudstack-kubernetes-provider
+COPY go.mod /go/src/github.com/apache/cloudstack-kubernetes-provider/go.mod
+COPY go.sum /go/src/github.com/apache/cloudstack-kubernetes-provider/go.sum
+RUN go mod download
+
+COPY . /go/src/github.com/apache/cloudstack-kubernetes-provider
 RUN make clean && CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} make
 
 FROM gcr.io/distroless/static:nonroot

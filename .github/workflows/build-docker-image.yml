@@ -35,12 +35,12 @@ concurrency:
 jobs:
   build:
     if: github.repository == 'apache/cloudstack-kubernetes-provider'
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     steps:
       - name: Set Docker repository name
         run: echo "DOCKER_REPOSITORY=apache" >> $GITHUB_ENV
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
           
