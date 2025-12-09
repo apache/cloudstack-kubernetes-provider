@@ -610,7 +610,7 @@ func (lb *loadBalancer) checkLoadBalancerRule(lbRuleName string, port corev1.Ser
 		lbRule.Privateport == strconv.Itoa(int(port.NodePort)) &&
 		lbRule.Publicport == strconv.Itoa(int(port.Port))
 
-	cidrListChanged := len(cidrList) != len(lbRuleCidrList) || !setsEqual(cidrList, lbRuleCidrList)
+	cidrListChanged := len(cidrList) != len(lbRuleCidrList) || !compareStringSlice(cidrList, lbRuleCidrList)
 
 	// Check if CIDR list also changed and version < 4.22, then we must recreate the rule.
 	if !basicPropsMatch || (cidrListChanged && version.LT(semver.Version{Major: 4, Minor: 22, Patch: 0})) {
@@ -626,32 +626,6 @@ func (lb *loadBalancer) checkLoadBalancerRule(lbRuleName string, port corev1.Ser
 	updateProto := lbRule.Protocol != protocol.CSProtocol()
 
 	return lbRule, updateAlgo || updateProto || cidrListChanged, nil
-}
-
-// setsEqual checks if two slices contain the exact same unique elements, regardless of order.
-func setsEqual(listA, listB []string) bool {
-	createSet := func(list []string) map[string]bool {
-		set := make(map[string]bool)
-		for _, item := range list {
-			set[item] = true
-		}
-		return set
-	}
-
-	setA := createSet(listA)
-	setB := createSet(listB)
-
-	if len(setA) != len(setB) {
-		return false
-	}
-
-	for item := range setA {
-		if _, found := setB[item]; !found {
-			return false
-		}
-	}
-
-	return true
 }
 
 // updateLoadBalancerRule updates a load balancer rule.

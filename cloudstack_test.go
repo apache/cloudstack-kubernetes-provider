@@ -21,11 +21,15 @@ package cloudstack
 
 import (
 	"context"
+	"errors"
 	"os"
 	"strconv"
 	"strings"
 	"testing"
 
+	"github.com/apache/cloudstack-go/v2/cloudstack"
+	"github.com/blang/semver/v4"
+	"go.uber.org/mock/gomock"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -118,4 +122,156 @@ func TestLoadBalancer(t *testing.T) {
 	if exists {
 		t.Fatalf("GetLoadBalancer(\"noexist\") returned exists")
 	}
+}
+
+func TestGetManagementServerVersion(t *testing.T) {
+	t.Run("returns parsed version", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+
+		mockMgmt := cloudstack.NewMockManagementServiceIface(ctrl)
+		params := &cloudstack.ListManagementServersMetricsParams{}
+		resp := &cloudstack.ListManagementServersMetricsResponse{
+			Count: 1,
+			ManagementServersMetrics: []*cloudstack.ManagementServersMetric{
+				{Version: "4.17.1.0"},
+			},
+		}
+
+		gomock.InOrder(
+			mockMgmt.EXPECT().NewListManagementServersMetricsParams().Return(params),
+			mockMgmt.EXPECT().ListManagementServersMetrics(params).Return(resp, nil),
+		)
+
+		cs := &CSCloud{
+			client: &cloudstack.CloudStackClient{
+				Management: mockMgmt,
+			},
+		}
+
+		version, err := cs.getManagementServerVersion()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		expected := semver.MustParse("4.17.1")
+		if !version.Equals(expected) {
+			t.Fatalf("version = %v, want %v", version, expected)
+		}
+	})
+
+	t.Run("returns correct parsed version with development server", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+
+		mockMgmt := cloudstack.NewMockManagementServiceIface(ctrl)
+		params := &cloudstack.ListManagementServersMetricsParams{}
+		resp := &cloudstack.ListManagementServersMetricsResponse{
+			Count: 1,
+			ManagementServersMetrics: []*cloudstack.ManagementServersMetric{
+				{Version: "4.17.1.0-SNAPSHOT"},
+			},
+		}
+
+		gomock.InOrder(
+			mockMgmt.EXPECT().NewListManagementServersMetricsParams().Return(params),
+			mockMgmt.EXPECT().ListManagementServersMetrics(params).Return(resp, nil),
+		)
+
+		cs := &CSCloud{
+			client: &cloudstack.CloudStackClient{
+				Management: mockMgmt,
+			},
+		}
+
+		version, err := cs.getManagementServerVersion()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		expected := semver.MustParse("4.17.1")
+		if !version.Equals(expected) {
+			t.Fatalf("version = %v, want %v", version, expected)
+		}
+	})
+
+	t.Run("returns error when api call fails", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+
+		mockMgmt := cloudstack.NewMockManagementServiceIface(ctrl)
+		params := &cloudstack.ListManagementServersMetricsParams{}
+		apiErr := errors.New("api failure")
+
+		gomock.InOrder(
+			mockMgmt.EXPECT().NewListManagementServersMetricsParams().Return(params),
+			mockMgmt.EXPECT().ListManagementServersMetrics(params).Return(nil, apiErr),
+		)
+
+		cs := &CSCloud{
+			client: &cloudstack.CloudStackClient{
+				Management: mockMgmt,
+			},
+		}
+
+		if _, err := cs.getManagementServerVersion(); err == nil {
+			t.Fatalf("expected error, got nil")
+		}
+	})
+
+	t.Run("returns error when no servers found", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+
+		mockMgmt := cloudstack.NewMockManagementServiceIface(ctrl)
+		params := &cloudstack.ListManagementServersMetricsParams{}
+		resp := &cloudstack.ListManagementServersMetricsResponse{
+			Count:                    0,
+			ManagementServersMetrics: []*cloudstack.ManagementServersMetric{},
+		}
+
+		gomock.InOrder(
+			mockMgmt.EXPECT().NewListManagementServersMetricsParams().Return(params),
+			mockMgmt.EXPECT().ListManagementServersMetrics(params).Return(resp, nil),
+		)
+
+		cs := &CSCloud{
+			client: &cloudstack.CloudStackClient{
+				Management: mockMgmt,
+			},
+		}
+
+		if _, err := cs.getManagementServerVersion(); err == nil {
+			t.Fatalf("expected error for zero management servers")
+		}
+	})
+
+	t.Run("returns error when version cannot be parsed", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+
+		mockMgmt := cloudstack.NewMockManagementServiceIface(ctrl)
+		params := &cloudstack.ListManagementServersMetricsParams{}
+		resp := &cloudstack.ListManagementServersMetricsResponse{
+			Count: 1,
+			ManagementServersMetrics: []*cloudstack.ManagementServersMetric{
+				{Version: "invalid.version.string"},
+			},
+		}
+
+		gomock.InOrder(
+			mockMgmt.EXPECT().NewListManagementServersMetricsParams().Return(params),
+			mockMgmt.EXPECT().ListManagementServersMetrics(params).Return(resp, nil),
+		)
+
+		cs := &CSCloud{
+			client: &cloudstack.CloudStackClient{
+				Management: mockMgmt,
+			},
+		}
+
+		if _, err := cs.getManagementServerVersion(); err == nil {
+			t.Fatalf("expected parse error")
+		}
+	})
 }

@@ -6,6 +6,7 @@ require (
 	github.com/apache/cloudstack-go/v2 v2.19.0
 	github.com/blang/semver/v4 v4.0.0
 	github.com/spf13/pflag v1.0.5
+	go.uber.org/mock v0.5.0
 	gopkg.in/gcfg.v1 v1.2.3
 	k8s.io/api v0.24.17
 	k8s.io/apimachinery v0.24.17
@@ -71,7 +72,6 @@ require (
 	go.opentelemetry.io/otel/trace v0.20.0 // indirect
 	go.opentelemetry.io/proto/otlp v0.7.0 // indirect
 	go.uber.org/atomic v1.7.0 // indirect
-	go.uber.org/mock v0.5.0 // indirect
 	go.uber.org/multierr v1.6.0 // indirect
 	go.uber.org/zap v1.19.0 // indirect
 	golang.org/x/crypto v0.36.0 // indirect
