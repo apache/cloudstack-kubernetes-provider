@@ -24,6 +24,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strings"
 
 	"github.com/apache/cloudstack-go/v2/cloudstack"
 	corev1 "k8s.io/api/core/v1"
@@ -53,7 +54,7 @@ func (cs *CSCloud) NodeAddresses(ctx context.Context, name types.NodeName) ([]co
 // NodeAddressesByProviderID returns the addresses of the specified instance.
 func (cs *CSCloud) NodeAddressesByProviderID(ctx context.Context, providerID string) ([]corev1.NodeAddress, error) {
 	instance, count, err := cs.client.VirtualMachine.GetVirtualMachineByID(
-		providerID,
+		cs.getInstanceIDFromProviderID(providerID),
 		cloudstack.WithProject(cs.projectID),
 	)
 	if err != nil {
@@ -125,7 +126,7 @@ func (cs *CSCloud) InstanceType(ctx context.Context, name types.NodeName) (strin
 // InstanceTypeByProviderID returns the type of the specified instance.
 func (cs *CSCloud) InstanceTypeByProviderID(ctx context.Context, providerID string) (string, error) {
 	instance, count, err := cs.client.VirtualMachine.GetVirtualMachineByID(
-		providerID,
+		cs.getInstanceIDFromProviderID(providerID),
 		cloudstack.WithProject(cs.projectID),
 	)
 	if err != nil {
@@ -151,7 +152,7 @@ func (cs *CSCloud) CurrentNodeName(ctx context.Context, hostname string) (types.
 // InstanceExistsByProviderID returns if the instance still exists.
 func (cs *CSCloud) InstanceExistsByProviderID(ctx context.Context, providerID string) (bool, error) {
 	_, count, err := cs.client.VirtualMachine.GetVirtualMachineByID(
-		providerID,
+		cs.getInstanceIDFromProviderID(providerID),
 		cloudstack.WithProject(cs.projectID),
 	)
 	if err != nil {
@@ -185,6 +186,11 @@ func (cs *CSCloud) InstanceShutdown(ctx context.Context, node *corev1.Node) (boo
 
 func (cs *CSCloud) InstanceMetadata(ctx context.Context, node *corev1.Node) (*cloudprovider.InstanceMetadata, error) {
 
+	instanceID, err := cs.InstanceID(ctx, types.NodeName(node.Name))
+	if err != nil {
+		return nil, err
+	}
+
 	instanceType, err := cs.InstanceType(ctx, types.NodeName(node.Name))
 	if err != nil {
 		return nil, err
@@ -195,16 +201,28 @@ func (cs *CSCloud) InstanceMetadata(ctx context.Context, node *corev1.Node) (*cl
 		return nil, err
 	}
 
-	zone, err := cs.GetZone(ctx)
+	zone, err := cs.GetZoneByNodeName(ctx, types.NodeName(node.Name))
 	if err != nil {
 		return nil, err
 	}
 
 	return &cloudprovider.InstanceMetadata{
-		ProviderID:    cs.ProviderName(),
+		ProviderID:    cs.getProviderIDFromInstanceID(instanceID),
 		InstanceType:  instanceType,
 		NodeAddresses: addresses,
-		Zone:          cs.zone,
+		Zone:          zone.FailureDomain,
 		Region:        zone.Region,
 	}, nil
+}
+
+func (cs *CSCloud) getProviderIDFromInstanceID(instanceID string) string {
+	return fmt.Sprintf("%s://%s", cs.ProviderName(), instanceID)
+}
+
+func (cs *CSCloud) getInstanceIDFromProviderID(providerID string) string {
+	parts := strings.Split(providerID, "://")
+	if len(parts) == 1 {
+		return providerID
+	}
+	return parts[1]
 }

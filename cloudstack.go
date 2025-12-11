@@ -28,6 +28,7 @@ import (
 
 	"github.com/apache/cloudstack-go/v2/cloudstack"
 	"gopkg.in/gcfg.v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	cloudprovider "k8s.io/cloud-provider"
 	"k8s.io/klog/v2"
@@ -50,9 +51,10 @@ type CSConfig struct {
 
 // CSCloud is an implementation of Interface for CloudStack.
 type CSCloud struct {
-	client    *cloudstack.CloudStackClient
-	projectID string // If non-"", all resources will be created within this project
-	zone      string
+	client        *cloudstack.CloudStackClient
+	projectID     string // If non-"", all resources will be created within this project
+	zone          string
+	clientBuilder cloudprovider.ControllerClientBuilder
 }
 
 func init() {
@@ -100,6 +102,7 @@ func newCSCloud(cfg *CSConfig) (*CSCloud, error) {
 
 // Initialize passes a Kubernetes clientBuilder interface to the cloud provider
 func (cs *CSCloud) Initialize(clientBuilder cloudprovider.ControllerClientBuilder, stop <-chan struct{}) {
+	cs.clientBuilder = clientBuilder
 }
 
 // LoadBalancer returns an implementation of LoadBalancer for CloudStack.
@@ -172,15 +175,20 @@ func (cs *CSCloud) GetZone(ctx context.Context) (cloudprovider.Zone, error) {
 	zone := cloudprovider.Zone{}
 
 	if cs.zone == "" {
-		hostname, err := os.Hostname()
+		// In Kubernetes pods, os.Hostname() returns the pod name, not the node hostname.
+		// We need to get the node name from the pod's spec.nodeName using the Kubernetes API.
+		nodeName, err := cs.getNodeNameFromPod(ctx)
 		if err != nil {
-			return zone, fmt.Errorf("failed to get hostname for retrieving the zone: %v", err)
+			return zone, fmt.Errorf("failed to get node name for retrieving the zone: %v", err)
 		}
 
-		instance, count, err := cs.client.VirtualMachine.GetVirtualMachineByName(hostname)
+		instance, count, err := cs.client.VirtualMachine.GetVirtualMachineByName(
+			nodeName,
+			cloudstack.WithProject(cs.projectID),
+		)
 		if err != nil {
 			if count == 0 {
-				return zone, fmt.Errorf("could not find instance for retrieving the zone: %v", err)
+				return zone, fmt.Errorf("could not find CloudStack instance with name %s for retrieving the zone: %v", nodeName, err)
 			}
 			return zone, fmt.Errorf("error getting instance for retrieving the zone: %v", err)
 		}
@@ -200,7 +208,7 @@ func (cs *CSCloud) GetZoneByProviderID(ctx context.Context, providerID string) (
 	zone := cloudprovider.Zone{}
 
 	instance, count, err := cs.client.VirtualMachine.GetVirtualMachineByID(
-		providerID,
+		cs.getInstanceIDFromProviderID(providerID),
 		cloudstack.WithProject(cs.projectID),
 	)
 	if err != nil {
@@ -237,4 +245,55 @@ func (cs *CSCloud) GetZoneByNodeName(ctx context.Context, nodeName types.NodeNam
 	zone.Region = instance.Zonename
 
 	return zone, nil
+}
+
+// getNodeNameFromPod gets the node name where this pod is running by querying the Kubernetes API.
+// It uses the pod's name and namespace (from environment variables or hostname) to look up the pod
+// and retrieve its spec.nodeName field.
+func (cs *CSCloud) getNodeNameFromPod(ctx context.Context) (string, error) {
+	if cs.clientBuilder == nil {
+		return "", fmt.Errorf("clientBuilder not initialized, cannot query Kubernetes API")
+	}
+
+	client, err := cs.clientBuilder.Client("cloud-controller-manager")
+	if err != nil {
+		return "", fmt.Errorf("failed to get Kubernetes client: %v", err)
+	}
+
+	// Get pod name and namespace
+	// In Kubernetes, the pod name is available as HOSTNAME environment variable
+	// or we can use os.Hostname() which returns the pod name
+	podName := os.Getenv("HOSTNAME")
+	if podName == "" {
+		var err error
+		podName, err = os.Hostname()
+		if err != nil {
+			return "", fmt.Errorf("failed to get pod name: %v", err)
+		}
+	}
+
+	// Get namespace from environment variable or default to kube-system for CCM
+	namespace := os.Getenv("POD_NAMESPACE")
+	if namespace == "" {
+		// Try reading from service account namespace file (available in pods)
+		if data, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/namespace"); err == nil {
+			namespace = string(data)
+		} else {
+			// Default namespace for cloud controller manager
+			namespace = "kube-system"
+		}
+	}
+
+	// Get the pod object from Kubernetes API
+	pod, err := client.CoreV1().Pods(namespace).Get(ctx, podName, metav1.GetOptions{})
+	if err != nil {
+		return "", fmt.Errorf("failed to get pod %s/%s from Kubernetes API: %v", namespace, podName, err)
+	}
+
+	if pod.Spec.NodeName == "" {
+		return "", fmt.Errorf("pod %s/%s does not have a nodeName assigned yet", namespace, podName)
+	}
+
+	klog.V(4).Infof("found node name %s for pod %s/%s", pod.Spec.NodeName, namespace, podName)
+	return pod.Spec.NodeName, nil
 }
