@@ -20,10 +20,14 @@
 package cloudstack
 
 import (
+	"reflect"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/apache/cloudstack-go/v2/cloudstack"
+	"github.com/blang/semver/v4"
+	"go.uber.org/mock/gomock"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -477,4 +481,286 @@ func TestGetBoolFromServiceAnnotation(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestGetCIDRList(t *testing.T) {
+	tests := []struct {
+		name        string
+		annotations map[string]string
+		want        []string
+		wantErr     bool
+		errContains string
+		expectEmpty bool
+	}{
+		{
+			name:        "defaults to allow all when annotation missing",
+			annotations: nil,
+			want:        []string{defaultAllowedCIDR},
+		},
+		{
+			name: "trims and splits cidrs",
+			annotations: map[string]string{
+				ServiceAnnotationLoadBalancerSourceCidrs: "10.0.0.0/8, 192.168.0.0/16",
+			},
+			want: []string{"10.0.0.0/8", "192.168.0.0/16"},
+		},
+		{
+			name: "empty annotation returns empty list",
+			annotations: map[string]string{
+				ServiceAnnotationLoadBalancerSourceCidrs: "",
+			},
+			expectEmpty: true,
+		},
+		{
+			name: "invalid cidr returns error",
+			annotations: map[string]string{
+				ServiceAnnotationLoadBalancerSourceCidrs: "invalid-cidr",
+			},
+			wantErr:     true,
+			errContains: "invalid CIDR",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			lb := &loadBalancer{}
+			svc := &corev1.Service{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:        "svc",
+					Namespace:   "default",
+					Annotations: tt.annotations,
+				},
+			}
+
+			got, err := lb.getCIDRList(svc)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("expected error, got nil")
+				}
+				if tt.errContains != "" && !strings.Contains(err.Error(), tt.errContains) {
+					t.Fatalf("error = %v, expected to contain %q", err, tt.errContains)
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if tt.expectEmpty {
+				if len(got) != 0 {
+					t.Fatalf("expected empty CIDR list, got %v", got)
+				}
+				return
+			}
+
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Fatalf("getCIDRList() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestCheckLoadBalancerRule(t *testing.T) {
+	t.Run("rule not present returns nil", func(t *testing.T) {
+		lb := &loadBalancer{
+			rules: map[string]*cloudstack.LoadBalancerRule{},
+		}
+		port := corev1.ServicePort{Port: 80, NodePort: 30000, Protocol: corev1.ProtocolTCP}
+		service := &corev1.Service{}
+
+		rule, needsUpdate, err := lb.checkLoadBalancerRule("missing", port, LoadBalancerProtocolTCP, service, semver.Version{})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if rule != nil {
+			t.Fatalf("expected nil rule, got %v", rule)
+		}
+		if needsUpdate {
+			t.Fatalf("expected needsUpdate to be false")
+		}
+	})
+
+	t.Run("basic property mismatch deletes rule", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+
+		mockLB := cloudstack.NewMockLoadBalancerServiceIface(ctrl)
+		deleteParams := &cloudstack.DeleteLoadBalancerRuleParams{}
+
+		gomock.InOrder(
+			mockLB.EXPECT().NewDeleteLoadBalancerRuleParams("rule-id").Return(deleteParams),
+			mockLB.EXPECT().DeleteLoadBalancerRule(deleteParams).Return(&cloudstack.DeleteLoadBalancerRuleResponse{}, nil),
+		)
+
+		lb := &loadBalancer{
+			CloudStackClient: &cloudstack.CloudStackClient{
+				LoadBalancer: mockLB,
+			},
+			ipAddr: "1.1.1.1",
+			rules: map[string]*cloudstack.LoadBalancerRule{
+				"rule": {
+					Id:          "rule-id",
+					Name:        "rule",
+					Publicip:    "2.2.2.2",
+					Privateport: "30000",
+					Publicport:  "80",
+					Cidrlist:    defaultAllowedCIDR,
+					Algorithm:   "roundrobin",
+					Protocol:    LoadBalancerProtocolTCP.CSProtocol(),
+				},
+			},
+		}
+		port := corev1.ServicePort{Port: 80, NodePort: 30000, Protocol: corev1.ProtocolTCP}
+		service := &corev1.Service{}
+
+		rule, needsUpdate, err := lb.checkLoadBalancerRule("rule", port, LoadBalancerProtocolTCP, service, semver.Version{Major: 4, Minor: 21, Patch: 0})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if rule != nil {
+			t.Fatalf("expected nil rule after deletion, got %v", rule)
+		}
+		if needsUpdate {
+			t.Fatalf("expected needsUpdate to be false")
+		}
+		if _, exists := lb.rules["rule"]; exists {
+			t.Fatalf("expected rule entry to be removed from map")
+		}
+	})
+
+	t.Run("cidr change triggers update on supported version", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+
+		// No expectations on the mock; any delete call would fail the test.
+		mockLB := cloudstack.NewMockLoadBalancerServiceIface(ctrl)
+
+		lbRule := &cloudstack.LoadBalancerRule{
+			Id:          "rule-id",
+			Name:        "rule",
+			Publicip:    "1.1.1.1",
+			Privateport: "30000",
+			Publicport:  "80",
+			Cidrlist:    "10.0.0.0/8",
+			Algorithm:   "roundrobin",
+			Protocol:    LoadBalancerProtocolTCP.CSProtocol(),
+		}
+
+		lb := &loadBalancer{
+			CloudStackClient: &cloudstack.CloudStackClient{
+				LoadBalancer: mockLB,
+			},
+			ipAddr:    "1.1.1.1",
+			algorithm: "roundrobin",
+			rules: map[string]*cloudstack.LoadBalancerRule{
+				"rule": lbRule,
+			},
+		}
+		port := corev1.ServicePort{Port: 80, NodePort: 30000, Protocol: corev1.ProtocolTCP}
+		service := &corev1.Service{
+			ObjectMeta: metav1.ObjectMeta{
+				Annotations: map[string]string{
+					ServiceAnnotationLoadBalancerSourceCidrs: "10.0.0.0/8,192.168.0.0/16",
+				},
+			},
+		}
+
+		rule, needsUpdate, err := lb.checkLoadBalancerRule("rule", port, LoadBalancerProtocolTCP, service, semver.Version{Major: 4, Minor: 22, Patch: 0})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if rule != lbRule {
+			t.Fatalf("expected existing rule to be returned")
+		}
+		if !needsUpdate {
+			t.Fatalf("expected needsUpdate to be true due to CIDR change")
+		}
+	})
+
+	t.Run("cidr change triggers delete with older version", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+
+		// No expectations on the mock; any delete or create call would fail the test.
+		mockLB := cloudstack.NewMockLoadBalancerServiceIface(ctrl)
+
+		deleteParams := &cloudstack.DeleteLoadBalancerRuleParams{}
+
+		gomock.InOrder(
+			mockLB.EXPECT().NewDeleteLoadBalancerRuleParams("rule-id").Return(deleteParams),
+			mockLB.EXPECT().DeleteLoadBalancerRule(deleteParams).Return(&cloudstack.DeleteLoadBalancerRuleResponse{}, nil),
+		)
+
+		lbRule := &cloudstack.LoadBalancerRule{
+			Id:          "rule-id",
+			Name:        "rule",
+			Publicip:    "1.1.1.1",
+			Privateport: "30000",
+			Publicport:  "80",
+			Cidrlist:    "10.0.0.0/8",
+			Algorithm:   "roundrobin",
+			Protocol:    LoadBalancerProtocolTCP.CSProtocol(),
+		}
+
+		lb := &loadBalancer{
+			CloudStackClient: &cloudstack.CloudStackClient{
+				LoadBalancer: mockLB,
+			},
+			ipAddr:    "1.1.1.1",
+			algorithm: "roundrobin",
+			rules: map[string]*cloudstack.LoadBalancerRule{
+				"rule": lbRule,
+			},
+		}
+		port := corev1.ServicePort{Port: 80, NodePort: 30000, Protocol: corev1.ProtocolTCP}
+		service := &corev1.Service{
+			ObjectMeta: metav1.ObjectMeta{
+				Annotations: map[string]string{
+					ServiceAnnotationLoadBalancerSourceCidrs: "10.0.0.0/8,192.168.0.0/16",
+				},
+			},
+		}
+
+		rule, needsUpdate, err := lb.checkLoadBalancerRule("rule", port, LoadBalancerProtocolTCP, service, semver.Version{Major: 4, Minor: 12, Patch: 0})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if rule != nil {
+			t.Fatalf("expected nil rule after deletion, got %v", rule)
+		}
+		if needsUpdate {
+			t.Fatalf("expected needsUpdate to be false due to CIDR change with older version")
+		}
+	})
+
+	t.Run("invalid cidr returns error", func(t *testing.T) {
+		lb := &loadBalancer{
+			rules: map[string]*cloudstack.LoadBalancerRule{
+				"rule": {
+					Id:          "rule-id",
+					Name:        "rule",
+					Publicip:    "1.1.1.1",
+					Privateport: "30000",
+					Publicport:  "80",
+					Cidrlist:    defaultAllowedCIDR,
+					Algorithm:   "roundrobin",
+					Protocol:    LoadBalancerProtocolTCP.CSProtocol(),
+				},
+			},
+		}
+		port := corev1.ServicePort{Port: 80, NodePort: 30000, Protocol: corev1.ProtocolTCP}
+		service := &corev1.Service{
+			ObjectMeta: metav1.ObjectMeta{
+				Annotations: map[string]string{
+					ServiceAnnotationLoadBalancerSourceCidrs: "bad-cidr",
+				},
+			},
+		}
+
+		_, _, err := lb.checkLoadBalancerRule("rule", port, LoadBalancerProtocolTCP, service, semver.Version{Major: 4, Minor: 22, Patch: 0})
+		if err == nil {
+			t.Fatalf("expected error for invalid CIDR")
+		}
+	})
 }
