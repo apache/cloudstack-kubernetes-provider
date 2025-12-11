@@ -25,8 +25,10 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/apache/cloudstack-go/v2/cloudstack"
+	"github.com/blang/semver/v4"
 	"gopkg.in/gcfg.v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -56,6 +58,7 @@ type CSCloud struct {
 	projectID     string // If non-"", all resources will be created within this project
 	zone          string
 	region        string
+	version       semver.Version
 	clientBuilder cloudprovider.ControllerClientBuilder
 }
 
@@ -90,6 +93,7 @@ func newCSCloud(cfg *CSConfig) (*CSCloud, error) {
 		projectID: cfg.Global.ProjectID,
 		zone:      cfg.Global.Zone,
 		region:    cfg.Global.Region,
+		version:   semver.Version{},
 	}
 
 	if cfg.Global.APIURL != "" && cfg.Global.APIKey != "" && cfg.Global.SecretKey != "" {
@@ -100,7 +104,30 @@ func newCSCloud(cfg *CSConfig) (*CSCloud, error) {
 		return nil, errors.New("no cloud provider config given")
 	}
 
+	version, err := cs.getManagementServerVersion()
+	if err != nil {
+		return nil, err
+	}
+	cs.version = version
+
 	return cs, nil
+}
+
+func (cs *CSCloud) getManagementServerVersion() (semver.Version, error) {
+	msServersResp, err := cs.client.Management.ListManagementServersMetrics(cs.client.Management.NewListManagementServersMetricsParams())
+	if err != nil {
+		return semver.Version{}, err
+	}
+	if msServersResp.Count == 0 {
+		return semver.Version{}, errors.New("no management servers found")
+	}
+	version := msServersResp.ManagementServersMetrics[0].Version
+	v, err := semver.ParseTolerant(strings.Join(strings.Split(version, ".")[0:3], "."))
+	if err != nil {
+		klog.Errorf("failed to parse management server version: %v", err)
+		return semver.Version{}, err
+	}
+	return v, nil
 }
 
 // Initialize passes a Kubernetes clientBuilder interface to the cloud provider
