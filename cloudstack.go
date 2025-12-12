@@ -21,17 +21,23 @@ package cloudstack
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/apache/cloudstack-go/v2/cloudstack"
 	"github.com/blang/semver/v4"
 	"gopkg.in/gcfg.v1"
+
+	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes"
 	cloudprovider "k8s.io/cloud-provider"
 	"k8s.io/klog/v2"
 )
@@ -327,6 +333,101 @@ func (cs *CSCloud) getNodeNameFromPod(ctx context.Context) (string, error) {
 
 	klog.V(4).Infof("found node name %s for pod %s/%s", pod.Spec.NodeName, namespace, podName)
 	return pod.Spec.NodeName, nil
+}
+
+// setServiceAnnotation updates a service annotation using the Kubernetes client.
+// It uses a patch operation with retry logic to handle concurrent updates safely.
+func (cs *CSCloud) setServiceAnnotation(ctx context.Context, service *corev1.Service, key, value string) error {
+	if cs.clientBuilder == nil {
+		klog.V(4).Infof("Client builder not available, skipping annotation update for service %s/%s", service.Namespace, service.Name)
+		return nil
+	}
+
+	client, err := cs.clientBuilder.Client("cloud-controller-manager")
+	if err != nil {
+		return fmt.Errorf("failed to get Kubernetes client: %v", err)
+	}
+
+	// First, check if the annotation already has the correct value to avoid unnecessary updates
+	svc, err := client.CoreV1().Services(service.Namespace).Get(ctx, service.Name, metav1.GetOptions{})
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			klog.V(4).Infof("Service %s/%s not found, skipping annotation update", service.Namespace, service.Name)
+			return nil
+		}
+		return fmt.Errorf("failed to get service: %v", err)
+	}
+
+	// Check if annotation already has the correct value
+	if svc.Annotations != nil {
+		if existingValue, exists := svc.Annotations[key]; exists && existingValue == value {
+			klog.V(4).Infof("Annotation %s already set to %s for service %s/%s", key, value, service.Namespace, service.Name)
+			return nil
+		}
+	}
+
+	// Use patch operation with retry logic to handle concurrent updates
+	return cs.patchServiceAnnotation(ctx, client, service.Namespace, service.Name, key, value)
+}
+
+// patchServiceAnnotation patches a service annotation using a JSON merge patch with retry logic.
+// This method handles concurrent updates safely by retrying on conflicts.
+func (cs *CSCloud) patchServiceAnnotation(ctx context.Context, client kubernetes.Interface, namespace, name, key, value string) error {
+	const maxRetries = 3
+	const retryDelay = 500 * time.Millisecond
+
+	// Prepare the patch payload - merge patch that updates only the specific annotation
+	// JSON merge patch will preserve other annotations while updating/adding this one
+	patchData := map[string]interface{}{
+		"metadata": map[string]interface{}{
+			"annotations": map[string]string{
+				key: value,
+			},
+		},
+	}
+
+	patchBytes, err := json.Marshal(patchData)
+	if err != nil {
+		return fmt.Errorf("failed to marshal patch data: %v", err)
+	}
+
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		// Apply the patch using JSON merge patch type
+		// This is atomic and avoids race conditions by merging with existing annotations
+		_, err = client.CoreV1().Services(namespace).Patch(
+			ctx,
+			name,
+			types.MergePatchType,
+			patchBytes,
+			metav1.PatchOptions{},
+		)
+
+		if err == nil {
+			klog.V(4).Infof("Successfully set annotation %s=%s on service %s/%s", key, value, namespace, name)
+			return nil
+		}
+
+		// Handle conflict errors with retry logic
+		if apierrors.IsConflict(err) {
+			if attempt < maxRetries-1 {
+				klog.V(4).Infof("Conflict updating service %s/%s annotation, retrying (attempt %d/%d): %v", namespace, name, attempt+1, maxRetries, err)
+				time.Sleep(retryDelay)
+				continue
+			}
+			return fmt.Errorf("failed to update service annotation after %d retries due to conflicts: %v", maxRetries, err)
+		}
+
+		// Handle not found errors
+		if apierrors.IsNotFound(err) {
+			klog.V(4).Infof("Service %s/%s not found during patch, skipping annotation update", namespace, name)
+			return nil
+		}
+
+		// For other errors, return immediately
+		return fmt.Errorf("failed to patch service annotation: %v", err)
+	}
+
+	return fmt.Errorf("failed to update service annotation after %d attempts", maxRetries)
 }
 
 func (cs *CSCloud) getRegionFromZone(zone string) string {
