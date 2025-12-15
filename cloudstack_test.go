@@ -275,3 +275,43 @@ func TestGetManagementServerVersion(t *testing.T) {
 		}
 	})
 }
+
+func TestGetRegionFromZone(t *testing.T) {
+	tests := []struct {
+		name   string
+		region string
+		zone   string
+		want   string
+	}{
+		{
+			name:   "region configured in cloud config",
+			region: "us-east-1",
+			zone:   "zone-1",
+			want:   "us-east-1",
+		},
+		{
+			name:   "region not configured, returns zone",
+			region: "",
+			zone:   "zone-1",
+			want:   "zone-1",
+		},
+		{
+			name:   "region configured with empty zone",
+			region: "eu-central-1",
+			zone:   "",
+			want:   "eu-central-1",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cs := &CSCloud{
+				region: tt.region,
+			}
+			got := cs.getRegionFromZone(tt.zone)
+			if got != tt.want {
+				t.Errorf("getRegionFromZone(%q) with region=%q = %q, want %q", tt.zone, tt.region, got, tt.want)
+			}
+		})
+	}
+}

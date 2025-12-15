@@ -174,3 +174,78 @@ func TestNodeAddresses(t *testing.T) {
 		})
 	}
 }
+
+func TestGetProviderIDFromInstanceID(t *testing.T) {
+	cs := &CSCloud{}
+
+	tests := []struct {
+		name       string
+		instanceID string
+		want       string
+	}{
+		{
+			name:       "valid instance ID",
+			instanceID: "vm-123",
+			want:       "external-cloudstack://vm-123",
+		},
+		{
+			name:       "empty instance ID",
+			instanceID: "",
+			want:       "external-cloudstack://",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := cs.getProviderIDFromInstanceID(tt.instanceID)
+			if got != tt.want {
+				t.Errorf("getProviderIDFromInstanceID(%q) = %q, want %q", tt.instanceID, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGetInstanceIDFromProviderID(t *testing.T) {
+	cs := &CSCloud{}
+
+	tests := []struct {
+		name       string
+		providerID string
+		want       string
+	}{
+		{
+			name:       "full provider ID format",
+			providerID: "external-cloudstack://vm-123",
+			want:       "vm-123",
+		},
+		{
+			name:       "instance ID only - backward compatibility",
+			providerID: "vm-123",
+			want:       "vm-123",
+		},
+		{
+			name:       "empty string",
+			providerID: "",
+			want:       "",
+		},
+		{
+			name:       "invalid format - no separator",
+			providerID: "external-cloudstack-vm-123",
+			want:       "external-cloudstack-vm-123",
+		},
+		{
+			name:       "different provider prefix",
+			providerID: "aws://i-1234567890abcdef0",
+			want:       "i-1234567890abcdef0",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := cs.getInstanceIDFromProviderID(tt.providerID)
+			if got != tt.want {
+				t.Errorf("getInstanceIDFromProviderID(%q) = %q, want %q", tt.providerID, got, tt.want)
+			}
+		})
+	}
+}
