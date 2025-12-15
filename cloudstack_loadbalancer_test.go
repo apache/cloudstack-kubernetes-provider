@@ -1361,15 +1361,6 @@ func TestAssociatePublicIPAddress(t *testing.T) {
 		if !lb.ipAssociatedByController {
 			t.Errorf("ipAssociatedByController = false, want true")
 		}
-		if lb.ipAddr != "203.0.113.1" {
-			t.Errorf("ipAddr = %q, want %q", lb.ipAddr, "203.0.113.1")
-		}
-		if lb.ipAddrID != "ip-123" {
-			t.Errorf("ipAddrID = %q, want %q", lb.ipAddrID, "ip-123")
-		}
-		if !lb.ipAssociatedByController {
-			t.Errorf("ipAssociatedByController = false, want true")
-		}
 	})
 
 	t.Run("error retrieving network", func(t *testing.T) {
