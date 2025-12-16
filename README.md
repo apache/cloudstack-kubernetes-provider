@@ -71,6 +71,86 @@ For the nginx ingress controller, please refer to the official documentation at 
 kubectl apply -f nginx-ingress-controller-patch.yml
 ```
 
+### Service Annotations
+
+The CloudStack Kubernetes Provider supports several annotations on LoadBalancer services to customize load balancer behavior:
+
+#### `service.beta.kubernetes.io/cloudstack-load-balancer-proxy-protocol`
+
+**Type:** Boolean (`"true"` or `"false"`)
+
+**Default:** `false`
+
+**Description:** Enables the [HAProxy Proxy Protocol](https://www.haproxy.org/download/1.8/doc/proxy-protocol.txt) on a CloudStack load balancer. This annotation only applies to TCP service ports and requires CloudStack 4.6 or later.
+
+**Use Case:** Use this annotation when you need to preserve the original client IP address through the load balancer. This is commonly required for ingress controllers like Traefik or Nginx that need to know the client's real IP address.
+
+**Example:**
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: my-service
+  annotations:
+    service.beta.kubernetes.io/cloudstack-load-balancer-proxy-protocol: "true"
+spec:
+  type: LoadBalancer
+  ports:
+    - port: 80
+      protocol: TCP
+```
+
+#### `service.beta.kubernetes.io/cloudstack-load-balancer-hostname`
+
+**Type:** String
+
+**Default:** Not set (uses IP address)
+
+**Description:** Sets a hostname for the load balancer ingress instead of using the IP address. This is a workaround for [Kubernetes issue #66607](https://github.com/kubernetes/kubernetes/issues/66607).
+
+**Use Case:** Use this annotation when you need the LoadBalancer status to return a hostname instead of an IP address. This is useful for DNS-based routing or when you want to expose a specific hostname.
+
+**Example:**
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: my-service
+  annotations:
+    service.beta.kubernetes.io/cloudstack-load-balancer-hostname: "lb.example.com"
+spec:
+  type: LoadBalancer
+```
+
+
+#### `service.beta.kubernetes.io/cloudstack-load-balancer-source-cidrs`
+
+**Type:** String (comma-separated CIDR list)
+
+**Default:** `"0.0.0.0/0"` (allows all sources)
+
+**Description:** Specifies the source CIDR list for firewall rules on the CloudStack load balancer. This restricts which IP addresses can access the load balancer.
+
+**Use Case:** Use this annotation to restrict access to your load balancer to specific IP ranges for security purposes. This is particularly useful for internal services or when you want to limit access to specific networks.
+
+**Example:**
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: my-service
+  annotations:
+    service.beta.kubernetes.io/cloudstack-load-balancer-source-cidrs: "10.0.0.0/8,192.168.1.0/24"
+spec:
+  type: LoadBalancer
+```
+
+**Format:** Comma-separated list of CIDR ranges. Spaces around commas are automatically trimmed.
+
+**CloudStack Version:** Updating CIDR lists on existing load balancer rules requires CloudStack 4.22 or later. Creating new load balancer rules with CIDR lists works on earlier versions.
+
+**Note:** If the annotation is not set, the default behavior is to allow all sources (`0.0.0.0/0`). However, if you explicitly set the annotation to an empty value (`""`), this will result in an empty CIDR list, effectively blocking all traffic.
+
 ### Node Labels
 
 :warning: **The node name must match the host name, so the controller can fetch and assign metadata from CloudStack.**
@@ -87,13 +167,13 @@ Supported labels for Kubernetes versions up to 1.16 are:
 * kubernetes.io/hostname (= the instance name)
 * beta.kubernetes.io/instance-type (= the compute offering)
 * failure-domain.beta.kubernetes.io/zone (= the zone)
-* failure-domain.beta.kubernetes.io/region (also = the zone)
+* failure-domain.beta.kubernetes.io/region (= region from config if defined, otherwise the zone)
 
 Supported labels for Kubernetes versions 1.17 and later are:
 * kubernetes.io/hostname (= the instance name)
 * node.kubernetes.io/instance-type (= the compute offering)
 * topology.kubernetes.io/zone (= the zone)
-* topology.kubernetes.io/region (also = the zone)
+* topology.kubernetes.io/region (= region from config if defined, otherwise the zone)
 
 It is also possible to trigger this process manually by issuing the following command:
 
