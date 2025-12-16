@@ -149,7 +149,7 @@ spec:
 
 **CloudStack Version:** Updating CIDR lists on existing load balancer rules requires CloudStack 4.22 or later. Creating new load balancer rules with CIDR lists works on earlier versions.
 
-**Note:** If the annotation is empty or not set, the default behavior is to allow all sources (`0.0.0.0/0`). An empty annotation value (`""`) will result in an empty CIDR list, effectively blocking all traffic.
+**Note:** If the annotation is not set, the default behavior is to allow all sources (`0.0.0.0/0`). However, if you explicitly set the annotation to an empty value (`""`), this will result in an empty CIDR list, effectively blocking all traffic.
 
 ### Node Labels
 
