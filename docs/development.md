@@ -146,8 +146,8 @@ The upstream simulator README suggests `-p 8080:5050`, which publishes the
 Readiness is checked in three stages rather than with a fixed sleep: jetty
 answering at all, then the API accepting admin credentials, then
 `listManagementServersMetrics` returning a server. The last one matters
-because the CCM makes exactly that call on startup and refuses to run until it
-succeeds.
+because it proves a management server is registered and running, not just that
+the API answers.
 
 The zone is then deployed with marvin, which is preinstalled in the image:
 
@@ -414,7 +414,7 @@ so a run is reproducible; avoid floating tags like `latest`.
 | Symptom | Cause |
 | --- | --- |
 | `LB service provider cannot support this rule` on a VPC | The VPC virtual router accepts only a restricted set of public load balancer ports. 80 and 8080 work; an arbitrary high port such as 8081 is rejected. Pick a port the router supports when adding a VPC test. |
-| CCM exits with `no management servers found` | The account cannot call `listManagementServersMetrics`. This is a root-admin API; the default `User` role does not include it. |
+| CCM exits with `no CloudStack version returned by the management server` | `listCapabilities` answered without a `cloudstackversion`. Set `version` in the `cloud-config` to pin it and skip the lookup. |
 | Nodes keep the uninitialized taint; CCM logs `provided node ip for node "..." is not valid` | The CloudStack VM's NIC IP does not match the IP kubelet registered with. Recreate the VM with `ipaddress=` set to the kind node's docker IP. |
 | Services stay `<pending>`; CCM logs `none of the hosts matched the list of VMs retrieved from CS API` | No CloudStack VM has a name matching a Kubernetes node name. |
 | CCM logs `found hosts that belong to different networks` | VMs matching the node names exist on more than one network — typically leftovers from a previous scenario. |

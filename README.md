@@ -42,6 +42,7 @@ project-id = <CloudStack Project UUID (optional)>
 zone = <CloudStack Zone Name (optional)>
 region = <Region Name (optional)>
 ssl-no-verify = <Disable SSL certificate validation: true or false (optional)>
+version = <CloudStack version, e.g. 4.21.0.0 (optional)>
 ```
 
 If `zone` is not set, it is auto-detected from the node the controller runs on.
@@ -50,12 +51,10 @@ If `zone` is not set, it is auto-detected from the node the controller runs on.
 name. Some workloads (such as Rook/Ceph) require the zone and region labels to differ. You need to
 explicitly set `region` in that case.
 
-The access token needs to be able to fetch VM information and deploy load balancers in the project or domain where the nodes reside.
+`version` is normally detected automatically using the `listCapabilities` API. Set it to pin the version manually,
+for example when the API user is not allowed to call `listCapabilities`.
 
-The account must also be allowed to call `listManagementServersMetrics`, which the controller uses
-on startup to determine the management server version. This is a root admin API and is **not**
-included in the default `User` role; without it the controller exits immediately with
-`no management servers found`.
+The access token needs to be able to fetch VM information and deploy load balancers in the project or domain where the nodes reside.
 
 To create the secret, use the following command:
 ```bash
