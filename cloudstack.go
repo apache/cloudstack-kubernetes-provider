@@ -131,7 +131,7 @@ func (cs *CSCloud) getManagementServerVersion() (semver.Version, error) {
 	parts := strings.Split(version, ".")
 	v, err := semver.ParseTolerant(strings.Join(parts[:min(len(parts), 3)], "."))
 	if err != nil {
-		klog.Errorf("failed to parse management server version: %v", err)
+		klog.Errorf("failed to parse management server version %q: %v", version, err)
 		return semver.Version{}, err
 	}
 	return v, nil

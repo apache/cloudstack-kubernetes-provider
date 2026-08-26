@@ -160,6 +160,32 @@ func TestGetManagementServerVersion(t *testing.T) {
 		}
 	})
 
+	t.Run("returns error for an empty version string", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+
+		mockMgmt := cloudstack.NewMockManagementServiceIface(ctrl)
+		params := &cloudstack.ListManagementServersMetricsParams{}
+
+		gomock.InOrder(
+			mockMgmt.EXPECT().NewListManagementServersMetricsParams().Return(params),
+			mockMgmt.EXPECT().ListManagementServersMetrics(params).Return(&cloudstack.ListManagementServersMetricsResponse{
+				Count: 1,
+				ManagementServersMetrics: []*cloudstack.ManagementServersMetric{
+					{Version: ""},
+				},
+			}, nil),
+		)
+
+		cs := &CSCloud{
+			client: &cloudstack.CloudStackClient{Management: mockMgmt},
+		}
+
+		if _, err := cs.getManagementServerVersion(); err == nil {
+			t.Fatalf("expected an error for an empty version string")
+		}
+	})
+
 	t.Run("returns correct parsed version with development server", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		t.Cleanup(ctrl.Finish)
