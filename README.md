@@ -44,11 +44,11 @@ region = <Region Name (optional)>
 ssl-no-verify = <Disable SSL certificate validation: true or false (optional)>
 ```
 
-`zone` is auto-detected from the node the controller runs on if it is not set.
+If `zone` is not set, it is auto-detected from the node the controller runs on.
 
-`region` sets the value of the region node labels. If it is left empty, the region labels are set
-to the zone name. Set it if you need the zone and region labels to differ — some workloads, such as
-Rook/Ceph, require this.
+`region` sets the value of the region node labels. If it is not set, the region labels use the zone
+name. Some workloads (such as Rook/Ceph) require the zone and region labels to differ. You need to
+explicitly set `region` in that case.
 
 The access token needs to be able to fetch VM information and deploy load balancers in the project or domain where the nodes reside.
 
