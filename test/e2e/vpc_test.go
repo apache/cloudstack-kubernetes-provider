@@ -259,3 +259,68 @@ func TestVPC_ExplicitLoadBalancerIPReleased(t *testing.T) {
 			return ip.Allocated == "", nil
 		})
 }
+
+// TestVPC_ProxyProtocolACL covers the proxy protocol on a VPC tier, where
+// ingress is opened with a Network ACL rule rather than a firewall rule.
+// updateNetworkACL used to create the rule with the CloudStack protocol name
+// tcp-proxy, which the API rejects, so a proxy protocol service on a tier never
+// reconciled at all. The ACL rule is keyed on the IP protocol, so it must be
+// created as tcp and be the same single rule before and after the toggle.
+func TestVPC_ProxyProtocolACL(t *testing.T) {
+	f, aclID, _ := vpcFramework(t)
+
+	// An ACL rule belongs to the tier, so this test uses a port of its own. Note
+	// that 8081 is the virtual router's HAProxy stats port, which CloudStack
+	// refuses to load balance.
+	const port = "8085"
+	svc := f.CreateLBService(func(s *corev1.Service) {
+		s.Annotations = map[string]string{annotationProxyProtocol: "true"}
+		s.Spec.Ports = []corev1.ServicePort{
+			{Name: "http", Port: 8085, Protocol: corev1.ProtocolTCP},
+		}
+	})
+	lbName := defaultLoadBalancerName(svc)
+
+	f.WaitForIngressIP(svc)
+	rules := f.WaitForLBRules(lbName, 1)
+	if rules[0].Protocol != "tcp-proxy" {
+		t.Errorf("rule protocol = %q, want tcp-proxy", rules[0].Protocol)
+	}
+
+	f.Eventually(lbSyncTimeout, lbSyncInterval, "the tcp network ACL rule for port "+port,
+		func() (bool, error) {
+			n, err := countACLRules(f, aclID, port)
+			return n >= 1, err
+		})
+
+	aclRules, err := f.ACLRules(aclID)
+	if err != nil {
+		t.Fatalf("listing ACL rules: %v", err)
+	}
+	for _, r := range aclRules {
+		if r.Startport == port && !strings.EqualFold(r.Protocol, "tcp") {
+			t.Errorf("ACL rule for port %s has protocol %q, want tcp", port, r.Protocol)
+		}
+	}
+
+	// Turning the annotation off keeps the one ACL rule: both protocols share it.
+	f.UpdateService(svc, func(s *corev1.Service) {
+		delete(s.Annotations, annotationProxyProtocol)
+	})
+	f.Eventually(lbSyncTimeout, lbSyncInterval, "the rule to settle back on tcp",
+		func() (bool, error) {
+			current, err := f.LBRules(lbName)
+			if err != nil || len(current) != 1 {
+				return false, err
+			}
+			return current[0].Protocol == "tcp", nil
+		})
+
+	n, err := countACLRules(f, aclID, port)
+	if err != nil {
+		t.Fatalf("counting ACL rules: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("ACL rules for port %s = %d, want exactly 1 across the toggle", port, n)
+	}
+}

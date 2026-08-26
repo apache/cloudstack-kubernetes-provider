@@ -33,9 +33,10 @@ import (
 )
 
 const (
-	annotationSourceCidrs  = "service.beta.kubernetes.io/cloudstack-load-balancer-source-cidrs"
-	annotationHostname     = "service.beta.kubernetes.io/cloudstack-load-balancer-hostname"
-	annotationIPAssociated = "service.beta.kubernetes.io/cloudstack-load-balancer-ip-associated-by-controller" //nolint:gosec
+	annotationSourceCidrs   = "service.beta.kubernetes.io/cloudstack-load-balancer-source-cidrs"
+	annotationHostname      = "service.beta.kubernetes.io/cloudstack-load-balancer-hostname"
+	annotationIPAssociated  = "service.beta.kubernetes.io/cloudstack-load-balancer-ip-associated-by-controller" //nolint:gosec
+	annotationProxyProtocol = "service.beta.kubernetes.io/cloudstack-load-balancer-proxy-protocol"
 )
 
 func TestAnnot_SourceCIDRs(t *testing.T) {
@@ -170,4 +171,84 @@ func TestAnnot_ExplicitLoadBalancerIP(t *testing.T) {
 			}
 			return ip.Allocated == "", nil
 		})
+}
+
+// TestAnnot_ProxyProtocolToggle is the end-to-end regression test for issue #2:
+// toggling the proxy protocol annotation on a live service used to wedge
+// reconciliation for good. The rule name embeds the protocol and rules were
+// looked up by name, so the changed protocol missed the lookup and the
+// controller tried to create a second rule on a public port the old rule still
+// held, which CloudStack rejects as a port conflict.
+func TestAnnot_ProxyProtocolToggle(t *testing.T) {
+	f := NewFramework(t)
+	svc := f.CreateLBService(nil)
+	lbName := defaultLoadBalancerName(svc)
+
+	f.WaitForIngressIP(svc)
+	rules := f.WaitForLBRules(lbName, 1)
+	originalRuleID := rules[0].Id
+	if rules[0].Protocol != "tcp" {
+		t.Fatalf("rule protocol = %q, want tcp before the toggle", rules[0].Protocol)
+	}
+
+	// settle waits for exactly one rule carrying the wanted protocol and name,
+	// and returns its ID so the caller can tell an update from a recreate.
+	settle := func(protocol string) string {
+		t.Helper()
+		wantName := fmt.Sprintf("%s-%s-80", lbName, protocol)
+		var ruleID string
+		f.Eventually(lbSyncTimeout, lbSyncInterval, "the rule to settle on "+protocol,
+			func() (bool, error) {
+				current, err := f.LBRules(lbName)
+				if err != nil {
+					return false, err
+				}
+				if len(current) != 1 {
+					return false, fmt.Errorf("saw %d rules, want 1", len(current))
+				}
+				if current[0].Protocol != protocol {
+					return false, fmt.Errorf("protocol is %q, want %q", current[0].Protocol, protocol)
+				}
+				if current[0].Name != wantName {
+					return false, fmt.Errorf("name is %q, want %q", current[0].Name, wantName)
+				}
+				ruleID = current[0].Id
+				return true, nil
+			})
+		return ruleID
+	}
+
+	f.UpdateService(svc, func(s *corev1.Service) {
+		s.Annotations = map[string]string{annotationProxyProtocol: "true"}
+	})
+	proxyRuleID := settle("tcp-proxy")
+	if proxyRuleID != originalRuleID {
+		t.Errorf("enabling the proxy protocol recreated the rule (%s -> %s), want an in-place update",
+			originalRuleID, proxyRuleID)
+	}
+
+	f.UpdateService(svc, func(s *corev1.Service) {
+		delete(s.Annotations, annotationProxyProtocol)
+	})
+	revertedRuleID := settle("tcp")
+	if revertedRuleID != proxyRuleID {
+		t.Errorf("disabling the proxy protocol recreated the rule (%s -> %s), want an in-place update",
+			proxyRuleID, revertedRuleID)
+	}
+
+	// The public port stayed open throughout: the firewall rule is keyed on the
+	// IP protocol, which both tcp and tcp-proxy map to.
+	fwRules, err := f.FirewallRules(rules[0].Publicipid)
+	if err != nil {
+		t.Fatalf("listing firewall rules: %v", err)
+	}
+	found := false
+	for _, fw := range fwRules {
+		if fw.Startport == 80 && fw.Endport == 80 && strings.EqualFold(fw.Protocol, "tcp") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("no tcp firewall rule for port 80 after the toggle; got %+v", fwRules)
+	}
 }
