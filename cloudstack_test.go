@@ -160,6 +160,67 @@ func TestGetManagementServerVersion(t *testing.T) {
 		}
 	})
 
+	t.Run("returns parsed version for short version strings", func(t *testing.T) {
+		// A version with fewer than three parts must not slice out of range.
+		for _, tc := range []struct{ reported, want string }{
+			{reported: "4.22", want: "4.22.0"},
+			{reported: "4", want: "4.0.0"},
+		} {
+			ctrl := gomock.NewController(t)
+			mockMgmt := cloudstack.NewMockManagementServiceIface(ctrl)
+			params := &cloudstack.ListManagementServersMetricsParams{}
+
+			gomock.InOrder(
+				mockMgmt.EXPECT().NewListManagementServersMetricsParams().Return(params),
+				mockMgmt.EXPECT().ListManagementServersMetrics(params).Return(&cloudstack.ListManagementServersMetricsResponse{
+					Count: 1,
+					ManagementServersMetrics: []*cloudstack.ManagementServersMetric{
+						{Version: tc.reported},
+					},
+				}, nil),
+			)
+
+			cs := &CSCloud{
+				client: &cloudstack.CloudStackClient{Management: mockMgmt},
+			}
+
+			version, err := cs.getManagementServerVersion()
+			if err != nil {
+				t.Fatalf("version %q: unexpected error: %v", tc.reported, err)
+			}
+			if want := semver.MustParse(tc.want); !version.Equals(want) {
+				t.Errorf("version %q parsed to %v, want %v", tc.reported, version, want)
+			}
+			ctrl.Finish()
+		}
+	})
+
+	t.Run("returns error for an empty version string", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+
+		mockMgmt := cloudstack.NewMockManagementServiceIface(ctrl)
+		params := &cloudstack.ListManagementServersMetricsParams{}
+
+		gomock.InOrder(
+			mockMgmt.EXPECT().NewListManagementServersMetricsParams().Return(params),
+			mockMgmt.EXPECT().ListManagementServersMetrics(params).Return(&cloudstack.ListManagementServersMetricsResponse{
+				Count: 1,
+				ManagementServersMetrics: []*cloudstack.ManagementServersMetric{
+					{Version: ""},
+				},
+			}, nil),
+		)
+
+		cs := &CSCloud{
+			client: &cloudstack.CloudStackClient{Management: mockMgmt},
+		}
+
+		if _, err := cs.getManagementServerVersion(); err == nil {
+			t.Fatalf("expected an error for an empty version string")
+		}
+	})
+
 	t.Run("returns correct parsed version with development server", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		t.Cleanup(ctrl.Finish)

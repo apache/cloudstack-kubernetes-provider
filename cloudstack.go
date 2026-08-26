@@ -127,10 +127,17 @@ func (cs *CSCloud) getManagementServerVersion() (semver.Version, error) {
 	if msServersResp.Count == 0 {
 		return semver.Version{}, errors.New("no management servers found")
 	}
+	// CloudStack reports four-part versions such as "4.22.0.0". Keep at most the leading three
+	// parts so the result parses as semver, and so that a build suffix on the fourth part is
+	// dropped rather than read as a pre-release (which would compare lower than the release).
 	version := msServersResp.ManagementServersMetrics[0].Version
-	v, err := semver.ParseTolerant(strings.Join(strings.Split(version, ".")[0:3], "."))
+	parts := strings.Split(version, ".")
+	if len(parts) > 3 {
+		parts = parts[:3]
+	}
+	v, err := semver.ParseTolerant(strings.Join(parts, "."))
 	if err != nil {
-		klog.Errorf("failed to parse management server version: %v", err)
+		klog.Errorf("failed to parse management server version %q: %v", version, err)
 		return semver.Version{}, err
 	}
 	return v, nil
