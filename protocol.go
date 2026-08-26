@@ -20,6 +20,8 @@
 package cloudstack
 
 import (
+	"strings"
+
 	v1 "k8s.io/api/core/v1"
 )
 
@@ -98,9 +100,12 @@ func ProtocolFromServicePort(port v1.ServicePort, service *v1.Service) LoadBalan
 }
 
 // ProtocolFromLoadBalancer returns the protocol corresponding to the
-// CloudStack load balancer protocol name.
+// CloudStack load balancer protocol name. The comparison ignores case:
+// CloudStack releases before 4.21 stored the name exactly as the client
+// sent it, and the in-tree provider sent it in upper case, so rules
+// created there still report "TCP" and "UDP".
 func ProtocolFromLoadBalancer(protocol string) LoadBalancerProtocol {
-	switch protocol {
+	switch strings.ToLower(protocol) {
 	case "tcp":
 		return LoadBalancerProtocolTCP
 	case "udp":
