@@ -91,6 +91,9 @@ The CloudStack Kubernetes Provider supports several annotations on LoadBalancer 
 
 **Description:** Enables the [HAProxy Proxy Protocol](https://www.haproxy.org/download/1.8/doc/proxy-protocol.txt) on a CloudStack load balancer. This annotation only applies to TCP service ports and requires CloudStack 4.6 or later.
 
+Toggling this annotation on an existing service updates the CloudStack load balancer rule in place:
+the rule keeps its identity and its public port is not interrupted.
+
 **Use Case:** Use this annotation when you need to preserve the original client IP address through the load balancer. This is commonly required for ingress controllers like Traefik or Nginx that need to know the client's real IP address.
 
 **Example:**
@@ -385,9 +388,14 @@ account when migrating from the old cloud provider to the standalone controller.
 
 ### Load Balancer
 
-Load balancer rule names now include the protocol in addition to the LB name and service port.
-This was added to distinguish tcp, udp and tcp-proxy services operating on the same port.
-Without this change, it would not be possible to map a service that runs on both TCP and UDP port 8000, for example.
+Load balancer rule names now include the protocol in addition to the LB name and service port, so
+that a rule identifies the protocol it serves. The controller keeps the name in step with the
+protocol, so a rule renamed from `-tcp-` to `-tcp-proxy-` reflects a protocol change rather than a
+new rule.
+
+Note that CloudStack rejects two load balancer rules with overlapping port ranges on the same public
+IP regardless of their protocols, so a service cannot expose the same port over both TCP and UDP
+through one IP address. Use separate services on separate IPs for that.
 
 :warning: **If you have existing rules, remove them before the migration, and add them back afterwards.**
 
