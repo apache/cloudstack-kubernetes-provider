@@ -55,6 +55,9 @@ type CSConfig struct {
 		ProjectID   string `gcfg:"project-id"`
 		Zone        string `gcfg:"zone"`
 		Region      string `gcfg:"region"`
+		// Version overrides the CloudStack version that is otherwise
+		// detected via the listCapabilities API.
+		Version string `gcfg:"version"`
 	}
 }
 
@@ -110,7 +113,18 @@ func newCSCloud(cfg *CSConfig) (*CSCloud, error) {
 		return nil, errors.New("no cloud provider config given")
 	}
 
-	version, err := cs.getManagementServerVersion()
+	if cfg.Global.Version != "" {
+		version, err := parseCloudStackVersion(cfg.Global.Version)
+		if err != nil {
+			return nil, fmt.Errorf("could not parse the version given in the cloud provider config: %v", err)
+		}
+		klog.V(2).Infof("Using CloudStack version %v from the cloud provider config", version)
+		cs.version = version
+
+		return cs, nil
+	}
+
+	version, err := cs.getCloudStackVersion()
 	if err != nil {
 		return nil, err
 	}
@@ -119,19 +133,37 @@ func newCSCloud(cfg *CSConfig) (*CSCloud, error) {
 	return cs, nil
 }
 
-func (cs *CSCloud) getManagementServerVersion() (semver.Version, error) {
-	msServersResp, err := cs.client.Management.ListManagementServersMetrics(cs.client.Management.NewListManagementServersMetricsParams())
+// getCloudStackVersion returns the version of the CloudStack management server,
+// as reported by the listCapabilities API.
+func (cs *CSCloud) getCloudStackVersion() (semver.Version, error) {
+	capabilitiesResp, err := cs.client.Configuration.ListCapabilities(cs.client.Configuration.NewListCapabilitiesParams())
 	if err != nil {
 		return semver.Version{}, err
 	}
-	if msServersResp.Count == 0 {
-		return semver.Version{}, errors.New("no management servers found")
+	if capabilitiesResp.Capabilities == nil || capabilitiesResp.Capabilities.Cloudstackversion == "" {
+		return semver.Version{}, errors.New("no CloudStack version returned by the management server")
 	}
-	version := msServersResp.ManagementServersMetrics[0].Version
-	v, err := semver.ParseTolerant(strings.Join(strings.Split(version, ".")[0:3], "."))
+
+	v, err := parseCloudStackVersion(capabilitiesResp.Capabilities.Cloudstackversion)
 	if err != nil {
-		klog.Errorf("failed to parse management server version: %v", err)
+		klog.Error(err)
 		return semver.Version{}, err
+	}
+	return v, nil
+}
+
+// parseCloudStackVersion parses a CloudStack version such as "4.17.1.0" or
+// "4.17.1.0-SNAPSHOT" into a semver version, discarding everything after the
+// patch level.
+func parseCloudStackVersion(version string) (semver.Version, error) {
+	parts := strings.Split(version, ".")
+	if len(parts) > 3 {
+		parts = parts[:3]
+	}
+
+	v, err := semver.ParseTolerant(strings.Join(parts, "."))
+	if err != nil {
+		return semver.Version{}, fmt.Errorf("failed to parse CloudStack version %q: %v", version, err)
 	}
 	return v, nil
 }

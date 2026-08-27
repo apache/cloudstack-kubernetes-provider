@@ -42,6 +42,7 @@ project-id = <CloudStack Project UUID (optional)>
 zone = <CloudStack Zone Name (optional)>
 region = <Region Name (optional)>
 ssl-no-verify = <Disable SSL certificate validation: true or false (optional)>
+version = <CloudStack version, e.g. 4.21.0.0 (optional)>
 ```
 
 If `zone` is not set, it is auto-detected from the node the controller runs on.
@@ -49,6 +50,9 @@ If `zone` is not set, it is auto-detected from the node the controller runs on.
 `region` sets the value of the region node labels. If it is not set, the region labels use the zone
 name. Some workloads (such as Rook/Ceph) require the zone and region labels to differ. You need to
 explicitly set `region` in that case.
+
+`version` is normally detected automatically using the `listCapabilities` API. Set it to pin the version manually,
+for example when the API user is not allowed to call `listCapabilities`.
 
 The access token needs to be able to fetch VM information and deploy load balancers in the project or domain where the nodes reside.
 
