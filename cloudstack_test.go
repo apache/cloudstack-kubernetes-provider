@@ -195,6 +195,51 @@ func TestGetManagementServerVersion(t *testing.T) {
 		}
 	})
 
+	// A version string with fewer than three components used to panic while
+	// being trimmed to major.minor.patch, crashing the controller at startup.
+	t.Run("handles short version strings without panicking", func(t *testing.T) {
+		for _, tc := range []struct {
+			version string
+			want    semver.Version
+		}{
+			{"4.22", semver.MustParse("4.22.0")},
+			{"4", semver.MustParse("4.0.0")},
+			{"24.0.0.0", semver.MustParse("24.0.0")},
+			{"24.0.0.0-SNAPSHOT", semver.MustParse("24.0.0")},
+		} {
+			t.Run(tc.version, func(t *testing.T) {
+				ctrl := gomock.NewController(t)
+				t.Cleanup(ctrl.Finish)
+
+				mockMgmt := cloudstack.NewMockManagementServiceIface(ctrl)
+				params := &cloudstack.ListManagementServersMetricsParams{}
+				resp := &cloudstack.ListManagementServersMetricsResponse{
+					Count: 1,
+					ManagementServersMetrics: []*cloudstack.ManagementServersMetric{
+						{Version: tc.version},
+					},
+				}
+
+				gomock.InOrder(
+					mockMgmt.EXPECT().NewListManagementServersMetricsParams().Return(params),
+					mockMgmt.EXPECT().ListManagementServersMetrics(params).Return(resp, nil),
+				)
+
+				cs := &CSCloud{
+					client: &cloudstack.CloudStackClient{Management: mockMgmt},
+				}
+
+				version, err := cs.getManagementServerVersion()
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				if !version.Equals(tc.want) {
+					t.Errorf("version = %v, want %v", version, tc.want)
+				}
+			})
+		}
+	})
+
 	t.Run("returns error when api call fails", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		t.Cleanup(ctrl.Finish)

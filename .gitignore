@@ -26,6 +26,12 @@ go.work.sum
 # env file
 .env
 
+# Local dev/test credentials and generated harness state — never commit these
+/cloud-config
+/cmk-config
+/kube-config
+/hack/e2e/_out/
+
 # Editor/IDE
 .idea/
 .vscode/
