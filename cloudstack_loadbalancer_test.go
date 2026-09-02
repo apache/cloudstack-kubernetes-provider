@@ -20,8 +20,10 @@
 package cloudstack
 
 import (
+	"context"
 	"fmt"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -179,6 +181,30 @@ func TestSymmetricDifference(t *testing.T) {
 				{Id: "host2"},
 			},
 			wantAssign: []string{"host3"},
+			wantRemove: []string{"host2"},
+		},
+		{
+			// Paging over a changing result set can return the same instance on
+			// two pages. A wanted host must not end up in remove because of it.
+			name:    "duplicate instance of a wanted host",
+			hostIDs: []string{"host1", "host2"},
+			lbInstances: []*cloudstack.VirtualMachine{
+				{Id: "host1"},
+				{Id: "host2"},
+				{Id: "host1"},
+			},
+			wantAssign: nil,
+			wantRemove: nil,
+		},
+		{
+			name:    "duplicate instance of an unwanted host",
+			hostIDs: []string{"host1"},
+			lbInstances: []*cloudstack.VirtualMachine{
+				{Id: "host1"},
+				{Id: "host2"},
+				{Id: "host2"},
+			},
+			wantAssign: nil,
 			wantRemove: []string{"host2"},
 		},
 		{
@@ -2650,6 +2676,74 @@ func TestUpdateFirewallRule(t *testing.T) {
 	})
 }
 
+func TestListFirewallRulesDeduplicates(t *testing.T) {
+	// Each page decodes into its own structs, so a rule returned on two pages
+	// arrives as two pointers to an equal rule. updateFirewallRule keys its
+	// bookkeeping on the pointer: it would keep one copy as the CIDR match and
+	// delete the other by ID, removing the very rule it had just matched and
+	// creating nothing in its place.
+	ctrl := gomock.NewController(t)
+	t.Cleanup(ctrl.Finish)
+
+	rule := func() *cloudstack.FirewallRule {
+		return &cloudstack.FirewallRule{
+			Id: "fw-keep", Protocol: "tcp", Startport: 80, Endport: 80,
+			Cidrlist: defaultAllowedCIDR,
+		}
+	}
+
+	mockFirewall := cloudstack.NewMockFirewallServiceIface(ctrl)
+	mockFirewall.EXPECT().NewListFirewallRulesParams().
+		Return(&cloudstack.ListFirewallRulesParams{})
+
+	// Count of 2 with one rule per page makes listAll page, and the same rule
+	// comes back both times. It must be built per call: a real second page is
+	// decoded into its own struct, so the repeat is a distinct pointer.
+	mockFirewall.EXPECT().ListFirewallRules(gomock.Any()).Times(2).
+		DoAndReturn(func(p *cloudstack.ListFirewallRulesParams) (*cloudstack.ListFirewallRulesResponse, error) {
+			return &cloudstack.ListFirewallRulesResponse{
+				Count:         2,
+				FirewallRules: []*cloudstack.FirewallRule{rule()},
+			}, nil
+		})
+
+	var deleted []string
+	mockFirewall.EXPECT().NewDeleteFirewallRuleParams(gomock.Any()).AnyTimes().
+		DoAndReturn(func(id string) *cloudstack.DeleteFirewallRuleParams {
+			deleted = append(deleted, id)
+			return &cloudstack.DeleteFirewallRuleParams{}
+		})
+	mockFirewall.EXPECT().DeleteFirewallRule(gomock.Any()).AnyTimes().
+		Return(&cloudstack.DeleteFirewallRuleResponse{}, nil)
+
+	created := 0
+	mockFirewall.EXPECT().NewCreateFirewallRuleParams(gomock.Any(), gomock.Any()).AnyTimes().
+		DoAndReturn(func(ip, proto string) *cloudstack.CreateFirewallRuleParams {
+			created++
+			return &cloudstack.CreateFirewallRuleParams{}
+		})
+	mockFirewall.EXPECT().CreateFirewallRule(gomock.Any()).AnyTimes().
+		Return(&cloudstack.CreateFirewallRuleResponse{}, nil)
+
+	lb := &loadBalancer{
+		CloudStackClient: &cloudstack.CloudStackClient{Firewall: mockFirewall},
+		ipAddr:           "203.0.113.1",
+	}
+
+	// The existing rule already allows exactly what is wanted, so nothing should
+	// be deleted and nothing created.
+	if _, err := lb.updateFirewallRule("ip-123", 80, LoadBalancerProtocolTCP, []string{defaultAllowedCIDR}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(deleted) > 0 {
+		t.Errorf("deleted %v, but that rule already matched the wanted CIDR", deleted)
+	}
+	if created > 0 {
+		t.Errorf("created %d replacement rules, want 0", created)
+	}
+}
+
 func TestDeleteFirewallRule(t *testing.T) {
 	t.Run("delete matching rule", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
@@ -3684,4 +3778,224 @@ func TestVerifyHosts(t *testing.T) {
 			t.Errorf("networkID = %q, want %q", networkID, "net-123")
 		}
 	})
+}
+
+// pagedRequest is the read side of the paging parameters that every
+// cloudstack-go List*Params exposes.
+type pagedRequest interface {
+	GetPage() (int, bool)
+	GetPagesize() (int, bool)
+}
+
+// pageOf returns the window of items a request asks for, mirroring how
+// CloudStack serves a list: a request carrying no paging parameters comes back
+// truncated at pageSize, and later pages are served by offset. It also asserts
+// the paging contract CloudStack enforces.
+func pageOf[T any](t *testing.T, p pagedRequest, items []T, pageSize int) []T {
+	t.Helper()
+
+	page, paged := p.GetPage()
+	size, sized := p.GetPagesize()
+
+	if paged != sized {
+		t.Errorf("page and pagesize must be sent together, got page set = %v, pagesize set = %v", paged, sized)
+	}
+
+	switch {
+	case !paged:
+		page, size = 1, pageSize
+	case page < 2:
+		t.Errorf("page = %d, want >= 2 (CloudStack rejects page 0)", page)
+	case size != pageSize:
+		t.Errorf("pagesize = %d, want %d", size, pageSize)
+	}
+
+	start := (page - 1) * size
+	if start >= len(items) {
+		return nil
+	}
+
+	end := start + size
+	if end > len(items) {
+		end = len(items)
+	}
+
+	return items[start:end]
+}
+
+// nodesNamed builds the node list a cloudprovider call receives.
+func nodesNamed(names ...string) []*corev1.Node {
+	nodes := make([]*corev1.Node, 0, len(names))
+	for _, name := range names {
+		nodes = append(nodes, &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: name}})
+	}
+	return nodes
+}
+
+func TestVerifyHostsPagination(t *testing.T) {
+	// CloudStack truncates list responses at default.page.size while still
+	// reporting the full total in count. This is the regression from issue #99:
+	// with more VMs in the account than fit in one page, the nodes beyond the
+	// first page were invisible and the load balancer was never created.
+	const pageSize = 500
+
+	// Only the last VM is a cluster node, so it lands on the final page.
+	vms := make([]*cloudstack.VirtualMachine, 750)
+	for i := range vms {
+		vms[i] = &cloudstack.VirtualMachine{
+			Id:   fmt.Sprintf("vm-%d", i),
+			Name: fmt.Sprintf("other-%d", i),
+			Nic:  []cloudstack.Nic{{Networkid: "net-123"}},
+		}
+	}
+	vms[len(vms)-1].Id = "vm-node-1"
+	vms[len(vms)-1].Name = "node-1"
+
+	t.Run("collects hosts from every page", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+
+		mockVM := cloudstack.NewMockVirtualMachineServiceIface(ctrl)
+		// Params are built once and reused across pages.
+		mockVM.EXPECT().NewListVirtualMachinesParams().
+			Return(&cloudstack.ListVirtualMachinesParams{})
+		mockVM.EXPECT().ListVirtualMachines(gomock.Any()).Times(2).
+			DoAndReturn(func(p *cloudstack.ListVirtualMachinesParams) (*cloudstack.ListVirtualMachinesResponse, error) {
+				return &cloudstack.ListVirtualMachinesResponse{
+					Count:           len(vms),
+					VirtualMachines: pageOf(t, p, vms, pageSize),
+				}, nil
+			})
+
+		cs := &CSCloud{client: &cloudstack.CloudStackClient{VirtualMachine: mockVM}}
+
+		hostIDs, networkID, err := cs.verifyHosts(nodesNamed("node-1"))
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !reflect.DeepEqual(hostIDs, []string{"vm-node-1"}) {
+			t.Errorf("hostIDs = %v, want %v", hostIDs, []string{"vm-node-1"})
+		}
+		if networkID != "net-123" {
+			t.Errorf("networkID = %q, want %q", networkID, "net-123")
+		}
+	})
+
+	t.Run("deduplicates hosts repeated across pages", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+
+		node := &cloudstack.VirtualMachine{
+			Id:   "vm-node-1",
+			Name: "node-1",
+			Nic:  []cloudstack.Nic{{Networkid: "net-123"}},
+		}
+
+		// A VM is removed between the requests, shifting the offset so the node
+		// comes back on both pages.
+		pages := [][]*cloudstack.VirtualMachine{{node, node}, {node}}
+
+		mockVM := cloudstack.NewMockVirtualMachineServiceIface(ctrl)
+		mockVM.EXPECT().NewListVirtualMachinesParams().
+			Return(&cloudstack.ListVirtualMachinesParams{})
+		mockVM.EXPECT().ListVirtualMachines(gomock.Any()).Times(len(pages)).
+			DoAndReturn(func(p *cloudstack.ListVirtualMachinesParams) (*cloudstack.ListVirtualMachinesResponse, error) {
+				page := pages[0]
+				pages = pages[1:]
+				return &cloudstack.ListVirtualMachinesResponse{Count: 3, VirtualMachines: page}, nil
+			})
+
+		cs := &CSCloud{client: &cloudstack.CloudStackClient{VirtualMachine: mockVM}}
+
+		hostIDs, _, err := cs.verifyHosts(nodesNamed("node-1"))
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !reflect.DeepEqual(hostIDs, []string{"vm-node-1"}) {
+			t.Errorf("hostIDs = %v, want %v", hostIDs, []string{"vm-node-1"})
+		}
+	})
+}
+
+func TestUpdateLoadBalancerPagination(t *testing.T) {
+	// Instances of a load balancer rule are one per load balanced node, so on a
+	// large cluster the un-paged response was truncated and the stale nodes on
+	// later pages were never removed from the rule.
+	const pageSize = 500
+
+	instances := make([]*cloudstack.VirtualMachine, 600)
+	for i := range instances {
+		instances[i] = &cloudstack.VirtualMachine{Id: fmt.Sprintf("vm-%d", i)}
+	}
+
+	ctrl := gomock.NewController(t)
+	t.Cleanup(ctrl.Finish)
+
+	mockVM := cloudstack.NewMockVirtualMachineServiceIface(ctrl)
+	mockLB := cloudstack.NewMockLoadBalancerServiceIface(ctrl)
+
+	// getLoadBalancer: one rule, fits in a single page.
+	mockLB.EXPECT().NewListLoadBalancerRulesParams().
+		Return(&cloudstack.ListLoadBalancerRulesParams{})
+	mockLB.EXPECT().ListLoadBalancerRules(gomock.Any()).
+		Return(&cloudstack.ListLoadBalancerRulesResponse{
+			Count: 1,
+			LoadBalancerRules: []*cloudstack.LoadBalancerRule{
+				{Id: "rule-1", Name: "rule-1", Publicip: "1.2.3.4", Publicipid: "ip-1"},
+			},
+		}, nil)
+
+	// verifyHosts: the cluster is down to a single node.
+	mockVM.EXPECT().NewListVirtualMachinesParams().
+		Return(&cloudstack.ListVirtualMachinesParams{})
+	mockVM.EXPECT().ListVirtualMachines(gomock.Any()).
+		Return(&cloudstack.ListVirtualMachinesResponse{
+			Count: 1,
+			VirtualMachines: []*cloudstack.VirtualMachine{
+				{Id: "vm-0", Name: "node-0", Nic: []cloudstack.Nic{{Networkid: "net-123"}}},
+			},
+		}, nil)
+
+	// The rule's members arrive a page at a time.
+	mockLB.EXPECT().NewListLoadBalancerRuleInstancesParams("rule-1").
+		Return(&cloudstack.ListLoadBalancerRuleInstancesParams{})
+	mockLB.EXPECT().ListLoadBalancerRuleInstances(gomock.Any()).Times(2).
+		DoAndReturn(func(p *cloudstack.ListLoadBalancerRuleInstancesParams) (*cloudstack.ListLoadBalancerRuleInstancesResponse, error) {
+			return &cloudstack.ListLoadBalancerRuleInstancesResponse{
+				Count:                     len(instances),
+				LoadBalancerRuleInstances: pageOf(t, p, instances, pageSize),
+			}, nil
+		})
+
+	var removed []string
+	mockLB.EXPECT().NewRemoveFromLoadBalancerRuleParams("rule-1").
+		Return(&cloudstack.RemoveFromLoadBalancerRuleParams{})
+	mockLB.EXPECT().RemoveFromLoadBalancerRule(gomock.Any()).
+		DoAndReturn(func(p *cloudstack.RemoveFromLoadBalancerRuleParams) (*cloudstack.RemoveFromLoadBalancerRuleResponse, error) {
+			removed, _ = p.GetVirtualmachineids()
+			return &cloudstack.RemoveFromLoadBalancerRuleResponse{}, nil
+		})
+
+	cs := &CSCloud{
+		client: &cloudstack.CloudStackClient{VirtualMachine: mockVM, LoadBalancer: mockLB},
+	}
+	service := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-svc", Namespace: "default", UID: "abc123"},
+	}
+
+	if err := cs.UpdateLoadBalancer(context.TODO(), "cluster", service, nodesNamed("node-0")); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Every instance except vm-0 must be removed, including those that only
+	// appeared on the second page.
+	if len(removed) != len(instances)-1 {
+		t.Fatalf("removed %d hosts, want %d", len(removed), len(instances)-1)
+	}
+	if slices.Contains(removed, "vm-0") {
+		t.Errorf("vm-0 is still a node but was removed from the rule")
+	}
+	if !slices.Contains(removed, "vm-599") {
+		t.Errorf("vm-599 is on the second page and should have been removed, got %v", removed)
+	}
 }
