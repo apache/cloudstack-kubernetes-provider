@@ -19,6 +19,9 @@ version: "2"
 run:
   modules-download-mode: readonly
   issues-exit-code: 1
+  # Lint the build-tagged e2e suite too; without this, goheader/gosec silently skip it.
+  build-tags:
+    - e2e
 linters:
   enable:
     - goheader

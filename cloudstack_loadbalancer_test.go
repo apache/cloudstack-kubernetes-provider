@@ -20,6 +20,7 @@
 package cloudstack
 
 import (
+	"context"
 	"fmt"
 	"reflect"
 	"sort"
@@ -2829,8 +2830,8 @@ func TestUpdateNetworkACL(t *testing.T) {
 		}
 
 		gomock.InOrder(
-			mockNetwork.EXPECT().GetNetworkByID("net-123").Return(networkResp, 1, nil),
-			mockNetworkACL.EXPECT().GetNetworkACLListByID("acl-456").Return(aclListResp, 1, nil),
+			mockNetwork.EXPECT().GetNetworkByID("net-123", gomock.Any()).Return(networkResp, 1, nil),
+			mockNetworkACL.EXPECT().GetNetworkACLListByID("acl-456", gomock.Any()).Return(aclListResp, 1, nil),
 			mockNetworkACL.EXPECT().NewListNetworkACLsParams().Return(listParams),
 			mockNetworkACL.EXPECT().ListNetworkACLs(gomock.Any()).Return(listResp, nil),
 			mockNetworkACL.EXPECT().NewCreateNetworkACLParams("tcp").Return(createParams),
@@ -2884,8 +2885,8 @@ func TestUpdateNetworkACL(t *testing.T) {
 		}
 
 		gomock.InOrder(
-			mockNetwork.EXPECT().GetNetworkByID("net-123").Return(networkResp, 1, nil),
-			mockNetworkACL.EXPECT().GetNetworkACLListByID("acl-456").Return(aclListResp, 1, nil),
+			mockNetwork.EXPECT().GetNetworkByID("net-123", gomock.Any()).Return(networkResp, 1, nil),
+			mockNetworkACL.EXPECT().GetNetworkACLListByID("acl-456", gomock.Any()).Return(aclListResp, 1, nil),
 			mockNetworkACL.EXPECT().NewListNetworkACLsParams().Return(listParams),
 			mockNetworkACL.EXPECT().ListNetworkACLs(gomock.Any()).Return(listResp, nil),
 		)
@@ -2924,8 +2925,8 @@ func TestUpdateNetworkACL(t *testing.T) {
 		}
 
 		gomock.InOrder(
-			mockNetwork.EXPECT().GetNetworkByID("net-123").Return(networkResp, 1, nil),
-			mockNetworkACL.EXPECT().GetNetworkACLListByID("acl-456").Return(aclListResp, 1, nil),
+			mockNetwork.EXPECT().GetNetworkByID("net-123", gomock.Any()).Return(networkResp, 1, nil),
+			mockNetworkACL.EXPECT().GetNetworkACLListByID("acl-456", gomock.Any()).Return(aclListResp, 1, nil),
 		)
 
 		lb := &loadBalancer{
@@ -2951,7 +2952,7 @@ func TestUpdateNetworkACL(t *testing.T) {
 		mockNetwork := cloudstack.NewMockNetworkServiceIface(ctrl)
 		apiErr := fmt.Errorf("network API error")
 
-		mockNetwork.EXPECT().GetNetworkByID("net-123").Return(nil, 1, apiErr)
+		mockNetwork.EXPECT().GetNetworkByID("net-123", gomock.Any()).Return(nil, 1, apiErr)
 
 		lb := &loadBalancer{
 			CloudStackClient: &cloudstack.CloudStackClient{
@@ -2983,8 +2984,8 @@ func TestUpdateNetworkACL(t *testing.T) {
 		apiErr := fmt.Errorf("ACL list API error")
 
 		gomock.InOrder(
-			mockNetwork.EXPECT().GetNetworkByID("net-123").Return(networkResp, 1, nil),
-			mockNetworkACL.EXPECT().GetNetworkACLListByID("acl-456").Return(nil, 0, apiErr),
+			mockNetwork.EXPECT().GetNetworkByID("net-123", gomock.Any()).Return(networkResp, 1, nil),
+			mockNetworkACL.EXPECT().GetNetworkACLListByID("acl-456", gomock.Any()).Return(nil, 0, apiErr),
 		)
 
 		lb := &loadBalancer{
@@ -3024,8 +3025,8 @@ func TestUpdateNetworkACL(t *testing.T) {
 		apiErr := fmt.Errorf("list ACL API error")
 
 		gomock.InOrder(
-			mockNetwork.EXPECT().GetNetworkByID("net-123").Return(networkResp, 1, nil),
-			mockNetworkACL.EXPECT().GetNetworkACLListByID("acl-456").Return(aclListResp, 1, nil),
+			mockNetwork.EXPECT().GetNetworkByID("net-123", gomock.Any()).Return(networkResp, 1, nil),
+			mockNetworkACL.EXPECT().GetNetworkACLListByID("acl-456", gomock.Any()).Return(aclListResp, 1, nil),
 			mockNetworkACL.EXPECT().NewListNetworkACLsParams().Return(listParams),
 			mockNetworkACL.EXPECT().ListNetworkACLs(gomock.Any()).Return(nil, apiErr),
 		)
@@ -3073,8 +3074,8 @@ func TestUpdateNetworkACL(t *testing.T) {
 		apiErr := fmt.Errorf("create ACL API error")
 
 		gomock.InOrder(
-			mockNetwork.EXPECT().GetNetworkByID("net-123").Return(networkResp, 1, nil),
-			mockNetworkACL.EXPECT().GetNetworkACLListByID("acl-456").Return(aclListResp, 1, nil),
+			mockNetwork.EXPECT().GetNetworkByID("net-123", gomock.Any()).Return(networkResp, 1, nil),
+			mockNetworkACL.EXPECT().GetNetworkACLListByID("acl-456", gomock.Any()).Return(aclListResp, 1, nil),
 			mockNetworkACL.EXPECT().NewListNetworkACLsParams().Return(listParams),
 			mockNetworkACL.EXPECT().ListNetworkACLs(gomock.Any()).Return(listResp, nil),
 			mockNetworkACL.EXPECT().NewCreateNetworkACLParams("tcp").Return(createParams),
@@ -3385,6 +3386,127 @@ func TestGetLoadBalancer(t *testing.T) {
 			t.Errorf("error message = %q, want to contain 'error retrieving load balancer rules'", err.Error())
 		}
 	})
+
+	listDuplicates := func(t *testing.T, requestedIP, publishedIP string, rules ...*cloudstack.LoadBalancerRule) *loadBalancer {
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+
+		mockLB := cloudstack.NewMockLoadBalancerServiceIface(ctrl)
+		mockLB.EXPECT().NewListLoadBalancerRulesParams().Return(&cloudstack.ListLoadBalancerRulesParams{})
+		mockLB.EXPECT().ListLoadBalancerRules(gomock.Any()).
+			Return(&cloudstack.ListLoadBalancerRulesResponse{Count: len(rules), LoadBalancerRules: rules}, nil)
+
+		cs := &CSCloud{client: &cloudstack.CloudStackClient{LoadBalancer: mockLB}}
+		service := &corev1.Service{
+			ObjectMeta: metav1.ObjectMeta{Name: "test-service", Namespace: "default"},
+			Spec:       corev1.ServiceSpec{LoadBalancerIP: requestedIP},
+		}
+		if publishedIP != "" {
+			service.Status.LoadBalancer.Ingress = []corev1.LoadBalancerIngress{{IP: publishedIP}}
+		}
+
+		lb, err := cs.getLoadBalancer(service)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		return lb
+	}
+	onAutoIP := &cloudstack.LoadBalancerRule{Id: "rule-auto", Name: "test-service-tcp-80", Publicip: "203.0.113.1", Publicipid: "ip-auto"}
+	onRequestedIP := &cloudstack.LoadBalancerRule{Id: "rule-requested", Name: "test-service-tcp-80", Publicip: "203.0.113.9", Publicipid: "ip-requested"}
+
+	assertKept := func(t *testing.T, lb *loadBalancer, kept, discarded *cloudstack.LoadBalancerRule) {
+		if got := lb.rules["test-service-tcp-80"]; got != kept {
+			t.Errorf("kept rule = %v, want %v", got.Id, kept.Id)
+		}
+		if len(lb.duplicateRules) != 1 || lb.duplicateRules[0] != discarded {
+			t.Errorf("duplicateRules = %+v, want only %v", lb.duplicateRules, discarded.Id)
+		}
+		if lb.ipAddr != kept.Publicip || lb.ipAddrID != kept.Publicipid {
+			t.Errorf("ipAddr/ipAddrID = %v/%v, want the kept rule's %v/%v", lb.ipAddr, lb.ipAddrID, kept.Publicip, kept.Publicipid)
+		}
+	}
+
+	t.Run("the first of two same-named rules is kept", func(t *testing.T) {
+		lb := listDuplicates(t, "", "", onAutoIP, onRequestedIP)
+		assertKept(t, lb, onAutoIP, onRequestedIP)
+	})
+
+	t.Run("a later rule on the requested IP is kept over an earlier one", func(t *testing.T) {
+		lb := listDuplicates(t, onRequestedIP.Publicip, "", onAutoIP, onRequestedIP)
+		assertKept(t, lb, onRequestedIP, onAutoIP)
+	})
+
+	t.Run("an earlier rule on the requested IP stays kept", func(t *testing.T) {
+		lb := listDuplicates(t, onRequestedIP.Publicip, "", onRequestedIP, onAutoIP)
+		assertKept(t, lb, onRequestedIP, onAutoIP)
+	})
+
+	t.Run("the rule on the published ingress IP is kept when no IP was requested", func(t *testing.T) {
+		lb := listDuplicates(t, "", onRequestedIP.Publicip, onAutoIP, onRequestedIP)
+		assertKept(t, lb, onRequestedIP, onAutoIP)
+	})
+
+	t.Run("a requested IP outranks the published ingress IP", func(t *testing.T) {
+		lb := listDuplicates(t, onAutoIP.Publicip, onRequestedIP.Publicip, onRequestedIP, onAutoIP)
+		assertKept(t, lb, onAutoIP, onRequestedIP)
+	})
+}
+
+// A failed sweep is reported so the service controller retries, but only after
+// this service's own rules and IP are gone, so the retry sees the leftover
+// duplicate as an ordinary rule instead of blocking deletion for ever.
+func TestEnsureLoadBalancerDeletedReportsASweepFailureLast(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	t.Cleanup(ctrl.Finish)
+
+	mockLB := cloudstack.NewMockLoadBalancerServiceIface(ctrl)
+	mockFW := cloudstack.NewMockFirewallServiceIface(ctrl)
+	mockAddr := cloudstack.NewMockAddressServiceIface(ctrl)
+	mockNet := cloudstack.NewMockNetworkServiceIface(ctrl)
+
+	kept := &cloudstack.LoadBalancerRule{Id: "keep", Name: "test-service-tcp-80", Publicip: "203.0.113.1", Publicipid: "ip-keep", Publicport: "80", Protocol: "tcp"}
+	duplicate := &cloudstack.LoadBalancerRule{Id: "dup", Name: "test-service-tcp-80", Publicip: "203.0.113.2", Publicipid: "ip-dup", Publicport: "80", Protocol: "tcp"}
+
+	mockLB.EXPECT().NewListLoadBalancerRulesParams().Return(&cloudstack.ListLoadBalancerRulesParams{})
+	mockLB.EXPECT().ListLoadBalancerRules(gomock.Any()).Return(&cloudstack.ListLoadBalancerRulesResponse{
+		Count: 2, LoadBalancerRules: []*cloudstack.LoadBalancerRule{kept, duplicate},
+	}, nil)
+
+	// The sweep fails while listing the duplicate's firewall rules.
+	mockFW.EXPECT().NewListFirewallRulesParams().Return(&cloudstack.ListFirewallRulesParams{})
+	mockFW.EXPECT().ListFirewallRules(gomock.Any()).Return(nil, fmt.Errorf("firewall API down"))
+
+	// Deletion of the kept rule must still happen.
+	mockAddr.EXPECT().GetPublicIpAddressByID("ip-keep", gomock.Any()).
+		Return(&cloudstack.PublicIpAddress{Id: "ip-keep", Associatednetworkid: "net-1"}, 1, nil)
+	// Once inside getNetworkIDFromIPAddress, once in the delete loop itself.
+	mockNet.EXPECT().GetNetworkByID("net-1", gomock.Any()).
+		Return(&cloudstack.Network{Id: "net-1"}, 1, nil).Times(2)
+	mockFW.EXPECT().NewListFirewallRulesParams().Return(&cloudstack.ListFirewallRulesParams{})
+	mockFW.EXPECT().ListFirewallRules(gomock.Any()).Return(&cloudstack.ListFirewallRulesResponse{}, nil)
+	deleteParams := &cloudstack.DeleteLoadBalancerRuleParams{}
+	mockLB.EXPECT().NewDeleteLoadBalancerRuleParams("keep").Return(deleteParams)
+	mockLB.EXPECT().DeleteLoadBalancerRule(deleteParams).Return(&cloudstack.DeleteLoadBalancerRuleResponse{}, nil)
+
+	// And the load balancer IP must still be released.
+	release := &cloudstack.DisassociateIpAddressParams{}
+	mockAddr.EXPECT().NewDisassociateIpAddressParams("ip-keep").Return(release)
+	mockAddr.EXPECT().DisassociateIpAddress(release).Return(&cloudstack.DisassociateIpAddressResponse{}, nil)
+
+	cs := &CSCloud{client: &cloudstack.CloudStackClient{
+		LoadBalancer: mockLB, Firewall: mockFW, Address: mockAddr, Network: mockNet,
+	}}
+	service := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: "test-service", Namespace: "default"}}
+
+	err := cs.EnsureLoadBalancerDeleted(context.TODO(), "test", service)
+	if err == nil {
+		t.Fatal("expected the sweep failure to be reported so the delete is retried")
+	}
+	if !strings.Contains(err.Error(), "firewall API down") {
+		t.Errorf("error = %q, want it to carry the sweep failure", err)
+	}
+	// gomock asserts on Cleanup that the kept rule was deleted and the IP released
+	// despite the failure; without that the retry would have nothing to converge on.
 }
 
 func TestGetNetworkIDFromIPAddress(t *testing.T) {
@@ -3407,8 +3529,8 @@ func TestGetNetworkIDFromIPAddress(t *testing.T) {
 		}
 
 		gomock.InOrder(
-			mockAddress.EXPECT().GetPublicIpAddressByID("ip-123").Return(ipResp, 1, nil),
-			mockNetwork.EXPECT().GetNetworkByID("net-123").Return(networkResp, 1, nil),
+			mockAddress.EXPECT().GetPublicIpAddressByID("ip-123", gomock.Any()).Return(ipResp, 1, nil),
+			mockNetwork.EXPECT().GetNetworkByID("net-123", gomock.Any()).Return(networkResp, 1, nil),
 		)
 
 		cs := &CSCloud{
@@ -3434,7 +3556,7 @@ func TestGetNetworkIDFromIPAddress(t *testing.T) {
 		mockAddress := cloudstack.NewMockAddressServiceIface(ctrl)
 		apiErr := fmt.Errorf("IP not found")
 
-		mockAddress.EXPECT().GetPublicIpAddressByID("ip-123").Return(nil, 0, apiErr)
+		mockAddress.EXPECT().GetPublicIpAddressByID("ip-123", gomock.Any()).Return(nil, 0, apiErr)
 
 		cs := &CSCloud{
 			client: &cloudstack.CloudStackClient{
@@ -3448,6 +3570,191 @@ func TestGetNetworkIDFromIPAddress(t *testing.T) {
 		}
 		if err != apiErr {
 			t.Errorf("error = %v, want %v", err, apiErr)
+		}
+	})
+
+	// The following two cases used to return ("", nil). The caller passes the
+	// result straight to GetNetworkByID, which does not reject an empty ID, so
+	// a nil error there resolves to an arbitrary network instead of failing.
+	t.Run("IP not associated with a network", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+
+		mockAddress := cloudstack.NewMockAddressServiceIface(ctrl)
+		mockAddress.EXPECT().GetPublicIpAddressByID("ip-123", gomock.Any()).
+			Return(&cloudstack.PublicIpAddress{Id: "ip-123"}, 1, nil)
+
+		cs := &CSCloud{
+			client: &cloudstack.CloudStackClient{Address: mockAddress},
+		}
+
+		networkID, err := cs.getNetworkIDFromIPAddress("ip-123")
+		if err == nil {
+			t.Fatalf("expected an error for an IP with no associated network")
+		}
+		if networkID != "" {
+			t.Errorf("networkID = %q, want empty", networkID)
+		}
+	})
+
+	t.Run("network lookup fails", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+
+		mockAddress := cloudstack.NewMockAddressServiceIface(ctrl)
+		mockNetwork := cloudstack.NewMockNetworkServiceIface(ctrl)
+		netErr := fmt.Errorf("network not found")
+
+		gomock.InOrder(
+			mockAddress.EXPECT().GetPublicIpAddressByID("ip-123", gomock.Any()).
+				Return(&cloudstack.PublicIpAddress{Id: "ip-123", Associatednetworkid: "net-123"}, 1, nil),
+			mockNetwork.EXPECT().GetNetworkByID("net-123", gomock.Any()).Return(nil, 0, netErr),
+		)
+
+		cs := &CSCloud{
+			client: &cloudstack.CloudStackClient{
+				Address: mockAddress,
+				Network: mockNetwork,
+			},
+		}
+
+		networkID, err := cs.getNetworkIDFromIPAddress("ip-123")
+		if err != netErr {
+			t.Errorf("error = %v, want %v", err, netErr)
+		}
+		if networkID != "" {
+			t.Errorf("networkID = %q, want empty", networkID)
+		}
+	})
+}
+
+// CloudStack does not enforce unique load balancer rule names. Because
+// loadBalancer.rules is keyed by name it can only manage one rule per name, so
+// the rest are tracked separately and removed; before that they survived
+// deletion and leaked with no service left to reference them.
+// A duplicate always sits on a different public IP from the kept rule, because
+// CloudStack rejects a second rule on the same IP and port. Removing only the
+// load balancer rule would therefore leak the duplicate's firewall rule and
+// its public IP.
+func TestDuplicateLoadBalancerRules(t *testing.T) {
+	type mocks struct {
+		lb   *cloudstack.MockLoadBalancerServiceIface
+		fw   *cloudstack.MockFirewallServiceIface
+		addr *cloudstack.MockAddressServiceIface
+	}
+	newLB := func(t *testing.T, duplicate *cloudstack.LoadBalancerRule) (*loadBalancer, mocks) {
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+		m := mocks{
+			lb:   cloudstack.NewMockLoadBalancerServiceIface(ctrl),
+			fw:   cloudstack.NewMockFirewallServiceIface(ctrl),
+			addr: cloudstack.NewMockAddressServiceIface(ctrl),
+		}
+		lb := &loadBalancer{
+			CloudStackClient: &cloudstack.CloudStackClient{
+				LoadBalancer: m.lb, Firewall: m.fw, Address: m.addr,
+			},
+			name:     "a-lb",
+			ipAddrID: "ip-keep",
+			rules: map[string]*cloudstack.LoadBalancerRule{
+				"a-lb-tcp-80": {Id: "keep", Name: "a-lb-tcp-80", Publicipid: "ip-keep"},
+			},
+			duplicateRules: []*cloudstack.LoadBalancerRule{duplicate},
+		}
+		return lb, m
+	}
+	onOwnIP := &cloudstack.LoadBalancerRule{
+		Id: "dup-1", Name: "a-lb-tcp-80", Publicport: "80", Protocol: "tcp", Publicipid: "ip-dup",
+	}
+	expectFirewallRules := func(m mocks, rules ...*cloudstack.FirewallRule) {
+		params := &cloudstack.ListFirewallRulesParams{}
+		m.fw.EXPECT().NewListFirewallRulesParams().Return(params)
+		m.fw.EXPECT().ListFirewallRules(params).
+			Return(&cloudstack.ListFirewallRulesResponse{FirewallRules: rules}, nil)
+	}
+	expectRuleDeleted := func(m mocks, id string, err error) {
+		params := &cloudstack.DeleteLoadBalancerRuleParams{}
+		m.lb.EXPECT().NewDeleteLoadBalancerRuleParams(id).Return(params)
+		m.lb.EXPECT().DeleteLoadBalancerRule(params).
+			Return(&cloudstack.DeleteLoadBalancerRuleResponse{}, err)
+	}
+	expectRulesOnIP := func(m mocks, count int) {
+		params := &cloudstack.ListLoadBalancerRulesParams{}
+		m.lb.EXPECT().NewListLoadBalancerRulesParams().Return(params)
+		m.lb.EXPECT().ListLoadBalancerRules(params).
+			Return(&cloudstack.ListLoadBalancerRulesResponse{Count: count}, nil)
+	}
+
+	t.Run("a duplicate on its own IP takes its firewall rule and IP with it", func(t *testing.T) {
+		lb, m := newLB(t, onOwnIP)
+		expectFirewallRules(m, &cloudstack.FirewallRule{Id: "fw-dup", Protocol: "tcp", Startport: 80, Endport: 80})
+		fwDelete := &cloudstack.DeleteFirewallRuleParams{}
+		m.fw.EXPECT().NewDeleteFirewallRuleParams("fw-dup").Return(fwDelete)
+		m.fw.EXPECT().DeleteFirewallRule(fwDelete).Return(&cloudstack.DeleteFirewallRuleResponse{}, nil)
+		expectRuleDeleted(m, "dup-1", nil)
+		expectRulesOnIP(m, 0)
+		release := &cloudstack.DisassociateIpAddressParams{}
+		m.addr.EXPECT().NewDisassociateIpAddressParams("ip-dup").Return(release)
+		m.addr.EXPECT().DisassociateIpAddress(release).Return(&cloudstack.DisassociateIpAddressResponse{}, nil)
+
+		if err := lb.deleteDuplicateRules(); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(lb.duplicateRules) != 0 {
+			t.Errorf("duplicateRules = %d, want 0", len(lb.duplicateRules))
+		}
+		if kept := lb.rules["a-lb-tcp-80"]; kept == nil || kept.Id != "keep" {
+			t.Errorf("kept rule = %+v, want the original rule to survive", kept)
+		}
+	})
+
+	t.Run("the IP stays while another rule still uses it", func(t *testing.T) {
+		lb, m := newLB(t, onOwnIP)
+		expectFirewallRules(m)
+		expectRuleDeleted(m, "dup-1", nil)
+		expectRulesOnIP(m, 1)
+
+		if err := lb.deleteDuplicateRules(); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("a duplicate sharing the kept IP never releases it", func(t *testing.T) {
+		sharesIP := &cloudstack.LoadBalancerRule{
+			Id: "dup-1", Name: "a-lb-tcp-80", Publicport: "80", Protocol: "tcp", Publicipid: "ip-keep",
+		}
+		lb, m := newLB(t, sharesIP)
+		expectFirewallRules(m)
+		expectRuleDeleted(m, "dup-1", nil)
+
+		if err := lb.deleteDuplicateRules(); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("a delete failure is surfaced", func(t *testing.T) {
+		lb, m := newLB(t, onOwnIP)
+		expectFirewallRules(m)
+		expectRuleDeleted(m, "dup-1", fmt.Errorf("boom"))
+
+		if err := lb.deleteDuplicateRules(); err == nil {
+			t.Fatal("expected an error when deleting a duplicate fails")
+		}
+	})
+
+	t.Run("a duplicate with an unparseable public port is left in place without API calls", func(t *testing.T) {
+		lb, _ := newLB(t, &cloudstack.LoadBalancerRule{Id: "dup-1", Name: "a-lb-tcp-80", Protocol: "tcp"})
+
+		if err := lb.deleteDuplicateRules(); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("a duplicate with an unsupported protocol is left in place without API calls", func(t *testing.T) {
+		lb, _ := newLB(t, &cloudstack.LoadBalancerRule{Id: "dup-1", Name: "a-lb-tcp-80", Publicport: "80", Protocol: "sctp"})
+
+		if err := lb.deleteDuplicateRules(); err != nil {
+			t.Fatalf("unexpected error: %v", err)
 		}
 	})
 }
