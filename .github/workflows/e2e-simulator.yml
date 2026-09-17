@@ -42,10 +42,10 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       - name: Build CCM image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           load: true
@@ -125,7 +125,7 @@ jobs:
           zstd -dc ccm-image.tar.zst | docker load
           echo "CCM_IMAGE_PREBUILT=true" >>"$GITHUB_ENV"
 
-      - uses: helm/kind-action@v1
+      - uses: helm/kind-action@06c1ae10762d3b9c1644e7fe69596ae519e015a2 # v1.15.0
         with:
           install_only: true
           version: v0.32.0
