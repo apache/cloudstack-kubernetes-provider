@@ -1,0 +1,62 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
+# kind cluster for the CloudStack simulator e2e environment.
+#
+# - `cloud-provider: external` makes every node register with the
+#   node.cloudprovider.kubernetes.io/uninitialized taint, which the CCM under
+#   test is responsible for removing.
+# - `kubelet-preferred-address-types: InternalIP` keeps `kubectl logs`/`exec`
+#   working after node initialization: the CCM sets the node's Hostname
+#   address to the CloudStack instance hostname (the simulated hypervisor
+#   agent), which is not resolvable from the API server.
+# - Two workers so tests can assert that the control-plane node (labeled
+#   node.kubernetes.io/exclude-from-external-load-balancers by kubeadm) is
+#   excluded from load balancer membership.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: cs-ccm-e2e
+networking:
+  ipFamily: ipv4
+  apiServerAddress: "127.0.0.1"
+nodes:
+  - role: control-plane
+    kubeadmConfigPatches:
+      - |
+        kind: InitConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            cloud-provider: external
+      - |
+        kind: ClusterConfiguration
+        apiServer:
+          extraArgs:
+            kubelet-preferred-address-types: InternalIP
+  - role: worker
+    kubeadmConfigPatches:
+      - |
+        kind: JoinConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            cloud-provider: external
+  - role: worker
+    kubeadmConfigPatches:
+      - |
+        kind: JoinConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            cloud-provider: external

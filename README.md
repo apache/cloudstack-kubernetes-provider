@@ -52,6 +52,11 @@ explicitly set `region` in that case.
 
 The access token needs to be able to fetch VM information and deploy load balancers in the project or domain where the nodes reside.
 
+The account must also be allowed to call `listManagementServersMetrics`, which the controller uses
+on startup to determine the management server version. This is a root admin API and is **not**
+included in the default `User` role; without it the controller exits immediately with
+`no management servers found`.
+
 To create the secret, use the following command:
 ```bash
 kubectl -n kube-system create secret generic cloudstack-secret --from-file=cloud-config
@@ -423,9 +428,15 @@ make docker
 
 ### Testing
 
-You need a local instance of the CloudStack Management Server or a 'real' one to connect to.
+Unit tests need nothing but Go:
+
+```bash
+make test
+```
+
+For anything beyond that you need a CloudStack Management Server to talk to.
 The CCM supports the same cloud-config configuration file format used by [the cs tool](https://github.com/exoscale/cs),
-so you can simply point it to that.
+so you can simply point it at one you already have:
 
 ```bash
 ./cloudstack-ccm --cloud-provider external-cloudstack --cloud-config ./cloud-config --kubeconfig ~/.kube/config
@@ -434,44 +445,20 @@ so you can simply point it to that.
 Point `--kubeconfig` at a kubeconfig for your Kubernetes development cluster, and `--cloud-config` at
 a `cloud-config` for the CloudStack installation you want to talk to.
 
-If you don't have a 'real' CloudStack installation, you can also launch a local [simulator instance](https://hub.docker.com/r/cloudstack/simulator) instead. This is very useful for dry-run testing.
+If you don't have a 'real' CloudStack installation, you don't need one. The repository ships a
+fully simulated environment — a kind cluster, the
+[CloudStack simulator](https://hub.docker.com/r/apache/cloudstack-simulator) and the CCM, all in
+containers:
 
-### Debugging
-
-You can use the VSCode extension [Go](https://marketplace.visualstudio.com/items?itemName=golang.go) to debug the CCM.
-Add the following configuration to the `.vscode/launch.json` file to launch the CCM and debug it.
-
-```json
-{
-    "version": "0.2.0",
-    "configurations": [
-        {
-            "name": "Launch CloudStack CCM",
-            "type": "go",
-            "request": "launch",
-            "mode": "auto",
-            "program": "${workspaceFolder}/cmd/cloudstack-ccm",
-            "env": {},
-            "args": [
-                "--cloud-provider=external-cloudstack",
-                "--cloud-config=${workspaceFolder}/cloud-config",
-                "--kubeconfig=${env:HOME}/.kube/config",
-                "--leader-elect=false",
-                "--v=4"
-            ],
-            "showLog": true,
-            "trace": "verbose"
-        },
-        {
-            "name": "Attach to Process",
-            "type": "go",
-            "request": "attach",
-            "mode": "local",
-            "processId": 0
-        }
-    ]
-}
+```bash
+make e2e-up      # bring the environment up
+make test-e2e    # run the end-to-end suite against it
+make e2e-down    # tear it down
 ```
+
+See [docs/development.md](docs/development.md) for the full walkthrough, how to run the CCM as a
+host process under a debugger, the VPC scenario (`make e2e-vpc` / `make test-e2e-vpc`), and
+troubleshooting.
 
 ## Copyright
 

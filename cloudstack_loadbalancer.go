@@ -69,6 +69,7 @@ type loadBalancer struct {
 	networkID                string
 	projectID                string
 	rules                    map[string]*cloudstack.LoadBalancerRule
+	duplicateRules           []*cloudstack.LoadBalancerRule
 	ipAssociatedByController bool
 }
 
@@ -106,6 +107,10 @@ func (cs *CSCloud) EnsureLoadBalancer(ctx context.Context, clusterName string, s
 	// Get the load balancer details and existing rules.
 	lb, err := cs.getLoadBalancer(service)
 	if err != nil {
+		return nil, err
+	}
+
+	if err := lb.deleteDuplicateRules(); err != nil {
 		return nil, err
 	}
 
@@ -331,6 +336,13 @@ func (cs *CSCloud) EnsureLoadBalancerDeleted(ctx context.Context, clusterName st
 		return err
 	}
 
+	// Reported only once this service's own resources are gone, so a retry sees the
+	// leftover duplicate as an ordinary rule and deletes it through the path above.
+	sweepErr := lb.deleteDuplicateRules()
+	if sweepErr != nil {
+		klog.Errorf("Error removing duplicate load balancer rules for %v/%v: %v", service.Namespace, service.Name, sweepErr)
+	}
+
 	for _, lbRule := range lb.rules {
 		klog.V(4).Infof("Deleting firewall rules / Network ACLs for load balancer: %v", lbRule.Name)
 		protocol := ProtocolFromLoadBalancer(lbRule.Protocol)
@@ -391,7 +403,7 @@ func (cs *CSCloud) EnsureLoadBalancerDeleted(ctx context.Context, clusterName st
 				// Annotation is set, so check if there are any other load balancer rules using this IP.
 				// Since we've already deleted all rules for this service, any remaining rules must belong
 				// to other services. If no other rules exist, it's safe to disassociate the IP.
-				ip, count, err := lb.Address.GetPublicIpAddressByID(lb.ipAddrID)
+				ip, count, err := lb.Address.GetPublicIpAddressByID(lb.ipAddrID, cloudstack.WithProject(lb.projectID))
 				if err != nil {
 					klog.Errorf("Error retrieving IP address %v for disassociation check: %v", lb.ipAddr, err)
 					shouldDisassociate = false
@@ -423,7 +435,7 @@ func (cs *CSCloud) EnsureLoadBalancerDeleted(ctx context.Context, clusterName st
 		}
 	}
 
-	return nil
+	return sweepErr
 }
 
 // GetLoadBalancerName retrieves the name of the LoadBalancer.
@@ -453,7 +465,25 @@ func (cs *CSCloud) getLoadBalancer(service *corev1.Service) (*loadBalancer, erro
 		return nil, fmt.Errorf("error retrieving load balancer rules: %v", err)
 	}
 
+	// Keeping the rule on the address the Service is already published on stops a
+	// duplicate sweep from deleting the rule that clients and DNS are pointing at.
+	preferredIP := service.Spec.LoadBalancerIP
+	if preferredIP == "" && len(service.Status.LoadBalancer.Ingress) > 0 {
+		preferredIP = service.Status.LoadBalancer.Ingress[0].IP
+	}
+
 	for _, lbRule := range l.LoadBalancerRules {
+		if existing, seen := lb.rules[lbRule.Name]; seen {
+			duplicate := lbRule
+			if lbRule.Publicip == preferredIP && existing.Publicip != preferredIP {
+				duplicate = existing
+			}
+			klog.Warningf("Duplicate load balancer rule %v for service %v/%v, removing %v on %v", lbRule.Name, service.Namespace, service.Name, duplicate.Id, duplicate.Publicip)
+			lb.duplicateRules = append(lb.duplicateRules, duplicate)
+			if duplicate == lbRule {
+				continue
+			}
+		}
 		lb.rules[lbRule.Name] = lbRule
 
 		if lb.ipAddr != "" && lb.ipAddr != lbRule.Publicip {
@@ -470,24 +500,26 @@ func (cs *CSCloud) getLoadBalancer(service *corev1.Service) (*loadBalancer, erro
 }
 
 // Get network ID from Public IP Address
+// Every failure returns an error: GetNetworkByID does not reject an empty ID but
+// matches an unfiltered network list, so ("", nil) would resolve to any network.
 func (cs *CSCloud) getNetworkIDFromIPAddress(publicIpId string) (string, error) {
-	ip, count, err := cs.client.Address.GetPublicIpAddressByID(publicIpId)
+	ip, count, err := cs.client.Address.GetPublicIpAddressByID(publicIpId, cloudstack.WithProject(cs.projectID))
 	if err != nil {
 		klog.Errorf("Failed to fetch the public IP for id: %v", publicIpId)
 		return "", err
 	}
 	if count == 0 {
-		return "", err
+		return "", fmt.Errorf("no public IP address found with ID %v", publicIpId)
 	}
-	if ip.Networkid != "" {
-		network, _, netErr := cs.client.Network.GetNetworkByID(ip.Associatednetworkid)
+	if ip.Associatednetworkid != "" {
+		network, _, netErr := cs.client.Network.GetNetworkByID(ip.Associatednetworkid, cloudstack.WithProject(cs.projectID))
 		if netErr != nil {
 			klog.Errorf("Failed to fetch the network for id: %v", ip.Associatednetworkid)
-			return "", err
+			return "", netErr
 		}
 		return network.Id, nil
 	}
-	return "", nil
+	return "", fmt.Errorf("public IP address %v is not associated with a network", publicIpId)
 }
 
 // verifyHosts verifies if all hosts belong to the same network, and returns the host ID's and network ID.
@@ -770,10 +802,74 @@ func (lb *loadBalancer) deleteLoadBalancerRule(lbRule *cloudstack.LoadBalancerRu
 		return fmt.Errorf("error deleting load balancer rule %v: %v", lbRule.Name, err)
 	}
 
-	// Delete the rule from the map as it no longer exists
-	delete(lb.rules, lbRule.Name)
+	// A duplicate shares its name with the rule being kept, which owns the map entry.
+	if kept, ok := lb.rules[lbRule.Name]; ok && kept.Id == lbRule.Id {
+		delete(lb.rules, lbRule.Name)
+	}
 
 	return nil
+}
+
+// deleteDuplicateRules removes rules that collided by name with the one being
+// managed. A duplicate sits on its own public IP, since CloudStack rejects a
+// second rule on the same IP and port, so its firewall rule and IP go with it;
+// network ACL rules are shared per tier and port with the kept rule and stay.
+func (lb *loadBalancer) deleteDuplicateRules() error {
+	for _, lbRule := range lb.duplicateRules {
+		klog.V(4).Infof("Deleting duplicate load balancer rule: %v (%v)", lbRule.Name, lbRule.Id)
+		if err := lb.deleteDuplicateRule(lbRule); err != nil {
+			return err
+		}
+	}
+	lb.duplicateRules = nil
+
+	return nil
+}
+
+// deleteDuplicateRule tears down one duplicate: its firewall rule, the rule
+// itself, and its public IP once no other rule uses that IP.
+func (lb *loadBalancer) deleteDuplicateRule(lbRule *cloudstack.LoadBalancerRule) error {
+	port, err := strconv.Atoi(lbRule.Publicport)
+	protocol := ProtocolFromLoadBalancer(lbRule.Protocol)
+	if err != nil || protocol == LoadBalancerProtocolInvalid {
+		klog.Warningf("Leaving duplicate rule %v (%v) in place: unusable public port %q or protocol %q", lbRule.Name, lbRule.Id, lbRule.Publicport, lbRule.Protocol)
+		return nil
+	}
+	if _, err := lb.deleteFirewallRule(lbRule.Publicipid, port, protocol); err != nil {
+		return err
+	}
+	if err := lb.deleteLoadBalancerRule(lbRule); err != nil {
+		return err
+	}
+	if lbRule.Publicipid == lb.ipAddrID {
+		return nil
+	}
+	inUse, err := lb.publicIPHasRules(lbRule.Publicipid)
+	if err != nil || inUse {
+		return err
+	}
+
+	p := lb.Address.NewDisassociateIpAddressParams(lbRule.Publicipid)
+	if _, err := lb.Address.DisassociateIpAddress(p); err != nil {
+		return fmt.Errorf("error releasing public IP %v: %v", lbRule.Publicipid, err)
+	}
+
+	return nil
+}
+
+// publicIPHasRules reports whether any load balancer rule still uses the IP.
+func (lb *loadBalancer) publicIPHasRules(publicIPID string) (bool, error) {
+	p := lb.LoadBalancer.NewListLoadBalancerRulesParams()
+	p.SetPublicipid(publicIPID)
+	p.SetListall(true)
+	if lb.projectID != "" {
+		p.SetProjectid(lb.projectID)
+	}
+	rules, err := lb.LoadBalancer.ListLoadBalancerRules(p)
+	if err != nil {
+		return false, fmt.Errorf("error listing load balancer rules on IP %v: %v", publicIPID, err)
+	}
+	return rules.Count > 0, nil
 }
 
 // assignHostsToRule assigns hosts to a load balancer rule.
@@ -981,12 +1077,12 @@ func (lb *loadBalancer) updateFirewallRule(publicIpId string, publicPort int, pr
 }
 
 func (lb *loadBalancer) updateNetworkACL(publicPort int, protocol LoadBalancerProtocol, networkId string) (bool, error) {
-	network, _, err := lb.Network.GetNetworkByID(networkId)
+	network, _, err := lb.Network.GetNetworkByID(networkId, cloudstack.WithProject(lb.projectID))
 	if err != nil {
 		return false, fmt.Errorf("error fetching Network with ID: %v, due to: %s", networkId, err)
 	}
 
-	networkAclList, count, err := lb.NetworkACL.GetNetworkACLListByID(network.Aclid)
+	networkAclList, count, err := lb.NetworkACL.GetNetworkACLListByID(network.Aclid, cloudstack.WithProject(lb.projectID))
 	if err != nil {
 		return false, fmt.Errorf("error fetching Network ACL List with ID: %v, due to: %s", network.Aclid, err)
 	}
@@ -1003,6 +1099,10 @@ func (lb *loadBalancer) updateNetworkACL(publicPort int, protocol LoadBalancerPr
 	networkAclParams := lb.NetworkACL.NewListNetworkACLsParams()
 	networkAclParams.SetAclid(network.Aclid)
 	networkAclParams.SetNetworkid(networkId)
+	networkAclParams.SetListall(true)
+	if lb.projectID != "" {
+		networkAclParams.SetProjectid(lb.projectID)
+	}
 
 	networkAclResponse, err := lb.NetworkACL.ListNetworkACLs(networkAclParams)
 

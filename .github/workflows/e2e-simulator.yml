@@ -1,0 +1,182 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
+name: E2E (CloudStack Simulator)
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Build the CCM image once and share it with every matrix cell. The
+  # distroless image is small enough that passing it as an artifact is much
+  # cheaper than four redundant builds.
+  build:
+    if: github.repository == 'apache/cloudstack-kubernetes-provider' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build CCM image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          platforms: linux/amd64
+          tags: apache/cloudstack-kubernetes-provider:e2e
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Export image
+        run: docker save apache/cloudstack-kubernetes-provider:e2e | zstd -T0 -o ccm-image.tar.zst
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ccm-image
+          path: ccm-image.tar.zst
+          retention-days: 1
+
+  e2e:
+    needs: build
+    if: github.repository == 'apache/cloudstack-kubernetes-provider' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        k8s: ['v1.37.0', 'v1.36.4']
+        acs: ['4.22.1.0', '4.20.2.0']
+    env:
+      KIND_NODE_IMAGE: kindest/node:${{ matrix.k8s }}
+      SIM_TAG: ${{ matrix.acs }}
+      CCM_IMAGE: apache/cloudstack-kubernetes-provider:e2e
+      CMK_VERSION: "6.5.0"
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      # Released image tags never change, so cache them per version rather than
+      # pulling on every run. Keyed separately so the ~2 GB simulator tarball is
+      # shared across both Kubernetes versions instead of once per matrix cell.
+      # `docker save` output is already compressed (Docker keeps the layer
+      # blobs), so these are ~2 GB and ~370 MB respectively.
+      - name: Restore simulator image
+        uses: actions/cache@v4
+        with:
+          path: /tmp/images/simulator.tar
+          key: image-simulator-${{ matrix.acs }}
+
+      - name: Restore kind node image
+        uses: actions/cache@v4
+        with:
+          path: /tmp/images/kind-node.tar
+          key: image-kind-node-${{ matrix.k8s }}
+
+      - name: Load images
+        run: |
+          mkdir -p /tmp/images
+          load_or_pull() {
+            if [ -f "$1" ]; then
+              docker load -i "$1"
+            else
+              docker pull "$2"
+              docker save "$2" -o "$1"
+            fi
+          }
+          load_or_pull /tmp/images/simulator.tar "apache/cloudstack-simulator:${SIM_TAG}"
+          load_or_pull /tmp/images/kind-node.tar "${KIND_NODE_IMAGE}"
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: ccm-image
+
+      - name: Load CCM image
+        run: |
+          zstd -dc ccm-image.tar.zst | docker load
+          echo "CCM_IMAGE_PREBUILT=true" >>"$GITHUB_ENV"
+
+      - uses: helm/kind-action@v1
+        with:
+          install_only: true
+          version: v0.32.0
+
+      - name: Install cmk (CloudMonkey)
+        run: |
+          curl -fsSL -o /usr/local/bin/cmk \
+            "https://github.com/apache/cloudstack-cloudmonkey/releases/download/${CMK_VERSION}/cmk.linux.x86-64"
+          chmod +x /usr/local/bin/cmk
+          cmk version
+
+      - name: Start simulator and deploy zone
+        run: hack/e2e/10-simulator-up.sh
+
+      - name: Create kind cluster
+        run: hack/e2e/20-kind-up.sh
+
+      - name: Create isolated network topology
+        run: hack/e2e/30-topology-isolated.sh
+
+      - name: Deploy the cloud controller manager
+        run: hack/e2e/40-ccm-deploy.sh
+
+      # These go through the make targets rather than repeating the commands,
+      # so CI and a local run cannot drift apart -- in particular the API
+      # endpoint is derived from SIM_HOST_PORT in one place.
+      - name: Unit and acceptance tests against the live simulator
+        run: |
+          . hack/e2e/_out/keys.env
+          make test
+
+      - name: E2E phase 1 (load balancer, nodes, annotations)
+        run: make test-e2e
+
+      - name: Create VPC topology
+        run: make e2e-vpc
+
+      - name: E2E phase 2 (VPC / network ACL)
+        run: make test-e2e-vpc
+
+      - name: Collect artifacts
+        if: always()
+        run: hack/e2e/90-collect-artifacts.sh
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-artifacts-${{ matrix.k8s }}-${{ matrix.acs }}
+          path: hack/e2e/_out/artifacts
+          retention-days: 7
+
+      - name: Tear down
+        if: always()
+        run: hack/e2e/99-down.sh

@@ -29,10 +29,21 @@ LDFLAGS="-X k8s.io/kubernetes/pkg/version.gitVersion=${GIT_VERSION} -X k8s.io/ku
 export CGO_ENABLED=0
 export GO111MODULE=on
 
+# Keep these in step with hack/e2e/env.sh: both are overridable from the
+# environment, so `make test-e2e` reaches the same simulator `make e2e-up`
+# published rather than assuming the default port.
+SIM_HOST_PORT ?= 8080
+CS_API_URL ?= http://localhost:$(SIM_HOST_PORT)/client/api
+# Exported so the harness scripts and the acceptance tests in `make test` --
+# which read CS_API_URL from the environment -- agree with the targets here
+# without every caller having to repeat the endpoint.
+export SIM_HOST_PORT
+export CS_API_URL
+
 CMD_SRC=\
 	cmd/cloudstack-ccm/main.go
 
-.PHONY: all clean docker
+.PHONY: all clean docker e2e-up e2e-down e2e-vpc test-e2e test-e2e-vpc
 
 all: cloudstack-ccm
 
@@ -52,6 +63,38 @@ docker: gofmt
 ifneq (${GIT_IS_TAG},NOT_A_TAG)
 	docker tag apache/cloudstack-kubernetes-provider:${GIT_COMMIT_SHORT} apache/cloudstack-kubernetes-provider:${GIT_TAG}
 endif
+
+# Simulator-based e2e environment; see docs/development.md
+e2e-up:
+	hack/e2e/up.sh
+
+e2e-down:
+	hack/e2e/99-down.sh
+
+# go test runs with the package directory as its working directory, so
+# KUBECONFIG must be absolute.
+test-e2e:
+	@test -f hack/e2e/_out/keys.env || (echo "environment not up; run 'make e2e-up' first" && exit 1)
+	. hack/e2e/_out/keys.env && \
+	KUBECONFIG=${CURDIR}/hack/e2e/_out/kubeconfig \
+	CS_API_URL=$(CS_API_URL) \
+	go test -tags e2e -v -timeout 30m ./test/e2e/... -run 'TestLB|TestNode|TestAnnot'
+
+# Phase 2. Run hack/e2e/50-topology-vpc.sh first: it creates the project, VPC
+# and tier, and re-points the CCM at the project. These tests only exercise
+# anything with CS_PROJECT_ID set, and skip otherwise.
+e2e-vpc:
+	hack/e2e/50-topology-vpc.sh
+
+test-e2e-vpc:
+	@test -f hack/e2e/_out/ids.env || (echo "VPC topology not created; run 'make e2e-vpc' first" && exit 1)
+	@grep -q E2E_PROJECT_ID hack/e2e/_out/ids.env || (echo "VPC topology not created; run 'make e2e-vpc' first" && exit 1)
+	. hack/e2e/_out/keys.env && . hack/e2e/_out/ids.env && \
+	KUBECONFIG=${CURDIR}/hack/e2e/_out/kubeconfig \
+	CS_API_URL=$(CS_API_URL) \
+	CS_PROJECT_ID="$$E2E_PROJECT_ID" \
+	E2E_ACL_ID="$$E2E_ACL_ID" E2E_VPC_ID="$$E2E_VPC_ID" \
+	go test -tags e2e -v -timeout 30m ./test/e2e/... -run 'TestVPC'
 
 lint: gofmt
 	@(echo "Running golangci-lint...")
