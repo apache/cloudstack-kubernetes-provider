@@ -680,6 +680,57 @@ func TestCheckLoadBalancerRule(t *testing.T) {
 		}
 	})
 
+	// CloudStack moves from 4.x to 24.0 after 4.23, so the 4.22 feature gate has
+	// to keep treating the new numbering as newer rather than older.
+	t.Run("cidr change triggers update on the 24.0 series", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+
+		// No expectations on the mock; any delete call would fail the test.
+		mockLB := cloudstack.NewMockLoadBalancerServiceIface(ctrl)
+
+		lbRule := &cloudstack.LoadBalancerRule{
+			Id:          "rule-id",
+			Name:        "rule",
+			Publicip:    "1.1.1.1",
+			Privateport: "30000",
+			Publicport:  "80",
+			Cidrlist:    "10.0.0.0/8",
+			Algorithm:   "roundrobin",
+			Protocol:    LoadBalancerProtocolTCP.CSProtocol(),
+		}
+
+		lb := &loadBalancer{
+			CloudStackClient: &cloudstack.CloudStackClient{
+				LoadBalancer: mockLB,
+			},
+			ipAddr:    "1.1.1.1",
+			algorithm: "roundrobin",
+			rules: map[string]*cloudstack.LoadBalancerRule{
+				"rule": lbRule,
+			},
+		}
+		port := corev1.ServicePort{Port: 80, NodePort: 30000, Protocol: corev1.ProtocolTCP}
+		service := &corev1.Service{
+			ObjectMeta: metav1.ObjectMeta{
+				Annotations: map[string]string{
+					ServiceAnnotationLoadBalancerSourceCidrs: "10.0.0.0/8,192.168.0.0/16",
+				},
+			},
+		}
+
+		rule, needsUpdate, err := lb.checkLoadBalancerRule("rule", port, LoadBalancerProtocolTCP, service, semver.MustParse("24.0.0"))
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if rule != lbRule {
+			t.Fatalf("expected existing rule to be returned")
+		}
+		if !needsUpdate {
+			t.Fatalf("expected needsUpdate to be true due to CIDR change")
+		}
+	})
+
 	t.Run("cidr change triggers delete with older version", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		t.Cleanup(ctrl.Finish)
@@ -2050,6 +2101,56 @@ func TestUpdateLoadBalancerRule(t *testing.T) {
 		err := lb.updateLoadBalancerRule("test-rule-tcp-80", LoadBalancerProtocolTCP, service, semver.Version{Major: 4, Minor: 22, Patch: 0})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	// The release after 4.23 is numbered 24.0, which must still reach the
+	// in-place CIDR update rather than falling back to delete-and-recreate.
+	t.Run("update CIDR list on the 24.0 series", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+
+		mockLB := cloudstack.NewMockLoadBalancerServiceIface(ctrl)
+		updateParams := &cloudstack.UpdateLoadBalancerRuleParams{}
+
+		gomock.InOrder(
+			mockLB.EXPECT().NewUpdateLoadBalancerRuleParams("rule-123").Return(updateParams),
+			mockLB.EXPECT().UpdateLoadBalancerRule(gomock.Any()).Return(&cloudstack.UpdateLoadBalancerRuleResponse{}, nil),
+		)
+
+		lb := &loadBalancer{
+			CloudStackClient: &cloudstack.CloudStackClient{
+				LoadBalancer: mockLB,
+			},
+			algorithm: "roundrobin",
+			rules: map[string]*cloudstack.LoadBalancerRule{
+				"test-rule-tcp-80": {
+					Id:        "rule-123",
+					Algorithm: "roundrobin",
+					Protocol:  "tcp",
+					Cidrlist:  defaultAllowedCIDR,
+				},
+			},
+		}
+
+		service := &corev1.Service{
+			ObjectMeta: metav1.ObjectMeta{
+				Annotations: map[string]string{
+					ServiceAnnotationLoadBalancerSourceCidrs: "10.0.0.0/8",
+				},
+			},
+		}
+
+		if err := lb.updateLoadBalancerRule("test-rule-tcp-80", LoadBalancerProtocolTCP, service, semver.MustParse("24.0.0")); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		cidrList, ok := updateParams.GetCidrlist()
+		if !ok {
+			t.Fatalf("expected the CIDR list to be set on the update params")
+		}
+		if len(cidrList) != 1 || cidrList[0] != "10.0.0.0/8" {
+			t.Fatalf("cidrlist = %v, want [10.0.0.0/8]", cidrList)
 		}
 	})
 
