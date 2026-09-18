@@ -161,6 +161,54 @@ func TestLB_NodeMembership(t *testing.T) {
 		})
 }
 
+// A rule whose backend membership was lost, for instance because host
+// assignment failed after the rule was created, is repaired by the next
+// service sync rather than waiting for a node change.
+func TestLB_HostsRestoredOnResync(t *testing.T) {
+	f := NewFramework(t)
+	svc := f.CreateLBService(nil)
+	lbName := defaultLoadBalancerName(svc)
+
+	f.WaitForIngressIP(svc)
+	rules := f.WaitForLBRules(lbName, 1)
+	var assigned []string
+	f.Eventually(lbSyncTimeout, lbSyncInterval, "hosts to be assigned to the rule",
+		func() (bool, error) {
+			p := f.CS.LoadBalancer.NewListLoadBalancerRuleInstancesParams(rules[0].Id)
+			resp, err := f.CS.LoadBalancer.ListLoadBalancerRuleInstances(p)
+			if err != nil {
+				return false, err
+			}
+			assigned = assigned[:0]
+			for _, inst := range resp.LoadBalancerRuleInstances {
+				assigned = append(assigned, inst.Id)
+			}
+			return len(assigned) > 0, nil
+		})
+
+	remove := f.CS.LoadBalancer.NewRemoveFromLoadBalancerRuleParams(rules[0].Id)
+	remove.SetVirtualmachineids(assigned)
+	if _, err := f.CS.LoadBalancer.RemoveFromLoadBalancerRule(remove); err != nil {
+		t.Fatalf("removing hosts from rule %s: %v", rules[0].Id, err)
+	}
+	if got, err := f.RuleInstanceCount(rules[0].Id); err != nil || got != 0 {
+		t.Fatalf("rule still has %d hosts after removal (err %v)", got, err)
+	}
+
+	forceReconcile(f, svc, lbName)
+	f.Eventually(lbSyncTimeout, lbSyncInterval, "the sync to restore the rule's hosts",
+		func() (bool, error) {
+			got, err := f.RuleInstanceCount(rules[0].Id)
+			if err != nil {
+				return false, err
+			}
+			if got != len(assigned) {
+				return false, fmt.Errorf("rule has %d hosts, want %d", got, len(assigned))
+			}
+			return true, nil
+		})
+}
+
 func TestLB_PortChange(t *testing.T) {
 	f := NewFramework(t)
 	svc := f.CreateLBService(nil)

@@ -33,9 +33,11 @@ import (
 )
 
 const (
-	annotationSourceCidrs  = "service.beta.kubernetes.io/cloudstack-load-balancer-source-cidrs"
-	annotationHostname     = "service.beta.kubernetes.io/cloudstack-load-balancer-hostname"
-	annotationIPAssociated = "service.beta.kubernetes.io/cloudstack-load-balancer-ip-associated-by-controller" //nolint:gosec
+	annotationSourceCidrs      = "service.beta.kubernetes.io/cloudstack-load-balancer-source-cidrs"
+	annotationHostname         = "service.beta.kubernetes.io/cloudstack-load-balancer-hostname"
+	annotationIPAssociated     = "service.beta.kubernetes.io/cloudstack-load-balancer-ip-associated-by-controller" //nolint:gosec
+	annotationStickinessMethod = "service.beta.kubernetes.io/cloudstack-load-balancer-stickiness-method-name"
+	annotationStickinessParams = "service.beta.kubernetes.io/cloudstack-load-balancer-stickiness-method-param"
 )
 
 func TestAnnot_SourceCIDRs(t *testing.T) {
@@ -131,6 +133,168 @@ func TestAnnot_SessionAffinity(t *testing.T) {
 			}
 			return current[0].Algorithm == "roundrobin", nil
 		})
+}
+
+func TestAnnot_Stickiness(t *testing.T) {
+	f := NewFramework(t)
+	svc := f.CreateLBService(func(s *corev1.Service) {
+		s.Annotations = map[string]string{
+			annotationStickinessMethod: "LbCookie",
+			annotationStickinessParams: "cookie-name=SERVERID",
+		}
+	})
+	lbName := defaultLoadBalancerName(svc)
+
+	f.WaitForIngressIP(svc)
+	rules := f.WaitForLBRules(lbName, 1)
+	ruleID := rules[0].Id
+	policy := f.WaitForStickinessPolicy(ruleID, "LbCookie", map[string]string{"cookie-name": "SERVERID"})
+
+	// A parameter change replaces the policy instead of editing it in place.
+	f.UpdateService(svc, func(s *corev1.Service) {
+		s.Annotations[annotationStickinessParams] = "cookie-name=JSESSIONID"
+	})
+	replaced := f.WaitForStickinessPolicy(ruleID, "LbCookie", map[string]string{"cookie-name": "JSESSIONID"})
+	if replaced.Id == policy.Id {
+		t.Errorf("policy %s was kept across a parameter change, want it recreated", policy.Id)
+	}
+
+	// Dropping the annotations removes the policy but keeps the rule.
+	f.UpdateService(svc, func(s *corev1.Service) {
+		delete(s.Annotations, annotationStickinessMethod)
+		delete(s.Annotations, annotationStickinessParams)
+	})
+	f.Eventually(lbSyncTimeout, lbSyncInterval, "stickiness policy to be removed",
+		func() (bool, error) {
+			current, err := f.StickinessPolicy(ruleID)
+			if err != nil {
+				return false, err
+			}
+			return current == nil, nil
+		})
+	current := f.WaitForLBRules(lbName, 1)
+	if current[0].Id != ruleID {
+		t.Errorf("rule ID changed %s -> %s, want the rule to survive policy removal", ruleID, current[0].Id)
+	}
+}
+
+// Replacing a policy has to delete the old one first, so a rejected replacement
+// must leave the live rule with the stickiness it already had.
+func TestAnnot_StickinessRejectedReplacement(t *testing.T) {
+	f := NewFramework(t)
+	svc := f.CreateLBService(func(s *corev1.Service) {
+		s.Annotations = map[string]string{
+			annotationStickinessMethod: "LbCookie",
+			annotationStickinessParams: "cookie-name=SERVERID",
+		}
+	})
+	lbName := defaultLoadBalancerName(svc)
+
+	f.WaitForIngressIP(svc)
+	rules := f.WaitForLBRules(lbName, 1)
+	ruleID := rules[0].Id
+	f.WaitForStickinessPolicy(ruleID, "LbCookie", map[string]string{"cookie-name": "SERVERID"})
+
+	f.UpdateService(svc, func(s *corev1.Service) {
+		s.Annotations[annotationStickinessMethod] = "NoSuchMethod"
+	})
+	f.Eventually(lbSyncTimeout, lbSyncInterval, "the sync to fail on the rejected replacement",
+		func() (bool, error) {
+			events, err := f.K8s.CoreV1().Events(svc.Namespace).List(context.Background(), metav1.ListOptions{
+				FieldSelector: "involvedObject.name=" + svc.Name + ",reason=SyncLoadBalancerFailed",
+			})
+			if err != nil {
+				return false, err
+			}
+			for _, event := range events.Items {
+				if strings.Contains(event.Message, "stickiness") {
+					return true, nil
+				}
+			}
+			return false, nil
+		})
+
+	// The rollback put the original policy back, so the rule never goes unprotected.
+	policy, err := f.StickinessPolicy(ruleID)
+	if err != nil {
+		t.Fatalf("reading the stickiness policy: %v", err)
+	}
+	if policy == nil {
+		t.Fatal("rule lost its stickiness policy after a rejected replacement")
+	}
+	if !strings.EqualFold(policy.Methodname, "LbCookie") {
+		t.Errorf("policy method = %q, want the original LbCookie", policy.Methodname)
+	}
+
+	f.UpdateService(svc, func(s *corev1.Service) {
+		s.Annotations[annotationStickinessMethod] = "SourceBased"
+		s.Annotations[annotationStickinessParams] = "tablesize=200k"
+	})
+	f.WaitForStickinessPolicy(ruleID, "SourceBased", map[string]string{"tablesize": "200k"})
+}
+
+// A rule whose stickiness policy CloudStack rejects must not survive as a
+// half-configured rule: once the annotation is corrected, every rule has to end
+// up with both its policy and its backend hosts.
+func TestAnnot_StickinessInvalidMethod(t *testing.T) {
+	f := NewFramework(t)
+	svc := f.CreateLBService(nil)
+	lbName := defaultLoadBalancerName(svc)
+
+	f.WaitForIngressIP(svc)
+	rules := f.WaitForLBRules(lbName, 1)
+	var wantHosts int
+	f.Eventually(lbSyncTimeout, lbSyncInterval, "hosts to be assigned to the first rule",
+		func() (bool, error) {
+			var err error
+			wantHosts, err = f.RuleInstanceCount(rules[0].Id)
+			return wantHosts > 0, err
+		})
+
+	// The new port is listed first so its rule is created, and its policy
+	// rejected, before the existing rule is reconciled.
+	f.UpdateService(svc, func(s *corev1.Service) {
+		s.Annotations = map[string]string{annotationStickinessMethod: "NoSuchMethod"}
+		s.Spec.Ports = []corev1.ServicePort{
+			{Name: "alt", Port: 8080, Protocol: corev1.ProtocolTCP},
+			{Name: "http", Port: 80, Protocol: corev1.ProtocolTCP},
+		}
+	})
+	f.Eventually(lbSyncTimeout, lbSyncInterval, "the sync to fail on the rejected stickiness method",
+		func() (bool, error) {
+			events, err := f.K8s.CoreV1().Events(svc.Namespace).List(context.Background(), metav1.ListOptions{
+				FieldSelector: "involvedObject.name=" + svc.Name + ",reason=SyncLoadBalancerFailed",
+			})
+			if err != nil {
+				return false, err
+			}
+			for _, event := range events.Items {
+				if strings.Contains(event.Message, "stickiness") {
+					return true, nil
+				}
+			}
+			return false, nil
+		})
+
+	f.UpdateService(svc, func(s *corev1.Service) {
+		s.Annotations[annotationStickinessMethod] = "LbCookie"
+		s.Annotations[annotationStickinessParams] = "cookie-name=SERVERID"
+	})
+	rules = f.WaitForLBRules(lbName, 2)
+	for _, rule := range rules {
+		f.WaitForStickinessPolicy(rule.Id, "LbCookie", map[string]string{"cookie-name": "SERVERID"})
+		f.Eventually(lbSyncTimeout, lbSyncInterval, fmt.Sprintf("rule %s to have %d hosts", rule.Name, wantHosts),
+			func() (bool, error) {
+				got, err := f.RuleInstanceCount(rule.Id)
+				if err != nil {
+					return false, err
+				}
+				if got != wantHosts {
+					return false, fmt.Errorf("rule %s has %d hosts", rule.Name, got)
+				}
+				return true, nil
+			})
+	}
 }
 
 func TestAnnot_ExplicitLoadBalancerIP(t *testing.T) {
