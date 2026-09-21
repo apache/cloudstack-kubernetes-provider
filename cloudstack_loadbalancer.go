@@ -281,13 +281,21 @@ func (cs *CSCloud) UpdateLoadBalancer(ctx context.Context, clusterName string, s
 	for _, lbRule := range lb.rules {
 		p := lb.LoadBalancer.NewListLoadBalancerRuleInstancesParams(lbRule.Id)
 
-		// Retrieve all VMs currently associated to this load balancer rule.
-		l, err := lb.LoadBalancer.ListLoadBalancerRuleInstances(p)
+		// Retrieve all VMs currently associated to this load balancer rule. There
+		// is one per load balanced node, so this grows with the cluster.
+		instances, err := listAll(p, func() (int, []*cloudstack.VirtualMachine, error) {
+			l, err := lb.LoadBalancer.ListLoadBalancerRuleInstances(p)
+			if err != nil {
+				return 0, nil, err
+			}
+
+			return l.Count, l.LoadBalancerRuleInstances, nil
+		})
 		if err != nil {
 			return fmt.Errorf("error retrieving associated instances: %v", err)
 		}
 
-		assign, remove := symmetricDifference(lb.hostIDs, l.LoadBalancerRuleInstances)
+		assign, remove := symmetricDifference(lb.hostIDs, instances)
 
 		if len(assign) > 0 {
 			klog.V(4).Infof("Assigning new hosts (%v) to load balancer rule: %v", assign, lbRule.Name)
@@ -460,10 +468,21 @@ func (cs *CSCloud) getLoadBalancer(service *corev1.Service) (*loadBalancer, erro
 		p.SetProjectid(cs.projectID)
 	}
 
-	l, err := cs.client.LoadBalancer.ListLoadBalancerRules(p)
+	// The keyword is matched as a substring server side, so this can return more
+	// rules than just this service's and has to be paged through.
+	lbRules, err := listAll(p, func() (int, []*cloudstack.LoadBalancerRule, error) {
+		l, err := cs.client.LoadBalancer.ListLoadBalancerRules(p)
+		if err != nil {
+			return 0, nil, err
+		}
+
+		return l.Count, l.LoadBalancerRules, nil
+	})
 	if err != nil {
 		return nil, fmt.Errorf("error retrieving load balancer rules: %v", err)
 	}
+
+	lbRules = dedupeByID(lbRules, func(rule *cloudstack.LoadBalancerRule) string { return rule.Id })
 
 	// Keeping the rule on the address the Service is already published on stops a
 	// duplicate sweep from deleting the rule that clients and DNS are pointing at.
@@ -472,7 +491,7 @@ func (cs *CSCloud) getLoadBalancer(service *corev1.Service) (*loadBalancer, erro
 		preferredIP = service.Status.LoadBalancer.Ingress[0].IP
 	}
 
-	for _, lbRule := range l.LoadBalancerRules {
+	for _, lbRule := range lbRules {
 		if existing, seen := lb.rules[lbRule.Name]; seen {
 			duplicate := lbRule
 			if lbRule.Publicip == preferredIP && existing.Publicip != preferredIP {
@@ -539,24 +558,35 @@ func (cs *CSCloud) verifyHosts(nodes []*corev1.Node) ([]string, string, error) {
 		p.SetProjectid(cs.projectID)
 	}
 
-	l, err := cs.client.VirtualMachine.ListVirtualMachines(p)
+	vms, err := listAll(p, func() (int, []*cloudstack.VirtualMachine, error) {
+		l, err := cs.client.VirtualMachine.ListVirtualMachines(p)
+		if err != nil {
+			return 0, nil, err
+		}
+
+		return l.Count, l.VirtualMachines, nil
+	})
 	if err != nil {
 		return nil, "", fmt.Errorf("error retrieving list of hosts: %v", err)
 	}
 
 	var hostIDs []string
 	var networkID string
+	seen := map[string]bool{} // used to check whether the changing set of VMs contains one we had already seen in another page.
 
 	// Check if the virtual machine is in the hosts slice, then add the corresponding ID.
-	for _, vm := range l.VirtualMachines {
-		if hostNames[strings.ToLower(vm.Name)] {
-			if networkID != "" && networkID != vm.Nic[0].Networkid {
-				return nil, "", fmt.Errorf("found hosts that belong to different networks")
-			}
-
-			networkID = vm.Nic[0].Networkid
-			hostIDs = append(hostIDs, vm.Id)
+	for _, vm := range vms {
+		if !hostNames[strings.ToLower(vm.Name)] || seen[vm.Id] {
+			continue
 		}
+		seen[vm.Id] = true
+
+		if networkID != "" && networkID != vm.Nic[0].Networkid {
+			return nil, "", fmt.Errorf("found hosts that belong to different networks")
+		}
+
+		networkID = vm.Nic[0].Networkid
+		hostIDs = append(hostIDs, vm.Id)
 	}
 
 	if len(hostIDs) == 0 || len(networkID) == 0 {
@@ -903,8 +933,19 @@ func symmetricDifference(hostIDs []string, lbInstances []*cloudstack.VirtualMach
 		new[hostID] = true
 	}
 
+	// Paging over the instances of a rule can return the same instance twice. A
+	// duplicate would otherwise be dropped from new on its first occurrence and
+	// then added to remove on its second, so the same host would be both kept
+	// and removed.
+	seen := make(map[string]bool)
+
 	var remove []string
 	for _, instance := range lbInstances {
+		if seen[instance.Id] {
+			continue
+		}
+		seen[instance.Id] = true
+
 		if new[instance.Id] {
 			delete(new, instance.Id)
 			continue
@@ -996,6 +1037,37 @@ func rulesMapToString(rules map[*cloudstack.FirewallRule]bool) string {
 	return ls.String()
 }
 
+// listFirewallRules retrieves all firewall rules associated with a public IP.
+//
+// Rules are deduplicated by ID: paging over a set that is changing underneath us
+// can return the same rule on more than one page, and each page decodes into its
+// own struct, so a repeat arrives as a second pointer to an equal rule. Callers
+// key their bookkeeping on the pointer, which would treat the two as unrelated
+// rules and delete one of them.
+func (lb *loadBalancer) listFirewallRules(publicIpId string) ([]*cloudstack.FirewallRule, error) {
+	p := lb.Firewall.NewListFirewallRulesParams()
+	p.SetIpaddressid(publicIpId)
+	p.SetListall(true)
+	if lb.projectID != "" {
+		p.SetProjectid(lb.projectID)
+	}
+
+	klog.V(4).Infof("Listing firewall rules for %v", p)
+	rules, err := listAll(p, func() (int, []*cloudstack.FirewallRule, error) {
+		r, err := lb.Firewall.ListFirewallRules(p)
+		if err != nil {
+			return 0, nil, err
+		}
+
+		return r.Count, r.FirewallRules, nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("error fetching firewall rules for public IP %v: %v", publicIpId, err)
+	}
+
+	return dedupeByID(rules, func(rule *cloudstack.FirewallRule) string { return rule.Id }), nil
+}
+
 // updateFirewallRule creates a firewall rule for a load balancer rule
 //
 // If the rule list is empty, all internet (IPv4: 0.0.0.0/0) is opened for the
@@ -1007,23 +1079,16 @@ func (lb *loadBalancer) updateFirewallRule(publicIpId string, publicPort int, pr
 		allowedIPs = []string{defaultAllowedCIDR}
 	}
 
-	p := lb.Firewall.NewListFirewallRulesParams()
-	p.SetIpaddressid(publicIpId)
-	p.SetListall(true)
-	if lb.projectID != "" {
-		p.SetProjectid(lb.projectID)
-	}
-	klog.V(4).Infof("Listing firewall rules for %v", p)
-	r, err := lb.Firewall.ListFirewallRules(p)
+	firewallRules, err := lb.listFirewallRules(publicIpId)
 	if err != nil {
-		return false, fmt.Errorf("error fetching firewall rules for public IP %v: %v", publicIpId, err)
+		return false, err
 	}
-	klog.V(4).Infof("All firewall rules for %v: %v", lb.ipAddr, rulesToString(r.FirewallRules))
+	klog.V(4).Infof("All firewall rules for %v: %v", lb.ipAddr, rulesToString(firewallRules))
 
 	// find all rules that have a matching proto+port
 	// a map may or may not be faster, but is a bit easier to understand
 	filtered := make(map[*cloudstack.FirewallRule]bool)
-	for _, rule := range r.FirewallRules {
+	for _, rule := range firewallRules {
 		if rule.Protocol == protocol.IPProtocol() && rule.Startport == publicPort && rule.Endport == publicPort {
 			filtered[rule] = true
 		}
@@ -1104,8 +1169,14 @@ func (lb *loadBalancer) updateNetworkACL(publicPort int, protocol LoadBalancerPr
 		networkAclParams.SetProjectid(lb.projectID)
 	}
 
-	networkAclResponse, err := lb.NetworkACL.ListNetworkACLs(networkAclParams)
+	networkAcls, err := listAll(networkAclParams, func() (int, []*cloudstack.NetworkACL, error) {
+		networkAclResponse, err := lb.NetworkACL.ListNetworkACLs(networkAclParams)
+		if err != nil {
+			return 0, nil, err
+		}
 
+		return networkAclResponse.Count, networkAclResponse.NetworkACLs, nil
+	})
 	if err != nil {
 		return false, fmt.Errorf("error fetching Network ACL with ID: %v for network with id: %v, due to: %s", network.Aclid, networkId, err)
 	}
@@ -1113,7 +1184,7 @@ func (lb *loadBalancer) updateNetworkACL(publicPort int, protocol LoadBalancerPr
 	// find all network ACL rules that have a matching proto+port
 	// a map may or may not be faster, but is a bit easier to understand
 	filtered := make(map[*cloudstack.NetworkACL]bool)
-	for _, netAclRule := range networkAclResponse.NetworkACLs {
+	for _, netAclRule := range networkAcls {
 		if netAclRule.Protocol == protocol.IPProtocol() && netAclRule.Startport == strconv.Itoa(publicPort) && netAclRule.Endport == strconv.Itoa(publicPort) {
 			filtered[netAclRule] = true
 		}
@@ -1145,20 +1216,14 @@ func (lb *loadBalancer) updateNetworkACL(publicPort int, protocol LoadBalancerPr
 //
 // returns true when corresponding rules were deleted
 func (lb *loadBalancer) deleteFirewallRule(publicIpId string, publicPort int, protocol LoadBalancerProtocol) (bool, error) {
-	p := lb.Firewall.NewListFirewallRulesParams()
-	p.SetIpaddressid(publicIpId)
-	p.SetListall(true)
-	if lb.projectID != "" {
-		p.SetProjectid(lb.projectID)
-	}
-	r, err := lb.Firewall.ListFirewallRules(p)
+	firewallRules, err := lb.listFirewallRules(publicIpId)
 	if err != nil {
-		return false, fmt.Errorf("error fetching firewall rules for public IP %v: %v", publicIpId, err)
+		return false, err
 	}
 
 	// filter by proto:port
 	filtered := make([]*cloudstack.FirewallRule, 0, 1)
-	for _, rule := range r.FirewallRules {
+	for _, rule := range firewallRules {
 		if rule.Protocol == protocol.IPProtocol() && rule.Startport == publicPort && rule.Endport == publicPort {
 			filtered = append(filtered, rule)
 		}
@@ -1188,14 +1253,21 @@ func (lb *loadBalancer) deleteNetworkACLRule(publicPort int, protocol LoadBalanc
 		p.SetProjectid(lb.projectID)
 	}
 
-	r, err := lb.NetworkACL.ListNetworkACLs(p)
+	networkAcls, err := listAll(p, func() (int, []*cloudstack.NetworkACL, error) {
+		r, err := lb.NetworkACL.ListNetworkACLs(p)
+		if err != nil {
+			return 0, nil, err
+		}
+
+		return r.Count, r.NetworkACLs, nil
+	})
 	if err != nil {
 		return false, fmt.Errorf("error fetching Network ACL rules Network ID %v: %v", networkID, err)
 	}
 
 	// filter by proto:port
 	filtered := make([]*cloudstack.NetworkACL, 0, 1)
-	for _, rule := range r.NetworkACLs {
+	for _, rule := range networkAcls {
 		if rule.Protocol == protocol.IPProtocol() && rule.Startport == strconv.Itoa(publicPort) && rule.Endport == strconv.Itoa(publicPort) {
 			filtered = append(filtered, rule)
 		}
