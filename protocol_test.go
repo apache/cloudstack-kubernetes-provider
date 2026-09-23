@@ -158,9 +158,19 @@ func TestProtocolFromLoadBalancer(t *testing.T) {
 			want:     LoadBalancerProtocolInvalid,
 		},
 		{
-			name:     "uppercase TCP returns invalid",
+			name:     "uppercase TCP from the in-tree provider",
 			protocol: "TCP",
-			want:     LoadBalancerProtocolInvalid,
+			want:     LoadBalancerProtocolTCP,
+		},
+		{
+			name:     "uppercase UDP from the in-tree provider",
+			protocol: "UDP",
+			want:     LoadBalancerProtocolUDP,
+		},
+		{
+			name:     "mixed-case tcp-proxy",
+			protocol: "TCP-Proxy",
+			want:     LoadBalancerProtocolTCPProxy,
 		},
 	}
 
