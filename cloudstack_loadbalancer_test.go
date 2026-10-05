@@ -589,256 +589,338 @@ func TestGetCIDRList(t *testing.T) {
 }
 
 func TestCheckLoadBalancerRule(t *testing.T) {
-	t.Run("rule not present returns nil", func(t *testing.T) {
-		lb := &loadBalancer{
-			rules: map[string]*cloudstack.LoadBalancerRule{},
-		}
-		port := corev1.ServicePort{Port: 80, NodePort: 30000, Protocol: corev1.ProtocolTCP}
-		service := &corev1.Service{}
+	port := corev1.ServicePort{Port: 80, NodePort: 30000, Protocol: corev1.ProtocolTCP}
+	belowCIDRUpdate := semver.MustParse("4.21.0")
+	withCIDRUpdate := semver.MustParse("4.22.0")
 
-		rule, needsUpdate, err := lb.checkLoadBalancerRule("missing", port, LoadBalancerProtocolTCP, service, semver.Version{})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if rule != nil {
-			t.Fatalf("expected nil rule, got %v", rule)
-		}
-		if needsUpdate {
-			t.Fatalf("expected needsUpdate to be false")
-		}
-	})
-
-	t.Run("basic property mismatch deletes rule", func(t *testing.T) {
-		ctrl := gomock.NewController(t)
-		t.Cleanup(ctrl.Finish)
-
-		mockLB := cloudstack.NewMockLoadBalancerServiceIface(ctrl)
-		deleteParams := &cloudstack.DeleteLoadBalancerRuleParams{}
-
-		gomock.InOrder(
-			mockLB.EXPECT().NewDeleteLoadBalancerRuleParams("rule-id").Return(deleteParams),
-			mockLB.EXPECT().DeleteLoadBalancerRule(deleteParams).Return(&cloudstack.DeleteLoadBalancerRuleResponse{}, nil),
-		)
-
-		lb := &loadBalancer{
-			CloudStackClient: &cloudstack.CloudStackClient{
-				LoadBalancer: mockLB,
-			},
-			ipAddr: "1.1.1.1",
-			rules: map[string]*cloudstack.LoadBalancerRule{
-				"rule": {
-					Id:          "rule-id",
-					Name:        "rule",
-					Publicip:    "2.2.2.2",
-					Privateport: "30000",
-					Publicport:  "80",
-					Cidrlist:    defaultAllowedCIDR,
-					Algorithm:   "roundrobin",
-					Protocol:    LoadBalancerProtocolTCP.CSProtocol(),
-				},
-			},
-		}
-		port := corev1.ServicePort{Port: 80, NodePort: 30000, Protocol: corev1.ProtocolTCP}
-		service := &corev1.Service{}
-
-		rule, needsUpdate, err := lb.checkLoadBalancerRule("rule", port, LoadBalancerProtocolTCP, service, semver.Version{Major: 4, Minor: 21, Patch: 0})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if rule != nil {
-			t.Fatalf("expected nil rule after deletion, got %v", rule)
-		}
-		if needsUpdate {
-			t.Fatalf("expected needsUpdate to be false")
-		}
-		if _, exists := lb.rules["rule"]; exists {
-			t.Fatalf("expected rule entry to be removed from map")
-		}
-	})
-
-	t.Run("cidr change triggers update on supported version", func(t *testing.T) {
-		ctrl := gomock.NewController(t)
-		t.Cleanup(ctrl.Finish)
-
-		// No expectations on the mock; any delete call would fail the test.
-		mockLB := cloudstack.NewMockLoadBalancerServiceIface(ctrl)
-
+	existingRule := func(edit func(*cloudstack.LoadBalancerRule)) *cloudstack.LoadBalancerRule {
 		lbRule := &cloudstack.LoadBalancerRule{
 			Id:          "rule-id",
 			Name:        "rule",
 			Publicip:    "1.1.1.1",
 			Privateport: "30000",
 			Publicport:  "80",
-			Cidrlist:    "10.0.0.0/8",
+			Cidrlist:    defaultAllowedCIDR,
 			Algorithm:   "roundrobin",
 			Protocol:    LoadBalancerProtocolTCP.CSProtocol(),
 		}
+		if edit != nil {
+			edit(lbRule)
+		}
+		return lbRule
+	}
+	unrestricted := &corev1.Service{}
+	restrictedTo := func(cidrs string) *corev1.Service {
+		return &corev1.Service{ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{
+			ServiceAnnotationLoadBalancerSourceCidrs: cidrs,
+		}}}
+	}
 
-		lb := &loadBalancer{
-			CloudStackClient: &cloudstack.CloudStackClient{
-				LoadBalancer: mockLB,
-			},
-			ipAddr:    "1.1.1.1",
-			algorithm: "roundrobin",
-			rules: map[string]*cloudstack.LoadBalancerRule{
-				"rule": lbRule,
-			},
-		}
-		port := corev1.ServicePort{Port: 80, NodePort: 30000, Protocol: corev1.ProtocolTCP}
-		service := &corev1.Service{
-			ObjectMeta: metav1.ObjectMeta{
-				Annotations: map[string]string{
-					ServiceAnnotationLoadBalancerSourceCidrs: "10.0.0.0/8,192.168.0.0/16",
-				},
-			},
-		}
+	tests := []struct {
+		name     string
+		existing *cloudstack.LoadBalancerRule
+		ruleName string
+		protocol LoadBalancerProtocol
+		service  *corev1.Service
+		version  semver.Version
+		want     ruleChange
+	}{
+		{
+			name:    "no existing rule is created",
+			service: unrestricted,
+			version: withCIDRUpdate,
+			want:    ruleMissing,
+		},
+		{
+			name:     "matching rule is left alone",
+			existing: existingRule(nil),
+			service:  unrestricted,
+			version:  withCIDRUpdate,
+			want:     ruleUpToDate,
+		},
+		{
+			name:     "rule on another public IP is recreated",
+			existing: existingRule(func(r *cloudstack.LoadBalancerRule) { r.Publicip = "2.2.2.2" }),
+			service:  unrestricted,
+			version:  withCIDRUpdate,
+			want:     ruleNeedsRecreate,
+		},
+		{
+			name:     "changed node port is recreated",
+			existing: existingRule(func(r *cloudstack.LoadBalancerRule) { r.Privateport = "30001" }),
+			service:  unrestricted,
+			version:  withCIDRUpdate,
+			want:     ruleNeedsRecreate,
+		},
+		{
+			name:     "changed algorithm is updated",
+			existing: existingRule(func(r *cloudstack.LoadBalancerRule) { r.Algorithm = "source" }),
+			service:  unrestricted,
+			version:  withCIDRUpdate,
+			want:     ruleNeedsUpdate,
+		},
+		{
+			name:     "protocol change is updated in place",
+			existing: existingRule(func(r *cloudstack.LoadBalancerRule) { r.Name = "rule-tcp-80" }),
+			ruleName: "rule-tcp-proxy-80",
+			protocol: LoadBalancerProtocolTCPProxy,
+			service:  unrestricted,
+			version:  withCIDRUpdate,
+			want:     ruleNeedsUpdate,
+		},
+		{
+			name:     "cidr change is updated where the API accepts a cidrlist",
+			existing: existingRule(func(r *cloudstack.LoadBalancerRule) { r.Cidrlist = "10.0.0.0/8" }),
+			service:  restrictedTo("10.0.0.0/8,192.168.0.0/16"),
+			version:  withCIDRUpdate,
+			want:     ruleNeedsUpdate,
+		},
+		// CloudStack moves from 4.x to 24.0 after 4.23, so the 4.22 feature gate has
+		// to keep treating the new numbering as newer rather than older.
+		{
+			name:     "cidr change is updated on the 24.0 series",
+			existing: existingRule(func(r *cloudstack.LoadBalancerRule) { r.Cidrlist = "10.0.0.0/8" }),
+			service:  restrictedTo("10.0.0.0/8,192.168.0.0/16"),
+			version:  semver.MustParse("24.0.0"),
+			want:     ruleNeedsUpdate,
+		},
+		{
+			name:     "cidr change is recreated below the cidrlist update release",
+			existing: existingRule(func(r *cloudstack.LoadBalancerRule) { r.Cidrlist = "10.0.0.0/8" }),
+			service:  restrictedTo("10.0.0.0/8,192.168.0.0/16"),
+			version:  belowCIDRUpdate,
+			want:     ruleNeedsRecreate,
+		},
+		{
+			name:     "matching multi-CIDR list is left alone",
+			existing: existingRule(func(r *cloudstack.LoadBalancerRule) { r.Cidrlist = "10.0.0.0/8,192.168.0.0/16" }),
+			service:  restrictedTo("10.0.0.0/8,192.168.0.0/16"),
+			version:  withCIDRUpdate,
+			want:     ruleUpToDate,
+		},
+		{
+			name:     "rule with no cidrlist matches an unrestricted service",
+			existing: existingRule(func(r *cloudstack.LoadBalancerRule) { r.Cidrlist = "" }),
+			service:  unrestricted,
+			version:  belowCIDRUpdate,
+			want:     ruleUpToDate,
+		},
+		{
+			name:     "rule with no cidrlist is recreated for a restricted service below the update release",
+			existing: existingRule(func(r *cloudstack.LoadBalancerRule) { r.Cidrlist = "" }),
+			service:  restrictedTo("10.0.0.0/8"),
+			version:  belowCIDRUpdate,
+			want:     ruleNeedsRecreate,
+		},
+		{
+			name:     "rule with no cidrlist is updated for a restricted service",
+			existing: existingRule(func(r *cloudstack.LoadBalancerRule) { r.Cidrlist = "" }),
+			service:  restrictedTo("10.0.0.0/8"),
+			version:  withCIDRUpdate,
+			want:     ruleNeedsUpdate,
+		},
+	}
 
-		rule, needsUpdate, err := lb.checkLoadBalancerRule("rule", port, LoadBalancerProtocolTCP, service, semver.Version{Major: 4, Minor: 22, Patch: 0})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if rule != lbRule {
-			t.Fatalf("expected existing rule to be returned")
-		}
-		if !needsUpdate {
-			t.Fatalf("expected needsUpdate to be true due to CIDR change")
-		}
-	})
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			t.Cleanup(ctrl.Finish)
 
-	// CloudStack moves from 4.x to 24.0 after 4.23, so the 4.22 feature gate has
-	// to keep treating the new numbering as newer rather than older.
-	t.Run("cidr change triggers update on the 24.0 series", func(t *testing.T) {
-		ctrl := gomock.NewController(t)
-		t.Cleanup(ctrl.Finish)
+			// No expectations: deciding a change must not call CloudStack.
+			lb := &loadBalancer{
+				CloudStackClient: &cloudstack.CloudStackClient{LoadBalancer: cloudstack.NewMockLoadBalancerServiceIface(ctrl)},
+				ipAddr:           "1.1.1.1",
+				algorithm:        "roundrobin",
+			}
+			ruleName := tt.ruleName
+			if ruleName == "" {
+				ruleName = "rule"
+			}
 
-		// No expectations on the mock; any delete call would fail the test.
-		mockLB := cloudstack.NewMockLoadBalancerServiceIface(ctrl)
-
-		lbRule := &cloudstack.LoadBalancerRule{
-			Id:          "rule-id",
-			Name:        "rule",
-			Publicip:    "1.1.1.1",
-			Privateport: "30000",
-			Publicport:  "80",
-			Cidrlist:    "10.0.0.0/8",
-			Algorithm:   "roundrobin",
-			Protocol:    LoadBalancerProtocolTCP.CSProtocol(),
-		}
-
-		lb := &loadBalancer{
-			CloudStackClient: &cloudstack.CloudStackClient{
-				LoadBalancer: mockLB,
-			},
-			ipAddr:    "1.1.1.1",
-			algorithm: "roundrobin",
-			rules: map[string]*cloudstack.LoadBalancerRule{
-				"rule": lbRule,
-			},
-		}
-		port := corev1.ServicePort{Port: 80, NodePort: 30000, Protocol: corev1.ProtocolTCP}
-		service := &corev1.Service{
-			ObjectMeta: metav1.ObjectMeta{
-				Annotations: map[string]string{
-					ServiceAnnotationLoadBalancerSourceCidrs: "10.0.0.0/8,192.168.0.0/16",
-				},
-			},
-		}
-
-		rule, needsUpdate, err := lb.checkLoadBalancerRule("rule", port, LoadBalancerProtocolTCP, service, semver.MustParse("24.0.0"))
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if rule != lbRule {
-			t.Fatalf("expected existing rule to be returned")
-		}
-		if !needsUpdate {
-			t.Fatalf("expected needsUpdate to be true due to CIDR change")
-		}
-	})
-
-	t.Run("cidr change triggers delete with older version", func(t *testing.T) {
-		ctrl := gomock.NewController(t)
-		t.Cleanup(ctrl.Finish)
-
-		// No expectations on the mock; any delete or create call would fail the test.
-		mockLB := cloudstack.NewMockLoadBalancerServiceIface(ctrl)
-
-		deleteParams := &cloudstack.DeleteLoadBalancerRuleParams{}
-
-		gomock.InOrder(
-			mockLB.EXPECT().NewDeleteLoadBalancerRuleParams("rule-id").Return(deleteParams),
-			mockLB.EXPECT().DeleteLoadBalancerRule(deleteParams).Return(&cloudstack.DeleteLoadBalancerRuleResponse{}, nil),
-		)
-
-		lbRule := &cloudstack.LoadBalancerRule{
-			Id:          "rule-id",
-			Name:        "rule",
-			Publicip:    "1.1.1.1",
-			Privateport: "30000",
-			Publicport:  "80",
-			Cidrlist:    "10.0.0.0/8",
-			Algorithm:   "roundrobin",
-			Protocol:    LoadBalancerProtocolTCP.CSProtocol(),
-		}
-
-		lb := &loadBalancer{
-			CloudStackClient: &cloudstack.CloudStackClient{
-				LoadBalancer: mockLB,
-			},
-			ipAddr:    "1.1.1.1",
-			algorithm: "roundrobin",
-			rules: map[string]*cloudstack.LoadBalancerRule{
-				"rule": lbRule,
-			},
-		}
-		port := corev1.ServicePort{Port: 80, NodePort: 30000, Protocol: corev1.ProtocolTCP}
-		service := &corev1.Service{
-			ObjectMeta: metav1.ObjectMeta{
-				Annotations: map[string]string{
-					ServiceAnnotationLoadBalancerSourceCidrs: "10.0.0.0/8,192.168.0.0/16",
-				},
-			},
-		}
-
-		rule, needsUpdate, err := lb.checkLoadBalancerRule("rule", port, LoadBalancerProtocolTCP, service, semver.Version{Major: 4, Minor: 12, Patch: 0})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if rule != nil {
-			t.Fatalf("expected nil rule after deletion, got %v", rule)
-		}
-		if needsUpdate {
-			t.Fatalf("expected needsUpdate to be false due to CIDR change with older version")
-		}
-	})
+			got, err := lb.checkLoadBalancerRule(tt.existing, ruleName, port, tt.protocol, tt.service, tt.version)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != tt.want {
+				t.Errorf("checkLoadBalancerRule = %v, want %v", got, tt.want)
+			}
+		})
+	}
 
 	t.Run("invalid cidr returns error", func(t *testing.T) {
-		lb := &loadBalancer{
-			rules: map[string]*cloudstack.LoadBalancerRule{
-				"rule": {
-					Id:          "rule-id",
-					Name:        "rule",
-					Publicip:    "1.1.1.1",
-					Privateport: "30000",
-					Publicport:  "80",
-					Cidrlist:    defaultAllowedCIDR,
-					Algorithm:   "roundrobin",
-					Protocol:    LoadBalancerProtocolTCP.CSProtocol(),
-				},
-			},
-		}
-		port := corev1.ServicePort{Port: 80, NodePort: 30000, Protocol: corev1.ProtocolTCP}
-		service := &corev1.Service{
-			ObjectMeta: metav1.ObjectMeta{
-				Annotations: map[string]string{
-					ServiceAnnotationLoadBalancerSourceCidrs: "bad-cidr",
-				},
-			},
-		}
+		lb := &loadBalancer{ipAddr: "1.1.1.1", algorithm: "roundrobin"}
 
-		_, _, err := lb.checkLoadBalancerRule("rule", port, LoadBalancerProtocolTCP, service, semver.Version{Major: 4, Minor: 22, Patch: 0})
-		if err == nil {
+		if _, err := lb.checkLoadBalancerRule(existingRule(nil), "rule", port, LoadBalancerProtocolTCP, restrictedTo("bad-cidr"), withCIDRUpdate); err == nil {
 			t.Fatalf("expected error for invalid CIDR")
+		}
+	})
+}
+
+func TestSplitCIDRList(t *testing.T) {
+	tests := []struct {
+		name     string
+		cidrList string
+		want     []string
+	}{
+		{name: "empty", cidrList: "", want: nil},
+		{name: "single", cidrList: "10.0.0.0/8", want: []string{"10.0.0.0/8"}},
+		{
+			name:     "comma separated",
+			cidrList: "10.0.0.0/8,192.168.0.0/16",
+			want:     []string{"10.0.0.0/8", "192.168.0.0/16"},
+		},
+		{
+			name:     "space separated",
+			cidrList: "10.0.0.0/8 192.168.0.0/16",
+			want:     []string{"10.0.0.0/8", "192.168.0.0/16"},
+		},
+		{
+			name:     "comma and surrounding spaces",
+			cidrList: "10.0.0.0/8, 192.168.0.0/16",
+			want:     []string{"10.0.0.0/8", "192.168.0.0/16"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := splitCIDRList(tt.cidrList)
+			if len(got) != len(tt.want) {
+				t.Fatalf("splitCIDRList(%q) = %v, want %v", tt.cidrList, got, tt.want)
+			}
+			for i := range got {
+				if got[i] != tt.want[i] {
+					t.Errorf("splitCIDRList(%q)[%d] = %q, want %q", tt.cidrList, i, got[i], tt.want[i])
+				}
+			}
+		})
+	}
+}
+
+func TestFindLoadBalancerRule(t *testing.T) {
+	port80 := corev1.ServicePort{Port: 80, NodePort: 30000, Protocol: corev1.ProtocolTCP}
+
+	// newLB builds a load balancer reconciling towards ip-1, holding the given rules.
+	newLB := func(rules ...*cloudstack.LoadBalancerRule) *loadBalancer {
+		lb := &loadBalancer{
+			ipAddr:   "10.0.0.1",
+			ipAddrID: "ip-1",
+			rules:    map[string]*cloudstack.LoadBalancerRule{},
+		}
+		for _, r := range rules {
+			lb.rules[r.Name] = r
+		}
+		return lb
+	}
+	rule := func(name, protocol, publicPort string) *cloudstack.LoadBalancerRule {
+		return &cloudstack.LoadBalancerRule{
+			Name: name, Protocol: protocol, Publicport: publicPort,
+			Publicip: "10.0.0.1", Publicipid: "ip-1",
+		}
+	}
+
+	t.Run("exact name match", func(t *testing.T) {
+		tcpRule := rule("lb-tcp-80", "tcp", "80")
+		lb := newLB(tcpRule)
+
+		if got := lb.findLoadBalancerRule("lb-tcp-80", port80, LoadBalancerProtocolTCP); got != tcpRule {
+			t.Fatalf("findLoadBalancerRule = %v, want exact match %v", got, tcpRule)
+		}
+	})
+
+	t.Run("protocol toggle falls back to IP protocol and port", func(t *testing.T) {
+		tcpRule := rule("lb-tcp-80", "tcp", "80")
+		lb := newLB(tcpRule)
+
+		if got := lb.findLoadBalancerRule("lb-tcp-proxy-80", port80, LoadBalancerProtocolTCPProxy); got != tcpRule {
+			t.Fatalf("findLoadBalancerRule = %v, want fallback match %v", got, tcpRule)
+		}
+	})
+
+	t.Run("reverse protocol toggle", func(t *testing.T) {
+		proxyRule := rule("lb-tcp-proxy-80", "tcp-proxy", "80")
+		lb := newLB(proxyRule)
+
+		if got := lb.findLoadBalancerRule("lb-tcp-80", port80, LoadBalancerProtocolTCP); got != proxyRule {
+			t.Fatalf("findLoadBalancerRule = %v, want fallback match %v", got, proxyRule)
+		}
+	})
+
+	t.Run("udp rule does not match tcp port", func(t *testing.T) {
+		lb := newLB(rule("lb-udp-80", "udp", "80"))
+
+		if got := lb.findLoadBalancerRule("lb-tcp-80", port80, LoadBalancerProtocolTCP); got != nil {
+			t.Fatalf("findLoadBalancerRule = %v, want nil (udp must not satisfy tcp)", got)
+		}
+	})
+
+	t.Run("tcp and udp on the same port stay distinct", func(t *testing.T) {
+		tcpRule := rule("lb-tcp-8000", "tcp", "8000")
+		udpRule := rule("lb-udp-8000", "udp", "8000")
+		lb := newLB(tcpRule, udpRule)
+		port := corev1.ServicePort{Port: 8000, NodePort: 30800, Protocol: corev1.ProtocolUDP}
+
+		if got := lb.findLoadBalancerRule("lb-udp-8000", port, LoadBalancerProtocolUDP); got != udpRule {
+			t.Fatalf("findLoadBalancerRule = %v, want %v", got, udpRule)
+		}
+		// A proxy-protocol toggle on the tcp port must resolve to the tcp rule, never the udp one.
+		port.Protocol = corev1.ProtocolTCP
+		if got := lb.findLoadBalancerRule("lb-tcp-proxy-8000", port, LoadBalancerProtocolTCPProxy); got != tcpRule {
+			t.Fatalf("findLoadBalancerRule = %v, want %v", got, tcpRule)
+		}
+	})
+
+	t.Run("port mismatch returns nil", func(t *testing.T) {
+		lb := newLB(rule("lb-tcp-443", "tcp", "443"))
+
+		if got := lb.findLoadBalancerRule("lb-tcp-80", port80, LoadBalancerProtocolTCP); got != nil {
+			t.Fatalf("findLoadBalancerRule = %v, want nil", got)
+		}
+	})
+
+	t.Run("rule on another IP is not reused", func(t *testing.T) {
+		// Reusing a rule on a stale IP would delete it via checkLoadBalancerRule, stranding
+		// its firewall rule. It must be left for the prune pass instead.
+		staleName := rule("lb-tcp-80", "tcp", "80")
+		staleName.Publicip, staleName.Publicipid = "10.0.0.2", "ip-2"
+		staleFallback := rule("lb-tcp-proxy-80", "tcp-proxy", "80")
+		staleFallback.Publicip, staleFallback.Publicipid = "10.0.0.2", "ip-2"
+		lb := newLB(staleName, staleFallback)
+
+		if got := lb.findLoadBalancerRule("lb-tcp-80", port80, LoadBalancerProtocolTCP); got != nil {
+			t.Fatalf("findLoadBalancerRule = %v, want nil for a rule on another IP", got)
+		}
+	})
+
+	t.Run("current IP preferred over exact name on another IP", func(t *testing.T) {
+		staleName := rule("lb-tcp-80", "tcp", "80")
+		staleName.Publicip, staleName.Publicipid = "10.0.0.2", "ip-2"
+		current := rule("lb-tcp-proxy-80", "tcp-proxy", "80")
+		lb := newLB(staleName, current)
+
+		// The exact name lives on the stale IP; the fallback must find the current-IP rule.
+		if got := lb.findLoadBalancerRule("lb-tcp-80", port80, LoadBalancerProtocolTCP); got != current {
+			t.Fatalf("findLoadBalancerRule = %v, want current-IP rule %v", got, current)
+		}
+	})
+
+	t.Run("multiple candidates picked deterministically", func(t *testing.T) {
+		ruleA := rule("lb-tcp-80-a", "tcp", "80")
+		ruleB := rule("lb-tcp-80-b", "tcp-proxy", "80")
+		lb := newLB(ruleA, ruleB)
+
+		// Both share (tcp, 80); the pick must follow name order, not map order.
+		for i := 0; i < 10; i++ {
+			if got := lb.findLoadBalancerRule("lb-tcp-80", port80, LoadBalancerProtocolTCP); got != ruleA {
+				t.Fatalf("findLoadBalancerRule = %v, want deterministic first-by-name %v", got, ruleA)
+			}
+		}
+	})
+
+	t.Run("empty rules map returns nil", func(t *testing.T) {
+		lb := newLB()
+
+		if got := lb.findLoadBalancerRule("lb-tcp-80", port80, LoadBalancerProtocolTCP); got != nil {
+			t.Fatalf("findLoadBalancerRule = %v, want nil", got)
 		}
 	})
 }
@@ -2048,9 +2130,12 @@ func TestUpdateLoadBalancerRule(t *testing.T) {
 
 		service := &corev1.Service{}
 
-		err := lb.updateLoadBalancerRule("test-rule-tcp-80", LoadBalancerProtocolTCP, service, semver.Version{Major: 4, Minor: 22, Patch: 0})
+		err := lb.updateLoadBalancerRule(lb.rules["test-rule-tcp-80"], "test-rule-tcp-80", LoadBalancerProtocolTCP, service, semver.Version{Major: 4, Minor: 22, Patch: 0})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
+		}
+		if algo, _ := updateParams.GetAlgorithm(); algo != "source" {
+			t.Errorf("algorithm = %q, want %q", algo, "source")
 		}
 	})
 
@@ -2082,9 +2167,16 @@ func TestUpdateLoadBalancerRule(t *testing.T) {
 
 		service := &corev1.Service{}
 
-		err := lb.updateLoadBalancerRule("test-rule-tcp-80", LoadBalancerProtocolTCPProxy, service, semver.Version{Major: 4, Minor: 22, Patch: 0})
+		// Matched under the old name, so the update must switch protocol and rename.
+		err := lb.updateLoadBalancerRule(lb.rules["test-rule-tcp-80"], "test-rule-tcp-proxy-80", LoadBalancerProtocolTCPProxy, service, semver.Version{Major: 4, Minor: 22, Patch: 0})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
+		}
+		if proto, _ := updateParams.GetProtocol(); proto != "tcp-proxy" {
+			t.Errorf("protocol = %q, want %q", proto, "tcp-proxy")
+		}
+		if name, _ := updateParams.GetName(); name != "test-rule-tcp-proxy-80" {
+			t.Errorf("name = %q, want %q", name, "test-rule-tcp-proxy-80")
 		}
 	})
 
@@ -2123,9 +2215,12 @@ func TestUpdateLoadBalancerRule(t *testing.T) {
 			},
 		}
 
-		err := lb.updateLoadBalancerRule("test-rule-tcp-80", LoadBalancerProtocolTCP, service, semver.Version{Major: 4, Minor: 22, Patch: 0})
+		err := lb.updateLoadBalancerRule(lb.rules["test-rule-tcp-80"], "test-rule-tcp-80", LoadBalancerProtocolTCP, service, semver.Version{Major: 4, Minor: 22, Patch: 0})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
+		}
+		if cidrs, _ := updateParams.GetCidrlist(); len(cidrs) != 1 || cidrs[0] != "10.0.0.0/8" {
+			t.Errorf("cidrlist = %v, want %v", cidrs, []string{"10.0.0.0/8"})
 		}
 	})
 
@@ -2166,7 +2261,7 @@ func TestUpdateLoadBalancerRule(t *testing.T) {
 			},
 		}
 
-		if err := lb.updateLoadBalancerRule("test-rule-tcp-80", LoadBalancerProtocolTCP, service, semver.MustParse("24.0.0")); err != nil {
+		if err := lb.updateLoadBalancerRule(lb.rules["test-rule-tcp-80"], "test-rule-tcp-80", LoadBalancerProtocolTCP, service, semver.MustParse("24.0.0")); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
@@ -2208,7 +2303,7 @@ func TestUpdateLoadBalancerRule(t *testing.T) {
 
 		service := &corev1.Service{}
 
-		err := lb.updateLoadBalancerRule("test-rule-tcp-80", LoadBalancerProtocolTCP, service, semver.Version{Major: 4, Minor: 22, Patch: 0})
+		err := lb.updateLoadBalancerRule(lb.rules["test-rule-tcp-80"], "test-rule-tcp-80", LoadBalancerProtocolTCP, service, semver.Version{Major: 4, Minor: 22, Patch: 0})
 		if err == nil {
 			t.Fatalf("expected error")
 		}
@@ -3048,6 +3143,114 @@ func TestUpdateNetworkACL(t *testing.T) {
 		}
 	})
 
+	t.Run("tcp-proxy creates ACL rule with tcp protocol", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+
+		mockNetwork := cloudstack.NewMockNetworkServiceIface(ctrl)
+		mockNetworkACL := cloudstack.NewMockNetworkACLServiceIface(ctrl)
+		networkResp := &cloudstack.Network{
+			Id:      "net-123",
+			Aclid:   "acl-456",
+			Service: []cloudstack.NetworkServiceInternal{},
+		}
+
+		aclListResp := &cloudstack.NetworkACLList{
+			Id:   "acl-456",
+			Name: "custom-acl",
+		}
+
+		listParams := &cloudstack.ListNetworkACLsParams{}
+		listResp := &cloudstack.ListNetworkACLsResponse{
+			Count:       0,
+			NetworkACLs: []*cloudstack.NetworkACL{},
+		}
+
+		createParams := &cloudstack.CreateNetworkACLParams{}
+		createResp := &cloudstack.CreateNetworkACLResponse{
+			Id: "acl-rule-123",
+		}
+
+		gomock.InOrder(
+			mockNetwork.EXPECT().GetNetworkByID("net-123", gomock.Any()).Return(networkResp, 1, nil),
+			mockNetworkACL.EXPECT().GetNetworkACLListByID("acl-456", gomock.Any()).Return(aclListResp, 1, nil),
+			mockNetworkACL.EXPECT().NewListNetworkACLsParams().Return(listParams),
+			mockNetworkACL.EXPECT().ListNetworkACLs(gomock.Any()).Return(listResp, nil),
+			// tcp-proxy must be created as tcp.
+			mockNetworkACL.EXPECT().NewCreateNetworkACLParams("tcp").Return(createParams),
+			mockNetworkACL.EXPECT().CreateNetworkACL(gomock.Any()).Return(createResp, nil),
+		)
+
+		lb := &loadBalancer{
+			CloudStackClient: &cloudstack.CloudStackClient{
+				Network:    mockNetwork,
+				NetworkACL: mockNetworkACL,
+			},
+		}
+
+		updated, err := lb.updateNetworkACL(80, LoadBalancerProtocolTCPProxy, "net-123")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !updated {
+			t.Errorf("updated = false, want true")
+		}
+	})
+
+	t.Run("tcp-proxy matches existing tcp ACL rule", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+
+		mockNetwork := cloudstack.NewMockNetworkServiceIface(ctrl)
+		mockNetworkACL := cloudstack.NewMockNetworkACLServiceIface(ctrl)
+		networkResp := &cloudstack.Network{
+			Id:      "net-123",
+			Aclid:   "acl-456",
+			Service: []cloudstack.NetworkServiceInternal{},
+		}
+
+		aclListResp := &cloudstack.NetworkACLList{
+			Id:   "acl-456",
+			Name: "custom-acl",
+		}
+
+		listParams := &cloudstack.ListNetworkACLsParams{}
+		listResp := &cloudstack.ListNetworkACLsResponse{
+			Count: 1,
+			NetworkACLs: []*cloudstack.NetworkACL{
+				{
+					Id:        "acl-rule-123",
+					Protocol:  "tcp",
+					Startport: "80",
+					Endport:   "80",
+				},
+			},
+		}
+
+		// No create expectations: the tcp rule already satisfies the tcp-proxy port.
+		gomock.InOrder(
+			mockNetwork.EXPECT().GetNetworkByID("net-123", gomock.Any()).Return(networkResp, 1, nil),
+			mockNetworkACL.EXPECT().GetNetworkACLListByID("acl-456", gomock.Any()).Return(aclListResp, 1, nil),
+			mockNetworkACL.EXPECT().NewListNetworkACLsParams().Return(listParams),
+			mockNetworkACL.EXPECT().ListNetworkACLs(gomock.Any()).Return(listResp, nil),
+		)
+
+		lb := &loadBalancer{
+			CloudStackClient: &cloudstack.CloudStackClient{
+				Network:    mockNetwork,
+				NetworkACL: mockNetworkACL,
+			},
+		}
+
+		updated, err := lb.updateNetworkACL(80, LoadBalancerProtocolTCPProxy, "net-123")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !updated {
+			t.Errorf("updated = false, want true")
+		}
+	})
+
 	t.Run("rule already exists", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		t.Cleanup(ctrl.Finish)
@@ -3643,6 +3846,47 @@ func TestGetLoadBalancer(t *testing.T) {
 	t.Run("a requested IP outranks the published ingress IP", func(t *testing.T) {
 		lb := listDuplicates(t, onAutoIP.Publicip, onRequestedIP.Publicip, onRequestedIP, onAutoIP)
 		assertKept(t, lb, onAutoIP, onRequestedIP)
+	})
+
+	// Rules with distinct names are not duplicates, so what settles the IP the service is
+	// reconciled towards is the preferred address, and without one the first-listed rule,
+	// matching the duplicate sweep.
+	onPort80 := &cloudstack.LoadBalancerRule{Id: "rule-80", Name: "test-service-tcp-80", Publicip: "203.0.113.9", Publicipid: "ip-requested"}
+	onPort443 := &cloudstack.LoadBalancerRule{Id: "rule-443", Name: "test-service-tcp-443", Publicip: "203.0.113.1", Publicipid: "ip-auto"}
+
+	assertResolvedIP := func(t *testing.T, lb *loadBalancer, wantIP, wantIPID string) {
+		t.Helper()
+		if lb.ipAddr != wantIP || lb.ipAddrID != wantIPID {
+			t.Errorf("ipAddr/ipAddrID = %v/%v, want %v/%v", lb.ipAddr, lb.ipAddrID, wantIP, wantIPID)
+		}
+		if len(lb.rules) != 2 {
+			t.Errorf("rules count = %d, want 2", len(lb.rules))
+		}
+	}
+
+	t.Run("the requested IP outranks a stale IP listed after it", func(t *testing.T) {
+		lb := listDuplicates(t, onPort80.Publicip, "", onPort80, onPort443)
+		assertResolvedIP(t, lb, onPort80.Publicip, onPort80.Publicipid)
+	})
+
+	t.Run("the published ingress IP outranks a stale IP listed after it", func(t *testing.T) {
+		lb := listDuplicates(t, "", onPort80.Publicip, onPort80, onPort443)
+		assertResolvedIP(t, lb, onPort80.Publicip, onPort80.Publicipid)
+	})
+
+	t.Run("the requested IP outranks a stale IP listed before it", func(t *testing.T) {
+		lb := listDuplicates(t, onPort80.Publicip, "", onPort443, onPort80)
+		assertResolvedIP(t, lb, onPort80.Publicip, onPort80.Publicipid)
+	})
+
+	t.Run("the first-listed IP wins when none is preferred", func(t *testing.T) {
+		lb := listDuplicates(t, "", "", onPort443, onPort80)
+		assertResolvedIP(t, lb, onPort443.Publicip, onPort443.Publicipid)
+	})
+
+	t.Run("a preferred IP no rule is on leaves the first-listed IP", func(t *testing.T) {
+		lb := listDuplicates(t, "198.51.100.7", "", onPort443, onPort80)
+		assertResolvedIP(t, lb, onPort443.Publicip, onPort443.Publicipid)
 	})
 }
 
@@ -4367,6 +4611,773 @@ func TestVerifyHostsPagination(t *testing.T) {
 	})
 }
 
+// ensureLBTestEnv holds the fixtures shared by the TestEnsureLoadBalancer subtests.
+// Each subtest sets its own mock expectations.
+type ensureLBTestEnv struct {
+	cs       *CSCloud
+	lb       *cloudstack.MockLoadBalancerServiceIface
+	vm       *cloudstack.MockVirtualMachineServiceIface
+	network  *cloudstack.MockNetworkServiceIface
+	firewall *cloudstack.MockFirewallServiceIface
+	service  *corev1.Service
+	nodes    []*corev1.Node
+}
+
+func newEnsureLBTestEnv(ctrl *gomock.Controller, annotations map[string]string, ports []corev1.ServicePort) *ensureLBTestEnv {
+	e := &ensureLBTestEnv{
+		lb:       cloudstack.NewMockLoadBalancerServiceIface(ctrl),
+		vm:       cloudstack.NewMockVirtualMachineServiceIface(ctrl),
+		network:  cloudstack.NewMockNetworkServiceIface(ctrl),
+		firewall: cloudstack.NewMockFirewallServiceIface(ctrl),
+	}
+
+	e.cs = &CSCloud{
+		client: &cloudstack.CloudStackClient{
+			LoadBalancer:   e.lb,
+			VirtualMachine: e.vm,
+			Network:        e.network,
+			Firewall:       e.firewall,
+		},
+		version: semver.Version{Major: 4, Minor: 22, Patch: 0},
+	}
+
+	// UID "test-uid" makes the load balancer name "atestuid", so rules are atestuid-<protocol>-<port>.
+	e.service = &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "test-service",
+			Namespace:   "default",
+			UID:         "test-uid",
+			Annotations: annotations,
+		},
+		Spec: corev1.ServiceSpec{
+			SessionAffinity: corev1.ServiceAffinityNone,
+			Ports:           ports,
+		},
+	}
+
+	e.nodes = []*corev1.Node{{ObjectMeta: metav1.ObjectMeta{Name: "node-1"}}}
+
+	return e
+}
+
+// expectHosts registers the node lookup every run performs before resolving rules.
+func (e *ensureLBTestEnv) expectHosts() {
+	e.vm.EXPECT().NewListVirtualMachinesParams().Return(&cloudstack.ListVirtualMachinesParams{})
+	e.vm.EXPECT().ListVirtualMachines(gomock.Any()).Return(&cloudstack.ListVirtualMachinesResponse{
+		Count: 1,
+		VirtualMachines: []*cloudstack.VirtualMachine{
+			{Id: "vm-1", Name: "node-1", Nic: []cloudstack.Nic{{Networkid: "net-1"}}},
+		},
+	}, nil)
+}
+
+// expectHostsAndNetwork registers the host and network lookups every run performs.
+func (e *ensureLBTestEnv) expectHostsAndNetwork() {
+	e.expectHosts()
+	e.network.EXPECT().GetNetworkByID("net-1", gomock.Any()).Return(&cloudstack.Network{
+		Id:      "net-1",
+		Service: []cloudstack.NetworkServiceInternal{{Name: "Firewall"}},
+	}, 1, nil)
+}
+
+func TestEnsureLoadBalancer(t *testing.T) {
+	tcpPort80 := corev1.ServicePort{Port: 80, NodePort: 30000, Protocol: corev1.ProtocolTCP}
+
+	existingTCPRule := func() *cloudstack.LoadBalancerRule {
+		return &cloudstack.LoadBalancerRule{
+			Id:          "rule-1",
+			Name:        "atestuid-tcp-80",
+			Publicip:    "10.0.0.1",
+			Publicipid:  "ip-1",
+			Publicport:  "80",
+			Privateport: "30000",
+			Cidrlist:    defaultAllowedCIDR,
+			Algorithm:   "roundrobin",
+			Protocol:    "tcp",
+			Networkid:   "net-1",
+		}
+	}
+
+	matchingFirewallRule := &cloudstack.FirewallRule{
+		Id:        "fw-1",
+		Protocol:  "tcp",
+		Startport: 80,
+		Endport:   80,
+		Cidrlist:  defaultAllowedCIDR,
+	}
+
+	t.Run("proxy protocol toggle updates rule in place", func(t *testing.T) {
+		// Regression test for issue #2: enabling the annotation on a live service must update
+		// the existing tcp rule, not create a conflicting tcp-proxy rule on the same port.
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+
+		env := newEnsureLBTestEnv(ctrl, map[string]string{
+			ServiceAnnotationLoadBalancerProxyProtocol: "true",
+		}, []corev1.ServicePort{tcpPort80})
+		env.expectHostsAndNetwork()
+
+		updateParams := &cloudstack.UpdateLoadBalancerRuleParams{}
+
+		// No create or delete expectations: either call fails the test.
+		gomock.InOrder(
+			env.lb.EXPECT().NewListLoadBalancerRulesParams().Return(&cloudstack.ListLoadBalancerRulesParams{}),
+			env.lb.EXPECT().ListLoadBalancerRules(gomock.Any()).Return(&cloudstack.ListLoadBalancerRulesResponse{
+				Count:             1,
+				LoadBalancerRules: []*cloudstack.LoadBalancerRule{existingTCPRule()},
+			}, nil),
+			env.lb.EXPECT().NewUpdateLoadBalancerRuleParams("rule-1").Return(updateParams),
+			env.lb.EXPECT().UpdateLoadBalancerRule(gomock.Any()).Return(&cloudstack.UpdateLoadBalancerRuleResponse{}, nil),
+		)
+
+		// The existing tcp/80 firewall rule also serves tcp-proxy.
+		gomock.InOrder(
+			env.firewall.EXPECT().NewListFirewallRulesParams().Return(&cloudstack.ListFirewallRulesParams{}),
+			env.firewall.EXPECT().ListFirewallRules(gomock.Any()).Return(&cloudstack.ListFirewallRulesResponse{
+				Count:         1,
+				FirewallRules: []*cloudstack.FirewallRule{matchingFirewallRule},
+			}, nil),
+		)
+
+		status, err := env.cs.EnsureLoadBalancer(context.TODO(), "test-cluster", env.service, env.nodes)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(status.Ingress) != 1 || status.Ingress[0].IP != "10.0.0.1" {
+			t.Errorf("status.Ingress = %v, want IP 10.0.0.1", status.Ingress)
+		}
+		if proto, _ := updateParams.GetProtocol(); proto != "tcp-proxy" {
+			t.Errorf("updated protocol = %q, want %q", proto, "tcp-proxy")
+		}
+		if name, _ := updateParams.GetName(); name != "atestuid-tcp-proxy-80" {
+			t.Errorf("updated name = %q, want %q", name, "atestuid-tcp-proxy-80")
+		}
+	})
+
+	t.Run("proxy protocol removal updates rule in place", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+
+		env := newEnsureLBTestEnv(ctrl, nil, []corev1.ServicePort{tcpPort80})
+		env.expectHostsAndNetwork()
+
+		existingProxyRule := existingTCPRule()
+		existingProxyRule.Name = "atestuid-tcp-proxy-80"
+		existingProxyRule.Protocol = "tcp-proxy"
+
+		updateParams := &cloudstack.UpdateLoadBalancerRuleParams{}
+
+		gomock.InOrder(
+			env.lb.EXPECT().NewListLoadBalancerRulesParams().Return(&cloudstack.ListLoadBalancerRulesParams{}),
+			env.lb.EXPECT().ListLoadBalancerRules(gomock.Any()).Return(&cloudstack.ListLoadBalancerRulesResponse{
+				Count:             1,
+				LoadBalancerRules: []*cloudstack.LoadBalancerRule{existingProxyRule},
+			}, nil),
+			env.lb.EXPECT().NewUpdateLoadBalancerRuleParams("rule-1").Return(updateParams),
+			env.lb.EXPECT().UpdateLoadBalancerRule(gomock.Any()).Return(&cloudstack.UpdateLoadBalancerRuleResponse{}, nil),
+		)
+
+		gomock.InOrder(
+			env.firewall.EXPECT().NewListFirewallRulesParams().Return(&cloudstack.ListFirewallRulesParams{}),
+			env.firewall.EXPECT().ListFirewallRules(gomock.Any()).Return(&cloudstack.ListFirewallRulesResponse{
+				Count:         1,
+				FirewallRules: []*cloudstack.FirewallRule{matchingFirewallRule},
+			}, nil),
+		)
+
+		_, err := env.cs.EnsureLoadBalancer(context.TODO(), "test-cluster", env.service, env.nodes)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if proto, _ := updateParams.GetProtocol(); proto != "tcp" {
+			t.Errorf("updated protocol = %q, want %q", proto, "tcp")
+		}
+		if name, _ := updateParams.GetName(); name != "atestuid-tcp-80" {
+			t.Errorf("updated name = %q, want %q", name, "atestuid-tcp-80")
+		}
+	})
+
+	t.Run("rule named by the old provider is adopted and renamed", func(t *testing.T) {
+		// Migration from the in-tree provider, whose rule names carried no protocol and whose
+		// protocol was sent in upper case, which CloudStack before 4.21 stored verbatim. The
+		// rule must be adopted rather than recreated, so the README can stop asking operators
+		// to delete their rules before migrating.
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+
+		env := newEnsureLBTestEnv(ctrl, nil, []corev1.ServicePort{tcpPort80})
+		env.expectHostsAndNetwork()
+
+		legacyRule := existingTCPRule()
+		legacyRule.Id = "rule-legacy"
+		legacyRule.Name = "atestuid-80"
+		legacyRule.Protocol = "TCP"
+
+		updateParams := &cloudstack.UpdateLoadBalancerRuleParams{}
+
+		// No create and no delete expectations: either call fails the test.
+		gomock.InOrder(
+			env.lb.EXPECT().NewListLoadBalancerRulesParams().Return(&cloudstack.ListLoadBalancerRulesParams{}),
+			env.lb.EXPECT().ListLoadBalancerRules(gomock.Any()).Return(&cloudstack.ListLoadBalancerRulesResponse{
+				Count:             1,
+				LoadBalancerRules: []*cloudstack.LoadBalancerRule{legacyRule},
+			}, nil),
+			env.lb.EXPECT().NewUpdateLoadBalancerRuleParams("rule-legacy").Return(updateParams),
+			env.lb.EXPECT().UpdateLoadBalancerRule(gomock.Any()).Return(&cloudstack.UpdateLoadBalancerRuleResponse{}, nil),
+		)
+
+		gomock.InOrder(
+			env.firewall.EXPECT().NewListFirewallRulesParams().Return(&cloudstack.ListFirewallRulesParams{}),
+			env.firewall.EXPECT().ListFirewallRules(gomock.Any()).Return(&cloudstack.ListFirewallRulesResponse{
+				Count:         1,
+				FirewallRules: []*cloudstack.FirewallRule{matchingFirewallRule},
+			}, nil),
+		)
+
+		if _, err := env.cs.EnsureLoadBalancer(context.TODO(), "test-cluster", env.service, env.nodes); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if name, _ := updateParams.GetName(); name != "atestuid-tcp-80" {
+			t.Errorf("updated name = %q, want %q", name, "atestuid-tcp-80")
+		}
+		if proto, _ := updateParams.GetProtocol(); proto != "tcp" {
+			t.Errorf("updated protocol = %q, want %q", proto, "tcp")
+		}
+	})
+
+	t.Run("rule named by the old provider is renamed in place below the cidrlist update release", func(t *testing.T) {
+		// In-tree rules carry no cidrlist. That allows every source, so on a release that can
+		// only apply a CIDR change by recreating the rule it must still count as unchanged.
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+
+		env := newEnsureLBTestEnv(ctrl, nil, []corev1.ServicePort{tcpPort80})
+		env.cs.version = semver.MustParse("4.21.0")
+		env.expectHostsAndNetwork()
+
+		legacyRule := existingTCPRule()
+		legacyRule.Id = "rule-legacy"
+		legacyRule.Name = "atestuid-80"
+		legacyRule.Protocol = "TCP"
+		legacyRule.Cidrlist = ""
+
+		updateParams := &cloudstack.UpdateLoadBalancerRuleParams{}
+
+		// No create and no delete expectations: either call fails the test.
+		gomock.InOrder(
+			env.lb.EXPECT().NewListLoadBalancerRulesParams().Return(&cloudstack.ListLoadBalancerRulesParams{}),
+			env.lb.EXPECT().ListLoadBalancerRules(gomock.Any()).Return(&cloudstack.ListLoadBalancerRulesResponse{
+				Count:             1,
+				LoadBalancerRules: []*cloudstack.LoadBalancerRule{legacyRule},
+			}, nil),
+			env.lb.EXPECT().NewUpdateLoadBalancerRuleParams("rule-legacy").Return(updateParams),
+			env.lb.EXPECT().UpdateLoadBalancerRule(gomock.Any()).Return(&cloudstack.UpdateLoadBalancerRuleResponse{}, nil),
+		)
+
+		gomock.InOrder(
+			env.firewall.EXPECT().NewListFirewallRulesParams().Return(&cloudstack.ListFirewallRulesParams{}),
+			env.firewall.EXPECT().ListFirewallRules(gomock.Any()).Return(&cloudstack.ListFirewallRulesResponse{
+				Count:         1,
+				FirewallRules: []*cloudstack.FirewallRule{matchingFirewallRule},
+			}, nil),
+		)
+
+		if _, err := env.cs.EnsureLoadBalancer(context.TODO(), "test-cluster", env.service, env.nodes); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if name, _ := updateParams.GetName(); name != "atestuid-tcp-80" {
+			t.Errorf("updated name = %q, want %q", name, "atestuid-tcp-80")
+		}
+	})
+
+	t.Run("an unsupported port leaves a rule that needs recreating in place", func(t *testing.T) {
+		// Port 80 needs recreating for its new nodePort, and the SCTP port after it fails
+		// the reconcile. That fails every retry, so deleting port 80 before the error would
+		// leave it without a rule for good.
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+
+		movedPort80 := corev1.ServicePort{Port: 80, NodePort: 30001, Protocol: corev1.ProtocolTCP}
+		sctpPort := corev1.ServicePort{Port: 9000, NodePort: 30900, Protocol: corev1.ProtocolSCTP}
+		env := newEnsureLBTestEnv(ctrl, nil, []corev1.ServicePort{movedPort80, sctpPort})
+		env.expectHosts()
+
+		// No delete expectation: the existing port 80 rule must survive.
+		gomock.InOrder(
+			env.lb.EXPECT().NewListLoadBalancerRulesParams().Return(&cloudstack.ListLoadBalancerRulesParams{}),
+			env.lb.EXPECT().ListLoadBalancerRules(gomock.Any()).Return(&cloudstack.ListLoadBalancerRulesResponse{
+				Count:             1,
+				LoadBalancerRules: []*cloudstack.LoadBalancerRule{existingTCPRule()},
+			}, nil),
+		)
+
+		if _, err := env.cs.EnsureLoadBalancer(context.TODO(), "test-cluster", env.service, env.nodes); err == nil {
+			t.Fatalf("expected the unsupported SCTP port to fail the reconcile")
+		}
+	})
+
+	t.Run("a failure before the apply phase leaves a rule that needs recreating in place", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+
+		movedPort80 := corev1.ServicePort{Port: 80, NodePort: 30001, Protocol: corev1.ProtocolTCP}
+		env := newEnsureLBTestEnv(ctrl, nil, []corev1.ServicePort{movedPort80})
+		env.expectHosts()
+		env.network.EXPECT().GetNetworkByID("net-1", gomock.Any()).Return(nil, -1, fmt.Errorf("API unavailable"))
+
+		// No delete expectation: the existing port 80 rule must survive.
+		gomock.InOrder(
+			env.lb.EXPECT().NewListLoadBalancerRulesParams().Return(&cloudstack.ListLoadBalancerRulesParams{}),
+			env.lb.EXPECT().ListLoadBalancerRules(gomock.Any()).Return(&cloudstack.ListLoadBalancerRulesResponse{
+				Count:             1,
+				LoadBalancerRules: []*cloudstack.LoadBalancerRule{existingTCPRule()},
+			}, nil),
+		)
+
+		if _, err := env.cs.EnsureLoadBalancer(context.TODO(), "test-cluster", env.service, env.nodes); err == nil {
+			t.Fatalf("expected the network lookup failure to fail the reconcile")
+		}
+	})
+
+	t.Run("a rule that needs recreating is replaced in the apply phase", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+
+		movedPort80 := corev1.ServicePort{Port: 80, NodePort: 30001, Protocol: corev1.ProtocolTCP}
+		env := newEnsureLBTestEnv(ctrl, nil, []corev1.ServicePort{movedPort80})
+		env.expectHostsAndNetwork()
+
+		// The kept firewall rule shows the recreate is not mistaken for an obsolete rule.
+		gomock.InOrder(
+			env.lb.EXPECT().NewListLoadBalancerRulesParams().Return(&cloudstack.ListLoadBalancerRulesParams{}),
+			env.lb.EXPECT().ListLoadBalancerRules(gomock.Any()).Return(&cloudstack.ListLoadBalancerRulesResponse{
+				Count:             1,
+				LoadBalancerRules: []*cloudstack.LoadBalancerRule{existingTCPRule()},
+			}, nil),
+			env.lb.EXPECT().NewDeleteLoadBalancerRuleParams("rule-1").Return(&cloudstack.DeleteLoadBalancerRuleParams{}),
+			env.lb.EXPECT().DeleteLoadBalancerRule(gomock.Any()).Return(&cloudstack.DeleteLoadBalancerRuleResponse{}, nil),
+			env.lb.EXPECT().NewCreateLoadBalancerRuleParams("roundrobin", "atestuid-tcp-80", 30001, 80).Return(&cloudstack.CreateLoadBalancerRuleParams{}),
+			env.lb.EXPECT().CreateLoadBalancerRule(gomock.Any()).Return(&cloudstack.CreateLoadBalancerRuleResponse{
+				Id:         "rule-new",
+				Name:       "atestuid-tcp-80",
+				Publicip:   "10.0.0.1",
+				Publicipid: "ip-1",
+				Protocol:   "tcp",
+			}, nil),
+			env.lb.EXPECT().NewAssignToLoadBalancerRuleParams("rule-new").Return(&cloudstack.AssignToLoadBalancerRuleParams{}),
+			env.lb.EXPECT().AssignToLoadBalancerRule(gomock.Any()).Return(&cloudstack.AssignToLoadBalancerRuleResponse{}, nil),
+			env.firewall.EXPECT().NewListFirewallRulesParams().Return(&cloudstack.ListFirewallRulesParams{}),
+			env.firewall.EXPECT().ListFirewallRules(gomock.Any()).Return(&cloudstack.ListFirewallRulesResponse{
+				Count:         1,
+				FirewallRules: []*cloudstack.FirewallRule{matchingFirewallRule},
+			}, nil),
+		)
+
+		if _, err := env.cs.EnsureLoadBalancer(context.TODO(), "test-cluster", env.service, env.nodes); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("obsolete rule pruned after new rule created", func(t *testing.T) {
+		// The service moved from port 80 to 443. The new rule is created first, so a failure
+		// while pruning port 80 can never leave the service with no rule at all.
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+
+		tcpPort443 := corev1.ServicePort{Port: 443, NodePort: 30443, Protocol: corev1.ProtocolTCP}
+		env := newEnsureLBTestEnv(ctrl, nil, []corev1.ServicePort{tcpPort443})
+		env.expectHostsAndNetwork()
+
+		gomock.InOrder(
+			env.lb.EXPECT().NewListLoadBalancerRulesParams().Return(&cloudstack.ListLoadBalancerRulesParams{}),
+			env.lb.EXPECT().ListLoadBalancerRules(gomock.Any()).Return(&cloudstack.ListLoadBalancerRulesResponse{
+				Count:             1,
+				LoadBalancerRules: []*cloudstack.LoadBalancerRule{existingTCPRule()},
+			}, nil),
+
+			// The port 443 rule is created, then its hosts and firewall reconciled.
+			env.lb.EXPECT().NewCreateLoadBalancerRuleParams("roundrobin", "atestuid-tcp-443", 30443, 443).Return(&cloudstack.CreateLoadBalancerRuleParams{}),
+			env.lb.EXPECT().CreateLoadBalancerRule(gomock.Any()).Return(&cloudstack.CreateLoadBalancerRuleResponse{
+				Id:         "rule-2",
+				Name:       "atestuid-tcp-443",
+				Publicip:   "10.0.0.1",
+				Publicipid: "ip-1",
+				Protocol:   "tcp",
+			}, nil),
+			env.lb.EXPECT().NewAssignToLoadBalancerRuleParams("rule-2").Return(&cloudstack.AssignToLoadBalancerRuleParams{}),
+			env.lb.EXPECT().AssignToLoadBalancerRule(gomock.Any()).Return(&cloudstack.AssignToLoadBalancerRuleResponse{}, nil),
+			env.firewall.EXPECT().NewListFirewallRulesParams().Return(&cloudstack.ListFirewallRulesParams{}),
+			env.firewall.EXPECT().ListFirewallRules(gomock.Any()).Return(&cloudstack.ListFirewallRulesResponse{}, nil),
+			env.firewall.EXPECT().NewCreateFirewallRuleParams("ip-1", "tcp").Return(&cloudstack.CreateFirewallRuleParams{}),
+			env.firewall.EXPECT().CreateFirewallRule(gomock.Any()).Return(&cloudstack.CreateFirewallRuleResponse{}, nil),
+
+			// Only then is the obsolete port 80 rule pruned: firewall rule, then the LB rule.
+			env.firewall.EXPECT().NewListFirewallRulesParams().Return(&cloudstack.ListFirewallRulesParams{}),
+			env.firewall.EXPECT().ListFirewallRules(gomock.Any()).Return(&cloudstack.ListFirewallRulesResponse{
+				Count:         1,
+				FirewallRules: []*cloudstack.FirewallRule{matchingFirewallRule},
+			}, nil),
+			env.firewall.EXPECT().NewDeleteFirewallRuleParams("fw-1").Return(&cloudstack.DeleteFirewallRuleParams{}),
+			env.firewall.EXPECT().DeleteFirewallRule(gomock.Any()).Return(&cloudstack.DeleteFirewallRuleResponse{}, nil),
+			env.lb.EXPECT().NewDeleteLoadBalancerRuleParams("rule-1").Return(&cloudstack.DeleteLoadBalancerRuleParams{}),
+			env.lb.EXPECT().DeleteLoadBalancerRule(gomock.Any()).Return(&cloudstack.DeleteLoadBalancerRuleResponse{}, nil),
+		)
+
+		_, err := env.cs.EnsureLoadBalancer(context.TODO(), "test-cluster", env.service, env.nodes)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("duplicate rule on claimed port keeps firewall rules", func(t *testing.T) {
+		// A leftover tcp rule shares (tcp, 80) with the desired tcp-proxy rule. The duplicate
+		// is pruned, but its firewall rule is the one the kept rule needs, so it must stay.
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+
+		env := newEnsureLBTestEnv(ctrl, map[string]string{
+			ServiceAnnotationLoadBalancerProxyProtocol: "true",
+		}, []corev1.ServicePort{tcpPort80})
+		env.expectHostsAndNetwork()
+
+		duplicateProxyRule := existingTCPRule()
+		duplicateProxyRule.Id = "rule-2"
+		duplicateProxyRule.Name = "atestuid-tcp-proxy-80"
+		duplicateProxyRule.Protocol = "tcp-proxy"
+
+		gomock.InOrder(
+			env.lb.EXPECT().NewListLoadBalancerRulesParams().Return(&cloudstack.ListLoadBalancerRulesParams{}),
+			env.lb.EXPECT().ListLoadBalancerRules(gomock.Any()).Return(&cloudstack.ListLoadBalancerRulesResponse{
+				Count:             2,
+				LoadBalancerRules: []*cloudstack.LoadBalancerRule{existingTCPRule(), duplicateProxyRule},
+			}, nil),
+			// The obsolete tcp rule is deleted, the tcp-proxy rule is kept as-is.
+			env.lb.EXPECT().NewDeleteLoadBalancerRuleParams("rule-1").Return(&cloudstack.DeleteLoadBalancerRuleParams{}),
+			env.lb.EXPECT().DeleteLoadBalancerRule(gomock.Any()).Return(&cloudstack.DeleteLoadBalancerRuleResponse{}, nil),
+		)
+
+		// One firewall listing (the apply pass) and no deletions.
+		gomock.InOrder(
+			env.firewall.EXPECT().NewListFirewallRulesParams().Return(&cloudstack.ListFirewallRulesParams{}),
+			env.firewall.EXPECT().ListFirewallRules(gomock.Any()).Return(&cloudstack.ListFirewallRulesResponse{
+				Count:         1,
+				FirewallRules: []*cloudstack.FirewallRule{matchingFirewallRule},
+			}, nil),
+		)
+
+		_, err := env.cs.EnsureLoadBalancer(context.TODO(), "test-cluster", env.service, env.nodes)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("rule blocking a create is pruned before the create", func(t *testing.T) {
+		// Two rules share (tcp, 80) and the nodePort changed, so the matched rule has to be
+		// recreated. The other rule still holds public port 80, so it must be deleted before
+		// the create or CloudStack rejects it with a port conflict.
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+
+		movedPort80 := corev1.ServicePort{Port: 80, NodePort: 30001, Protocol: corev1.ProtocolTCP}
+		env := newEnsureLBTestEnv(ctrl, nil, []corev1.ServicePort{movedPort80})
+		env.expectHostsAndNetwork()
+
+		matched := existingTCPRule()
+		matched.Id = "rule-a"
+		duplicate := existingTCPRule()
+		duplicate.Id = "rule-b"
+		duplicate.Name = "atestuid-tcp-proxy-80"
+		duplicate.Protocol = "tcp-proxy"
+
+		// No firewall delete expectation: the tcp/80 opening is still claimed by the desired
+		// port, so pruning the duplicate must leave it alone.
+		gomock.InOrder(
+			env.lb.EXPECT().NewListLoadBalancerRulesParams().Return(&cloudstack.ListLoadBalancerRulesParams{}),
+			env.lb.EXPECT().ListLoadBalancerRules(gomock.Any()).Return(&cloudstack.ListLoadBalancerRulesResponse{
+				Count:             2,
+				LoadBalancerRules: []*cloudstack.LoadBalancerRule{matched, duplicate},
+			}, nil),
+
+			// The blocking rule is pruned first...
+			env.lb.EXPECT().NewDeleteLoadBalancerRuleParams("rule-b").Return(&cloudstack.DeleteLoadBalancerRuleParams{}),
+			env.lb.EXPECT().DeleteLoadBalancerRule(gomock.Any()).Return(&cloudstack.DeleteLoadBalancerRuleResponse{}, nil),
+
+			// ...and the matched rule, which cannot take a new nodePort, is deleted only
+			// immediately before its replacement is created.
+			env.lb.EXPECT().NewDeleteLoadBalancerRuleParams("rule-a").Return(&cloudstack.DeleteLoadBalancerRuleParams{}),
+			env.lb.EXPECT().DeleteLoadBalancerRule(gomock.Any()).Return(&cloudstack.DeleteLoadBalancerRuleResponse{}, nil),
+			env.lb.EXPECT().NewCreateLoadBalancerRuleParams("roundrobin", "atestuid-tcp-80", 30001, 80).Return(&cloudstack.CreateLoadBalancerRuleParams{}),
+			env.lb.EXPECT().CreateLoadBalancerRule(gomock.Any()).Return(&cloudstack.CreateLoadBalancerRuleResponse{
+				Id:         "rule-new",
+				Name:       "atestuid-tcp-80",
+				Publicip:   "10.0.0.1",
+				Publicipid: "ip-1",
+				Protocol:   "tcp",
+			}, nil),
+			env.lb.EXPECT().NewAssignToLoadBalancerRuleParams("rule-new").Return(&cloudstack.AssignToLoadBalancerRuleParams{}),
+			env.lb.EXPECT().AssignToLoadBalancerRule(gomock.Any()).Return(&cloudstack.AssignToLoadBalancerRuleResponse{}, nil),
+			env.firewall.EXPECT().NewListFirewallRulesParams().Return(&cloudstack.ListFirewallRulesParams{}),
+			env.firewall.EXPECT().ListFirewallRules(gomock.Any()).Return(&cloudstack.ListFirewallRulesResponse{
+				Count:         1,
+				FirewallRules: []*cloudstack.FirewallRule{matchingFirewallRule},
+			}, nil),
+		)
+
+		if _, err := env.cs.EnsureLoadBalancer(context.TODO(), "test-cluster", env.service, env.nodes); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("udp rule blocks a tcp create on the same port", func(t *testing.T) {
+		// CloudStack rejects two load balancer rules with overlapping ports on one IP whatever
+		// their protocols, so an obsolete udp/80 rule must be pruned before the tcp/80 create
+		// even though the two never match each other. Its udp firewall rule is not claimed by
+		// the desired tcp port, so that goes too.
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+
+		env := newEnsureLBTestEnv(ctrl, nil, []corev1.ServicePort{tcpPort80})
+		env.expectHostsAndNetwork()
+
+		udpRule := existingTCPRule()
+		udpRule.Id = "rule-udp"
+		udpRule.Name = "atestuid-udp-80"
+		udpRule.Protocol = "udp"
+
+		udpFirewallRule := &cloudstack.FirewallRule{
+			Id: "fw-udp", Protocol: "udp", Startport: 80, Endport: 80, Cidrlist: defaultAllowedCIDR,
+		}
+
+		gomock.InOrder(
+			env.lb.EXPECT().NewListLoadBalancerRulesParams().Return(&cloudstack.ListLoadBalancerRulesParams{}),
+			env.lb.EXPECT().ListLoadBalancerRules(gomock.Any()).Return(&cloudstack.ListLoadBalancerRulesResponse{
+				Count:             1,
+				LoadBalancerRules: []*cloudstack.LoadBalancerRule{udpRule},
+			}, nil),
+
+			// Prune first: the udp firewall rule, then the udp load balancer rule.
+			env.firewall.EXPECT().NewListFirewallRulesParams().Return(&cloudstack.ListFirewallRulesParams{}),
+			env.firewall.EXPECT().ListFirewallRules(gomock.Any()).Return(&cloudstack.ListFirewallRulesResponse{
+				Count:         1,
+				FirewallRules: []*cloudstack.FirewallRule{udpFirewallRule},
+			}, nil),
+			env.firewall.EXPECT().NewDeleteFirewallRuleParams("fw-udp").Return(&cloudstack.DeleteFirewallRuleParams{}),
+			env.firewall.EXPECT().DeleteFirewallRule(gomock.Any()).Return(&cloudstack.DeleteFirewallRuleResponse{}, nil),
+			env.lb.EXPECT().NewDeleteLoadBalancerRuleParams("rule-udp").Return(&cloudstack.DeleteLoadBalancerRuleParams{}),
+			env.lb.EXPECT().DeleteLoadBalancerRule(gomock.Any()).Return(&cloudstack.DeleteLoadBalancerRuleResponse{}, nil),
+
+			// Only then can the tcp rule be created on the freed port.
+			env.lb.EXPECT().NewCreateLoadBalancerRuleParams("roundrobin", "atestuid-tcp-80", 30000, 80).Return(&cloudstack.CreateLoadBalancerRuleParams{}),
+			env.lb.EXPECT().CreateLoadBalancerRule(gomock.Any()).Return(&cloudstack.CreateLoadBalancerRuleResponse{
+				Id: "rule-tcp", Name: "atestuid-tcp-80", Publicip: "10.0.0.1", Publicipid: "ip-1", Protocol: "tcp",
+			}, nil),
+			env.lb.EXPECT().NewAssignToLoadBalancerRuleParams("rule-tcp").Return(&cloudstack.AssignToLoadBalancerRuleParams{}),
+			env.lb.EXPECT().AssignToLoadBalancerRule(gomock.Any()).Return(&cloudstack.AssignToLoadBalancerRuleResponse{}, nil),
+			env.firewall.EXPECT().NewListFirewallRulesParams().Return(&cloudstack.ListFirewallRulesParams{}),
+			env.firewall.EXPECT().ListFirewallRules(gomock.Any()).Return(&cloudstack.ListFirewallRulesResponse{}, nil),
+			env.firewall.EXPECT().NewCreateFirewallRuleParams("ip-1", "tcp").Return(&cloudstack.CreateFirewallRuleParams{}),
+			env.firewall.EXPECT().CreateFirewallRule(gomock.Any()).Return(&cloudstack.CreateFirewallRuleResponse{}, nil),
+		)
+
+		if _, err := env.cs.EnsureLoadBalancer(context.TODO(), "test-cluster", env.service, env.nodes); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("unparseable leftover rule does not block reconciliation", func(t *testing.T) {
+		// A rule the provider cannot interpret must be skipped, not abort the whole sync:
+		// the desired ports still have to be reconciled.
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+
+		env := newEnsureLBTestEnv(ctrl, nil, []corev1.ServicePort{tcpPort80})
+		env.expectHostsAndNetwork()
+
+		junkRule := existingTCPRule()
+		junkRule.Id = "rule-junk"
+		junkRule.Name = "atestuid-http-8080"
+		junkRule.Protocol = "http"
+		junkRule.Publicport = "8080"
+
+		// No delete expectation for rule-junk: it is skipped, not deleted.
+		gomock.InOrder(
+			env.lb.EXPECT().NewListLoadBalancerRulesParams().Return(&cloudstack.ListLoadBalancerRulesParams{}),
+			env.lb.EXPECT().ListLoadBalancerRules(gomock.Any()).Return(&cloudstack.ListLoadBalancerRulesResponse{
+				Count:             2,
+				LoadBalancerRules: []*cloudstack.LoadBalancerRule{junkRule, existingTCPRule()},
+			}, nil),
+		)
+
+		// The desired tcp/80 rule is still reconciled.
+		gomock.InOrder(
+			env.firewall.EXPECT().NewListFirewallRulesParams().Return(&cloudstack.ListFirewallRulesParams{}),
+			env.firewall.EXPECT().ListFirewallRules(gomock.Any()).Return(&cloudstack.ListFirewallRulesResponse{
+				Count:         1,
+				FirewallRules: []*cloudstack.FirewallRule{matchingFirewallRule},
+			}, nil),
+		)
+
+		if _, err := env.cs.EnsureLoadBalancer(context.TODO(), "test-cluster", env.service, env.nodes); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("unparseable rule holding a needed port is pruned first", func(t *testing.T) {
+		// A rule the provider cannot interpret still occupies its public port, so one sitting
+		// on a port a create needs has to go before that create, or CloudStack rejects it.
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+
+		env := newEnsureLBTestEnv(ctrl, nil, []corev1.ServicePort{tcpPort80})
+		env.expectHostsAndNetwork()
+
+		junkRule := existingTCPRule()
+		junkRule.Id = "rule-junk"
+		junkRule.Name = "atestuid-http-80"
+		junkRule.Protocol = "http"
+
+		gomock.InOrder(
+			env.lb.EXPECT().NewListLoadBalancerRulesParams().Return(&cloudstack.ListLoadBalancerRulesParams{}),
+			env.lb.EXPECT().ListLoadBalancerRules(gomock.Any()).Return(&cloudstack.ListLoadBalancerRulesResponse{
+				Count:             1,
+				LoadBalancerRules: []*cloudstack.LoadBalancerRule{junkRule},
+			}, nil),
+
+			// No firewall expectations for the junk rule: its protocol cannot be resolved, so
+			// only the load balancer rule itself is deleted, and before the create.
+			env.lb.EXPECT().NewDeleteLoadBalancerRuleParams("rule-junk").Return(&cloudstack.DeleteLoadBalancerRuleParams{}),
+			env.lb.EXPECT().DeleteLoadBalancerRule(gomock.Any()).Return(&cloudstack.DeleteLoadBalancerRuleResponse{}, nil),
+
+			env.lb.EXPECT().NewCreateLoadBalancerRuleParams("roundrobin", "atestuid-tcp-80", 30000, 80).Return(&cloudstack.CreateLoadBalancerRuleParams{}),
+			env.lb.EXPECT().CreateLoadBalancerRule(gomock.Any()).Return(&cloudstack.CreateLoadBalancerRuleResponse{
+				Id:         "rule-2",
+				Name:       "atestuid-tcp-80",
+				Publicip:   "10.0.0.1",
+				Publicipid: "ip-1",
+				Protocol:   "tcp",
+			}, nil),
+			env.lb.EXPECT().NewAssignToLoadBalancerRuleParams("rule-2").Return(&cloudstack.AssignToLoadBalancerRuleParams{}),
+			env.lb.EXPECT().AssignToLoadBalancerRule(gomock.Any()).Return(&cloudstack.AssignToLoadBalancerRuleResponse{}, nil),
+		)
+
+		gomock.InOrder(
+			env.firewall.EXPECT().NewListFirewallRulesParams().Return(&cloudstack.ListFirewallRulesParams{}),
+			env.firewall.EXPECT().ListFirewallRules(gomock.Any()).Return(&cloudstack.ListFirewallRulesResponse{
+				Count:         1,
+				FirewallRules: []*cloudstack.FirewallRule{matchingFirewallRule},
+			}, nil),
+		)
+
+		if _, err := env.cs.EnsureLoadBalancer(context.TODO(), "test-cluster", env.service, env.nodes); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("prune failure still reconciles desired rules", func(t *testing.T) {
+		// A failed delete is still reported, even though the desired rules were applied fine.
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+
+		env := newEnsureLBTestEnv(ctrl, nil, []corev1.ServicePort{tcpPort80})
+		env.expectHostsAndNetwork()
+
+		obsolete := existingTCPRule()
+		obsolete.Id = "rule-obsolete"
+		obsolete.Name = "atestuid-tcp-8080"
+		obsolete.Publicport = "8080"
+
+		deleteErr := fmt.Errorf("delete rule API error")
+
+		gomock.InOrder(
+			env.lb.EXPECT().NewListLoadBalancerRulesParams().Return(&cloudstack.ListLoadBalancerRulesParams{}),
+			env.lb.EXPECT().ListLoadBalancerRules(gomock.Any()).Return(&cloudstack.ListLoadBalancerRulesResponse{
+				Count:             2,
+				LoadBalancerRules: []*cloudstack.LoadBalancerRule{obsolete, existingTCPRule()},
+			}, nil),
+			env.lb.EXPECT().NewDeleteLoadBalancerRuleParams("rule-obsolete").Return(&cloudstack.DeleteLoadBalancerRuleParams{}),
+			env.lb.EXPECT().DeleteLoadBalancerRule(gomock.Any()).Return(nil, deleteErr),
+		)
+
+		gomock.InOrder(
+			// Apply pass: the desired tcp/80 firewall rule already matches.
+			env.firewall.EXPECT().NewListFirewallRulesParams().Return(&cloudstack.ListFirewallRulesParams{}),
+			env.firewall.EXPECT().ListFirewallRules(gomock.Any()).Return(&cloudstack.ListFirewallRulesResponse{
+				Count:         1,
+				FirewallRules: []*cloudstack.FirewallRule{matchingFirewallRule},
+			}, nil),
+			// Prune pass: nothing matches the obsolete port 8080.
+			env.firewall.EXPECT().NewListFirewallRulesParams().Return(&cloudstack.ListFirewallRulesParams{}),
+			env.firewall.EXPECT().ListFirewallRules(gomock.Any()).Return(&cloudstack.ListFirewallRulesResponse{}, nil),
+		)
+
+		_, err := env.cs.EnsureLoadBalancer(context.TODO(), "test-cluster", env.service, env.nodes)
+		if err == nil {
+			t.Fatalf("expected the prune failure to be reported")
+		}
+		if !strings.Contains(err.Error(), "delete rule API error") {
+			t.Errorf("error = %v, want it to mention the delete failure", err)
+		}
+	})
+
+	t.Run("obsolete rule on another IP has firewall rules deleted", func(t *testing.T) {
+		// An obsolete rule on another public IP shares (tcp, 80) with a desired port. Claims
+		// are per IP, so the old IP's firewall rule must still be deleted.
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+
+		env := newEnsureLBTestEnv(ctrl, nil, []corev1.ServicePort{tcpPort80})
+		env.service.Status.LoadBalancer.Ingress = []corev1.LoadBalancerIngress{{IP: "10.0.0.1"}}
+		env.expectHostsAndNetwork()
+
+		oldIPRule := existingTCPRule()
+		oldIPRule.Id = "rule-9"
+		oldIPRule.Name = "atestuid-tcp-80-old"
+		oldIPRule.Publicip = "10.0.0.2"
+		oldIPRule.Publicipid = "ip-2"
+
+		oldIPFirewallRule := &cloudstack.FirewallRule{
+			Id:        "fw-2",
+			Protocol:  "tcp",
+			Startport: 80,
+			Endport:   80,
+			Cidrlist:  defaultAllowedCIDR,
+		}
+
+		gomock.InOrder(
+			env.lb.EXPECT().NewListLoadBalancerRulesParams().Return(&cloudstack.ListLoadBalancerRulesParams{}),
+			// Listed first, yet the published ingress IP makes ip-1 the address reconciled towards.
+			env.lb.EXPECT().ListLoadBalancerRules(gomock.Any()).Return(&cloudstack.ListLoadBalancerRulesResponse{
+				Count:             2,
+				LoadBalancerRules: []*cloudstack.LoadBalancerRule{oldIPRule, existingTCPRule()},
+			}, nil),
+			env.lb.EXPECT().NewDeleteLoadBalancerRuleParams("rule-9").Return(&cloudstack.DeleteLoadBalancerRuleParams{}),
+			env.lb.EXPECT().DeleteLoadBalancerRule(gomock.Any()).Return(&cloudstack.DeleteLoadBalancerRuleResponse{}, nil),
+		)
+
+		gomock.InOrder(
+			// Apply pass: the kept rule's firewall rule already matches.
+			env.firewall.EXPECT().NewListFirewallRulesParams().Return(&cloudstack.ListFirewallRulesParams{}),
+			env.firewall.EXPECT().ListFirewallRules(gomock.Any()).Return(&cloudstack.ListFirewallRulesResponse{
+				Count:         1,
+				FirewallRules: []*cloudstack.FirewallRule{matchingFirewallRule},
+			}, nil),
+			// Prune pass: the old IP's rule is unclaimed, so it is deleted.
+			env.firewall.EXPECT().NewListFirewallRulesParams().Return(&cloudstack.ListFirewallRulesParams{}),
+			env.firewall.EXPECT().ListFirewallRules(gomock.Any()).Return(&cloudstack.ListFirewallRulesResponse{
+				Count:         1,
+				FirewallRules: []*cloudstack.FirewallRule{oldIPFirewallRule},
+			}, nil),
+			env.firewall.EXPECT().NewDeleteFirewallRuleParams("fw-2").Return(&cloudstack.DeleteFirewallRuleParams{}),
+			env.firewall.EXPECT().DeleteFirewallRule(gomock.Any()).Return(&cloudstack.DeleteFirewallRuleResponse{}, nil),
+		)
+
+		_, err := env.cs.EnsureLoadBalancer(context.TODO(), "test-cluster", env.service, env.nodes)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+}
+
 func TestUpdateLoadBalancerPagination(t *testing.T) {
 	// Instances of a load balancer rule are one per load balanced node, so on a
 	// large cluster the un-paged response was truncated and the stale nodes on
@@ -4448,4 +5459,215 @@ func TestUpdateLoadBalancerPagination(t *testing.T) {
 	if !slices.Contains(removed, "vm-599") {
 		t.Errorf("vm-599 is on the second page and should have been removed, got %v", removed)
 	}
+}
+
+// A Network ACL rule is scoped to a network, so an obsolete rule left over in another network
+// is not protected by a desired port that happens to share its protocol and port.
+func TestPruneRulesScopesNetworkACLsToTheirNetwork(t *testing.T) {
+	aclNetwork := &cloudstack.Network{
+		Id:      "net-new",
+		Service: []cloudstack.NetworkServiceInternal{{Name: "NetworkACL"}},
+	}
+	firewallNetwork := &cloudstack.Network{
+		Id:      "net-new",
+		Service: []cloudstack.NetworkServiceInternal{{Name: "Firewall"}},
+	}
+	obsoleteRuleTier := &cloudstack.Network{
+		Id:      "net-old",
+		Service: []cloudstack.NetworkServiceInternal{{Name: "NetworkACL"}},
+	}
+
+	desired := []desiredLBRule{{
+		name:     "atestuid-tcp-80",
+		port:     corev1.ServicePort{Port: 80, NodePort: 30000, Protocol: corev1.ProtocolTCP},
+		protocol: LoadBalancerProtocolTCP,
+	}}
+	desiredOn443 := []desiredLBRule{{
+		name:     "atestuid-tcp-443",
+		port:     corev1.ServicePort{Port: 443, NodePort: 30443, Protocol: corev1.ProtocolTCP},
+		protocol: LoadBalancerProtocolTCP,
+	}}
+
+	obsoleteIn := func(networkID string) []obsoleteRule {
+		return []obsoleteRule{{
+			rule: &cloudstack.LoadBalancerRule{
+				Id:         "rule-old",
+				Name:       "atestuid-tcp-80",
+				Publicipid: "ip-2",
+				Publicport: "80",
+				Protocol:   "tcp",
+				Networkid:  networkID,
+			},
+			protocol: LoadBalancerProtocolTCP,
+			tuple:    portProtocol{"tcp", 80},
+		}}
+	}
+	obsoleteWithoutNetworkOn := func(publicIPID string) []obsoleteRule {
+		obsolete := obsoleteIn("")
+		obsolete[0].rule.Publicipid = publicIPID
+		return obsolete
+	}
+
+	type pruneMocks struct {
+		acl      *cloudstack.MockNetworkACLServiceIface
+		network  *cloudstack.MockNetworkServiceIface
+		firewall *cloudstack.MockFirewallServiceIface
+	}
+
+	newLB := func(ctrl *gomock.Controller) (*loadBalancer, *pruneMocks) {
+		m := &pruneMocks{
+			acl:      cloudstack.NewMockNetworkACLServiceIface(ctrl),
+			network:  cloudstack.NewMockNetworkServiceIface(ctrl),
+			firewall: cloudstack.NewMockFirewallServiceIface(ctrl),
+		}
+		mockLB := cloudstack.NewMockLoadBalancerServiceIface(ctrl)
+		mockLB.EXPECT().NewDeleteLoadBalancerRuleParams("rule-old").Return(&cloudstack.DeleteLoadBalancerRuleParams{})
+		mockLB.EXPECT().DeleteLoadBalancerRule(gomock.Any()).Return(&cloudstack.DeleteLoadBalancerRuleResponse{}, nil)
+
+		return &loadBalancer{
+			CloudStackClient: &cloudstack.CloudStackClient{
+				LoadBalancer: mockLB,
+				NetworkACL:   m.acl,
+				Network:      m.network,
+				Firewall:     m.firewall,
+			},
+			networkID: "net-new",
+			ipAddrID:  "ip-current",
+		}, m
+	}
+
+	expectACLRuleDeleted := func(m *pruneMocks) *cloudstack.ListNetworkACLsParams {
+		listParams := &cloudstack.ListNetworkACLsParams{}
+		gomock.InOrder(
+			m.acl.EXPECT().NewListNetworkACLsParams().Return(listParams),
+			m.acl.EXPECT().ListNetworkACLs(gomock.Any()).Return(&cloudstack.ListNetworkACLsResponse{
+				Count: 1,
+				NetworkACLs: []*cloudstack.NetworkACL{
+					{Id: "acl-rule-old", Protocol: "tcp", Startport: "80", Endport: "80"},
+				},
+			}, nil),
+			m.acl.EXPECT().NewDeleteNetworkACLParams("acl-rule-old").Return(&cloudstack.DeleteNetworkACLParams{}),
+			m.acl.EXPECT().DeleteNetworkACL(gomock.Any()).Return(&cloudstack.DeleteNetworkACLResponse{}, nil),
+		)
+		return listParams
+	}
+
+	t.Run("a rule in another network has its ACL rule deleted there", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+
+		lb, m := newLB(ctrl)
+		m.network.EXPECT().GetNetworkByID("net-old", gomock.Any()).Return(obsoleteRuleTier, 1, nil)
+		listParams := expectACLRuleDeleted(m)
+
+		if err := lb.pruneRules(obsoleteIn("net-old"), desired, aclNetwork); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if networkID, _ := listParams.GetNetworkid(); networkID != "net-old" {
+			t.Errorf("ACL rules listed on network %q, want the obsolete rule's own %q", networkID, "net-old")
+		}
+	})
+
+	t.Run("a rule in the reconciled network keeps its claimed ACL rule", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+
+		// No ACL expectations: the desired tcp/80 port still claims that opening. No network
+		// lookup either: the reconciled network is already known.
+		lb, _ := newLB(ctrl)
+
+		if err := lb.pruneRules(obsoleteIn("net-new"), desired, aclNetwork); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("a rule in a VPC tier is cleaned there while a firewall network reconciles", func(t *testing.T) {
+		// Choosing the mechanism from the reconciled network would delete a firewall rule
+		// that does not exist and leave this ACL rule open.
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+
+		lb, m := newLB(ctrl)
+		m.network.EXPECT().GetNetworkByID("net-old", gomock.Any()).Return(obsoleteRuleTier, 1, nil)
+		listParams := expectACLRuleDeleted(m)
+
+		if err := lb.pruneRules(obsoleteIn("net-old"), desiredOn443, firewallNetwork); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if networkID, _ := listParams.GetNetworkid(); networkID != "net-old" {
+			t.Errorf("ACL rules listed on network %q, want the obsolete rule's own %q", networkID, "net-old")
+		}
+	})
+
+	t.Run("a rule in a deleted network keeps its ACL rule", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+
+		lb, m := newLB(ctrl)
+		// GetNetworkByID reports not-found as an error alongside a count of 0.
+		m.network.EXPECT().GetNetworkByID("net-old", gomock.Any()).Return(nil, 0, fmt.Errorf("No match found for net-old"))
+		// Only the IP-scoped firewall rule is attempted: no network remains to place an
+		// ACL rule in.
+		gomock.InOrder(
+			m.firewall.EXPECT().NewListFirewallRulesParams().Return(&cloudstack.ListFirewallRulesParams{}),
+			m.firewall.EXPECT().ListFirewallRules(gomock.Any()).Return(&cloudstack.ListFirewallRulesResponse{}, nil),
+		)
+
+		if err := lb.pruneRules(obsoleteIn("net-old"), desiredOn443, aclNetwork); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("a failed network lookup keeps the rule and reports the error", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+
+		// No delete expectations: the rule must survive until its network can be looked up.
+		mockNetwork := cloudstack.NewMockNetworkServiceIface(ctrl)
+		mockNetwork.EXPECT().GetNetworkByID("net-old", gomock.Any()).Return(nil, -1, fmt.Errorf("API unavailable"))
+		lb := &loadBalancer{
+			CloudStackClient: &cloudstack.CloudStackClient{
+				LoadBalancer: cloudstack.NewMockLoadBalancerServiceIface(ctrl),
+				Network:      mockNetwork,
+			},
+			networkID: "net-new",
+			ipAddrID:  "ip-current",
+		}
+
+		if err := lb.pruneRules(obsoleteIn("net-old"), desiredOn443, aclNetwork); err == nil {
+			t.Fatalf("expected the lookup failure to be reported")
+		}
+	})
+
+	t.Run("a rule with no network has only its firewall rule deleted", func(t *testing.T) {
+		// An ACL rule deleted in a guessed network could be the only opening another service
+		// has, while a firewall rule is scoped to this rule's own public IP.
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+
+		lb, m := newLB(ctrl)
+		gomock.InOrder(
+			m.firewall.EXPECT().NewListFirewallRulesParams().Return(&cloudstack.ListFirewallRulesParams{}),
+			m.firewall.EXPECT().ListFirewallRules(gomock.Any()).Return(&cloudstack.ListFirewallRulesResponse{}, nil),
+		)
+
+		if err := lb.pruneRules(obsoleteWithoutNetworkOn("ip-2"), desiredOn443, aclNetwork); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("a rule with no network on the reconciled IP uses that network", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+
+		lb, m := newLB(ctrl)
+		listParams := expectACLRuleDeleted(m)
+
+		if err := lb.pruneRules(obsoleteWithoutNetworkOn("ip-current"), desiredOn443, aclNetwork); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if networkID, _ := listParams.GetNetworkid(); networkID != "net-new" {
+			t.Errorf("ACL rules listed on network %q, want the reconciled %q", networkID, "net-new")
+		}
+	})
 }
