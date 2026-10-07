@@ -68,19 +68,22 @@ kubectl -n kube-system create secret generic cloudstack-secret \
     --from-file=cloud-config="${E2E_OUT}/cloud-config" \
     --dry-run=client -o yaml | kubectl apply -f -
 
-kubectl apply -f "${REPO_ROOT}/deployment.yaml"
-# Adjust the stock manifest for e2e: local image, no leader election (single
-# replica, faster startup), verbose logs, and enough CPU that informer startup
-# is not throttled on shared runners.
-kubectl -n kube-system patch deployment cloud-controller-manager --type=json -p '[
-  {"op":"replace","path":"/spec/template/spec/containers/0/image","value":"'"$CCM_IMAGE"'"},
-  {"op":"replace","path":"/spec/template/spec/containers/0/imagePullPolicy","value":"Never"},
-  {"op":"replace","path":"/spec/template/spec/containers/0/args","value":[
-     "--cloud-provider=external-cloudstack","--cloud-config=/config/cloud-config",
-     "--leader-elect=false","--v=4"]},
-  {"op":"replace","path":"/spec/template/spec/containers/0/resources","value":{
-     "requests":{"cpu":"100m","memory":"128Mi"},"limits":{"cpu":"1","memory":"512Mi"}}}
-]'
+# Adjust the stock manifest for e2e before applying it: local image, no leader
+# election (single replica, faster startup), verbose logs, and enough CPU that
+# informer startup is not throttled on shared runners. Applying it unchanged
+# first would start the released image, which can keep running for its whole
+# 30s grace period and reconcile the test Services next to the build under test.
+kubectl create --dry-run=client -o json -f "${REPO_ROOT}/deployment.yaml" |
+    jq -s --arg image "$CCM_IMAGE" '{apiVersion: "v1", kind: "List", items: map(
+        if .kind != "Deployment" then . else
+            .spec.template.spec.containers[0] |= (
+                .image = $image
+                | .imagePullPolicy = "Never"
+                | .args = ["--cloud-provider=external-cloudstack", "--cloud-config=/config/cloud-config",
+                           "--leader-elect=false", "--v=4"]
+                | .resources = {requests: {cpu: "100m", memory: "128Mi"}, limits: {cpu: "1", memory: "512Mi"}})
+        end)}' |
+    kubectl apply -f -
 
 kubectl -n kube-system rollout status deployment/cloud-controller-manager --timeout=180s
 

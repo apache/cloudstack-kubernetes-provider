@@ -21,11 +21,16 @@ package cloudstack
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"maps"
 	"net"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/apache/cloudstack-go/v2/cloudstack"
 	"github.com/blang/semver/v4"
@@ -57,6 +62,14 @@ const (
 	// associated the IP address. This annotation is set by the controller when it associates
 	// an unallocated IP, and is used to determine if the IP should be disassociated on deletion.
 	ServiceAnnotationLoadBalancerIPAssociatedByController = "service.beta.kubernetes.io/cloudstack-load-balancer-ip-associated-by-controller" //nolint:gosec
+
+	// ServiceAnnotationLoadBalancerStickinessMethodName sets the stickiness method, LbCookie or
+	// SourceBased, for the Service's load balancer rules.
+	ServiceAnnotationLoadBalancerStickinessMethodName = "service.beta.kubernetes.io/cloudstack-load-balancer-stickiness-method-name"
+
+	// ServiceAnnotationLoadBalancerStickinessMethodParam sets the method's parameters as a
+	// comma-separated list of key=value pairs.
+	ServiceAnnotationLoadBalancerStickinessMethodParam = "service.beta.kubernetes.io/cloudstack-load-balancer-stickiness-method-param"
 )
 
 // cidrListUpdateVersion is the first CloudStack release whose updateLoadBalancerRule API
@@ -137,6 +150,11 @@ func (cs *CSCloud) EnsureLoadBalancer(ctx context.Context, clusterName string, s
 		return nil, fmt.Errorf("requested load balancer with no ports")
 	}
 
+	stickiness, err := parseStickinessSpec(service)
+	if err != nil {
+		return nil, err
+	}
+
 	// Get the load balancer details and existing rules.
 	lb, err := cs.getLoadBalancer(service)
 	if err != nil {
@@ -163,6 +181,17 @@ func (cs *CSCloud) EnsureLoadBalancer(ctx context.Context, clusterName string, s
 		return nil, err
 	}
 
+	// Read the network before an IP is associated, so a stickiness method the network does not
+	// support fails before anything is created.
+	network, _, err := lb.Network.GetNetworkByID(lb.networkID, cloudstack.WithProject(lb.projectID))
+	if err != nil {
+		return nil, err
+	}
+	if err := stickiness.normalise(supportedStickinessMethods(network)); err != nil {
+		return nil, err
+	}
+
+	rulesApplied := false
 	if !lb.hasLoadBalancerIP() {
 		// Create or retrieve the load balancer IP.
 		if err := lb.getLoadBalancerIP(service.Spec.LoadBalancerIP); err != nil {
@@ -170,8 +199,9 @@ func (cs *CSCloud) EnsureLoadBalancer(ctx context.Context, clusterName string, s
 		}
 
 		if lb.ipAddr != "" && lb.ipAddr != service.Spec.LoadBalancerIP {
+			// Once the rules exist on the new IP, keep it, so the next sync can retry against them.
 			defer func(lb *loadBalancer) {
-				if err != nil {
+				if err != nil && !rulesApplied {
 					if err := lb.releaseLoadBalancerIP(); err != nil {
 						klog.Errorf(err.Error())
 					}
@@ -196,11 +226,6 @@ func (cs *CSCloud) EnsureLoadBalancer(ctx context.Context, clusterName string, s
 		return nil, err
 	}
 
-	network, _, err := lb.Network.GetNetworkByID(lb.networkID, cloudstack.WithProject(lb.projectID))
-	if err != nil {
-		return nil, err
-	}
-
 	blocking, rest := lb.partitionObsoleteRules(desired)
 
 	// Obsolete rules holding a public port that a new rule needs have to go first, or
@@ -209,13 +234,18 @@ func (cs *CSCloud) EnsureLoadBalancer(ctx context.Context, clusterName string, s
 		return nil, err
 	}
 
-	if err := lb.applyLoadBalancerRules(desired, service, network, cs.version); err != nil {
+	rules, err := lb.applyLoadBalancerRules(desired, service, network, cs.version)
+	if err != nil {
 		return nil, err
 	}
+	rulesApplied = true
 
 	// Everything else is removed only once the desired rules are in place, so a failure here
-	// can never leave the service without the rules it does need.
-	if err := lb.pruneRules(rest, desired, network); err != nil {
+	// can never leave the service without the rules it does need. Stickiness is applied last,
+	// even if the prune fails.
+	pruneErr := lb.pruneRules(rest, desired, network)
+	stickinessErr := lb.applyStickinessPolicies(desired, rules, stickiness)
+	if err := errors.Join(pruneErr, stickinessErr); err != nil {
 		return nil, err
 	}
 
@@ -275,7 +305,7 @@ func (cs *CSCloud) UpdateLoadBalancer(ctx context.Context, clusterName string, s
 		}
 
 		if len(remove) > 0 {
-			klog.V(4).Infof("Removing old hosts (%v) from load balancer rule: %v", assign, lbRule.Name)
+			klog.V(4).Infof("Removing old hosts (%v) from load balancer rule: %v", remove, lbRule.Name)
 			if err := lb.removeHostsFromRule(lbRule, remove); err != nil {
 				return err
 			}
@@ -1008,15 +1038,20 @@ func (lb *loadBalancer) pruneRules(obsolete []obsoleteRule, desired []desiredLBR
 // ensureLoadBalancerRule brings the load balancer rule of one desired service port in line and
 // returns it: an up-to-date rule is left alone, an outdated one is updated in place, and a
 // missing one is created. A rule that cannot be updated is deleted immediately before its
-// replacement is created, which keeps the port unserved for as short a time as possible.
+// replacement is created, which keeps the port unserved for as short a time as possible. An
+// adopted rule that has no hosts gets them assigned.
 func (lb *loadBalancer) ensureLoadBalancerRule(d desiredLBRule, service *corev1.Service, version semver.Version) (*cloudstack.LoadBalancerRule, error) {
 	switch d.change {
 	case ruleUpToDate:
 		klog.V(4).Infof("Load balancer rule %v is up-to-date", d.name)
-		return d.existing, nil
+		return d.existing, lb.repairEmptyRule(d.existing)
 	case ruleNeedsUpdate:
 		klog.V(4).Infof("Updating load balancer rule: %v", d.name)
-		return d.existing, lb.updateLoadBalancerRule(d.existing, d.name, d.protocol, service, version)
+		if err := lb.updateLoadBalancerRule(d.existing, d.name, d.protocol, service, version); err != nil {
+			return nil, err
+		}
+
+		return d.existing, lb.repairEmptyRule(d.existing)
 	case ruleNeedsRecreate:
 		klog.V(4).Infof("Deleting load balancer rule %v so it can be created again", d.existing.Name)
 		if err := lb.deleteLoadBalancerRule(d.existing); err != nil {
@@ -1038,26 +1073,447 @@ func (lb *loadBalancer) ensureLoadBalancerRule(d desiredLBRule, service *corev1.
 	return lbRule, nil
 }
 
+// repairEmptyRule assigns the hosts to an adopted rule that has none, which happens when a create
+// fails before assigning them. Rules that have hosts are left to UpdateLoadBalancer, because node
+// sync runs at the same time as this sync and may have newer node data.
+func (lb *loadBalancer) repairEmptyRule(lbRule *cloudstack.LoadBalancerRule) error {
+	p := lb.LoadBalancer.NewListLoadBalancerRuleInstancesParams(lbRule.Id)
+	instances, err := lb.LoadBalancer.ListLoadBalancerRuleInstances(p)
+	if err != nil {
+		return fmt.Errorf("error retrieving associated instances: %v", err)
+	}
+	if instances.Count > 0 {
+		return nil
+	}
+
+	klog.V(4).Infof("Assigning hosts (%v) to load balancer rule %v, which has none", lb.hostIDs, lbRule.Name)
+	return lb.assignHostsToRule(lbRule, lb.hostIDs)
+}
+
 // applyLoadBalancerRules creates or updates the load balancer rule of every desired service
-// port and reconciles the firewall or network ACL rules it needs.
-func (lb *loadBalancer) applyLoadBalancerRules(desired []desiredLBRule, service *corev1.Service, network *cloudstack.Network, version semver.Version) error {
+// port and reconciles the firewall or network ACL rules it needs. It returns the rule of each
+// desired port, in the same order.
+func (lb *loadBalancer) applyLoadBalancerRules(desired []desiredLBRule, service *corev1.Service, network *cloudstack.Network, version semver.Version) ([]*cloudstack.LoadBalancerRule, error) {
+	rules := make([]*cloudstack.LoadBalancerRule, 0, len(desired))
 	for _, d := range desired {
 		lbRule, err := lb.ensureLoadBalancerRule(d, service, version)
 		if err != nil {
-			return err
+			return nil, err
 		}
+		rules = append(rules, lbRule)
 
 		if isFirewallSupported(network.Service) {
 			klog.V(4).Infof("Creating firewall rules for load balancer rule: %v (%v:%v:%v)", d.name, d.protocol, lbRule.Publicip, d.port.Port)
 			if _, err := lb.updateFirewallRule(lbRule.Publicipid, int(d.port.Port), d.protocol, service.Spec.LoadBalancerSourceRanges); err != nil {
-				return err
+				return nil, err
 			}
 		} else if isNetworkACLSupported(network.Service) {
 			klog.V(4).Infof("Creating ACL rules for load balancer rule: %v (%v:%v:%v)", d.name, d.protocol, lbRule.Publicip, d.port.Port)
 			if _, err := lb.updateNetworkACL(int(d.port.Port), d.protocol, network.Id); err != nil {
-				return err
+				return nil, err
 			}
 		}
+	}
+
+	return rules, nil
+}
+
+const (
+	// stickinessPolicyDescription marks the policies the controller creates. Only policies with
+	// this description are deleted, so policies added by hand are kept.
+	stickinessPolicyDescription = "Managed by the CloudStack Kubernetes Provider"
+
+	lbCookieMethod  = "LbCookie"
+	appCookieMethod = "AppCookie"
+
+	// stickinessParamForbidden lists the characters a parameter may not contain. CloudStack splits
+	// stored parameters on "=" and "&", and copies them unquoted into the HAProxy config, where
+	// quotes, backslashes and "#" have a special meaning.
+	stickinessParamForbidden = "=&\"'\\#"
+)
+
+// lbCookieModes are the cookie modes HAProxy accepts. CloudStack does not check the mode.
+var lbCookieModes = []string{"insert", "rewrite", "prefix"}
+
+// stickinessSpec is the stickiness policy a Service asks for. ports holds the selected TCP ports.
+type stickinessSpec struct {
+	method string
+	params map[string]string
+	ports  map[int32]bool
+}
+
+// stickinessMethod is a method in a network's SupportedStickinessMethods capability.
+type stickinessMethod struct {
+	Name   string                  `json:"methodname"`
+	Params []stickinessMethodParam `json:"paramlist"`
+}
+
+// stickinessMethodParam is a parameter of a stickiness method.
+type stickinessMethodParam struct {
+	Name     string `json:"paramname"`
+	Required bool   `json:"required"`
+	IsFlag   bool   `json:"isflag"`
+}
+
+// parseStickinessSpec reads the stickiness annotations. It returns nil when the Service asks for
+// no stickiness. It makes no CloudStack calls, so bad annotations fail before anything changes.
+func parseStickinessSpec(service *corev1.Service) (*stickinessSpec, error) {
+	method := strings.TrimSpace(getStringFromServiceAnnotation(service, ServiceAnnotationLoadBalancerStickinessMethodName, ""))
+	if method == "" {
+		return nil, nil
+	}
+	if strings.EqualFold(method, appCookieMethod) {
+		return nil, fmt.Errorf("unsupported stickiness method %s in annotation %s: HAProxy removed the appsession option it needs", method, ServiceAnnotationLoadBalancerStickinessMethodName)
+	}
+
+	params, err := parseStickinessParams(getStringFromServiceAnnotation(service, ServiceAnnotationLoadBalancerStickinessMethodParam, ""))
+	if err != nil {
+		return nil, err
+	}
+	ports, err := selectStickinessPorts(service, method)
+	if err != nil {
+		return nil, err
+	}
+
+	return &stickinessSpec{method: method, params: params, ports: ports}, nil
+}
+
+// parseStickinessParams parses the key=value list of the method-param annotation. Empty values,
+// spaces and the characters in stickinessParamForbidden are rejected, because CloudStack would
+// read them back differently or write them into a broken HAProxy config.
+func parseStickinessParams(value string) (map[string]string, error) {
+	params := make(map[string]string)
+	seen := make(map[string]bool)
+	for _, entry := range strings.Split(value, ",") {
+		entry = strings.TrimSpace(entry)
+		if entry == "" {
+			continue
+		}
+		key, val, found := strings.Cut(entry, "=")
+		key, val = strings.TrimSpace(key), strings.TrimSpace(val)
+		switch {
+		case !found || key == "":
+			return nil, stickinessParamError(entry, "expected key=value")
+		case val == "":
+			return nil, stickinessParamError(entry, fmt.Sprintf("missing value, write flags as %s=true", key))
+		case !safeStickinessText(key) || !safeStickinessText(val):
+			return nil, stickinessParamError(entry, `spaces and the characters = & " ' \ # are not allowed`)
+		}
+
+		lowered := strings.ToLower(key)
+		if seen[lowered] {
+			return nil, stickinessParamError(entry, key+" is set twice")
+		}
+		seen[lowered] = true
+		params[key] = val
+	}
+
+	return params, nil
+}
+
+// stickinessParamError reports an invalid entry of the method-param annotation.
+func stickinessParamError(entry, reason string) error {
+	return fmt.Errorf("invalid stickiness parameter %q in annotation %s: %s", entry, ServiceAnnotationLoadBalancerStickinessMethodParam, reason)
+}
+
+// safeStickinessText reports whether s has no spaces and no forbidden characters.
+func safeStickinessText(s string) bool {
+	return !strings.ContainsAny(s, stickinessParamForbidden) && strings.IndexFunc(s, unicode.IsSpace) < 0
+}
+
+// selectStickinessPorts returns the TCP ports that get the policy. LbCookie switches its ports to
+// HTTP mode, which breaks TLS and other non-HTTP traffic, so it only goes on ports with
+// appProtocol: http. Other methods go on every TCP port.
+func selectStickinessPorts(service *corev1.Service, method string) (map[int32]bool, error) {
+	tcpPorts := make(map[int32]bool)
+	httpPorts := make(map[int32]bool)
+	for _, port := range service.Spec.Ports {
+		if port.Protocol != corev1.ProtocolTCP {
+			continue
+		}
+		tcpPorts[port.Port] = true
+		if port.AppProtocol != nil && strings.EqualFold(*port.AppProtocol, "http") {
+			httpPorts[port.Port] = true
+		}
+	}
+
+	if !strings.EqualFold(method, lbCookieMethod) {
+		return tcpPorts, nil
+	}
+	if len(httpPorts) == 0 {
+		return nil, fmt.Errorf("stickiness method %s only works on plain HTTP ports: set appProtocol: http on them", method)
+	}
+
+	return httpPorts, nil
+}
+
+// wants reports whether a Service port should get the policy.
+func (s *stickinessSpec) wants(port corev1.ServicePort) bool {
+	return s != nil && port.Protocol == corev1.ProtocolTCP && s.ports[port.Port]
+}
+
+// matches reports whether a policy is the controller's and matches the spec.
+func (s *stickinessSpec) matches(policy cloudstack.LBStickinessPolicyStickinesspolicy) bool {
+	return policy.Description == stickinessPolicyDescription &&
+		strings.EqualFold(policy.Methodname, s.method) &&
+		maps.Equal(policy.Params, s.params)
+}
+
+// supportedStickinessMethods returns the stickiness methods the network's load balancer
+// supports, or nil if the network does not list them.
+func supportedStickinessMethods(network *cloudstack.Network) []stickinessMethod {
+	for _, svc := range network.Service {
+		if svc.Name != "Lb" {
+			continue
+		}
+		for _, capability := range svc.Capability {
+			if capability.Name != "SupportedStickinessMethods" {
+				continue
+			}
+			var methods []stickinessMethod
+			if err := json.Unmarshal([]byte(capability.Value), &methods); err != nil {
+				klog.Warningf("Cannot read the stickiness methods of network %v: %v", network.Id, err)
+				return nil
+			}
+			return methods
+		}
+	}
+
+	return nil
+}
+
+// normalise checks the spec against the methods the network supports, as CloudStack does, and
+// also checks the LbCookie mode, which CloudStack does not. It writes names and flags the way
+// CloudStack stores them, so a policy read back compares equal. It does nothing if the network
+// does not list its methods.
+func (s *stickinessSpec) normalise(methods []stickinessMethod) error {
+	if s == nil || len(methods) == 0 {
+		return nil
+	}
+	method := findStickinessMethod(methods, s.method)
+	if method == nil {
+		return fmt.Errorf("stickiness method %q in annotation %s is not supported on this network; supported methods: %s", s.method, ServiceAnnotationLoadBalancerStickinessMethodName, stickinessMethodNames(methods))
+	}
+
+	params := make(map[string]string, len(s.params))
+	for key, value := range s.params {
+		param := findStickinessParam(method.Params, key)
+		if param == nil {
+			return fmt.Errorf("stickiness parameter %q in annotation %s is not supported by %s; supported parameters: %s", key, ServiceAnnotationLoadBalancerStickinessMethodParam, method.Name, stickinessParamNames(method.Params))
+		}
+		normalised, send, err := normaliseStickinessValue(method.Name, *param, value)
+		if err != nil {
+			return err
+		}
+		if send {
+			params[param.Name] = normalised
+		}
+	}
+	for _, param := range method.Params {
+		if _, set := params[param.Name]; param.Required && !set {
+			return fmt.Errorf("stickiness method %s needs parameter %s in annotation %s", method.Name, param.Name, ServiceAnnotationLoadBalancerStickinessMethodParam)
+		}
+	}
+
+	s.method, s.params = method.Name, params
+	return nil
+}
+
+// normaliseStickinessValue returns the value to send for a parameter, and whether to send it.
+// HAProxy turns a flag on whenever it is set, whatever the value, so flags are parsed as booleans
+// and sent as true or left out, like the CloudStack UI does.
+func normaliseStickinessValue(method string, param stickinessMethodParam, value string) (string, bool, error) {
+	if param.IsFlag {
+		on, err := strconv.ParseBool(value)
+		if err != nil {
+			return "", false, fmt.Errorf("stickiness flag %s in annotation %s must be true or false, not %q", param.Name, ServiceAnnotationLoadBalancerStickinessMethodParam, value)
+		}
+		return "true", on, nil
+	}
+	if strings.EqualFold(method, lbCookieMethod) && param.Name == "mode" {
+		mode := strings.ToLower(value)
+		if !slices.Contains(lbCookieModes, mode) {
+			return "", false, fmt.Errorf("stickiness parameter mode in annotation %s must be one of %s, not %q", ServiceAnnotationLoadBalancerStickinessMethodParam, strings.Join(lbCookieModes, ", "), value)
+		}
+		return mode, true, nil
+	}
+
+	return value, true, nil
+}
+
+// findStickinessMethod returns the method with the given name, ignoring case like CloudStack.
+func findStickinessMethod(methods []stickinessMethod, name string) *stickinessMethod {
+	for i := range methods {
+		if strings.EqualFold(methods[i].Name, name) {
+			return &methods[i]
+		}
+	}
+
+	return nil
+}
+
+// findStickinessParam returns the parameter with the given name, ignoring case.
+func findStickinessParam(params []stickinessMethodParam, name string) *stickinessMethodParam {
+	for i := range params {
+		if strings.EqualFold(params[i].Name, name) {
+			return &params[i]
+		}
+	}
+
+	return nil
+}
+
+// stickinessMethodNames lists the supported methods for an error message. AppCookie is left out
+// because the controller rejects it.
+func stickinessMethodNames(methods []stickinessMethod) string {
+	names := make([]string, 0, len(methods))
+	for _, method := range methods {
+		if !strings.EqualFold(method.Name, appCookieMethod) {
+			names = append(names, method.Name)
+		}
+	}
+
+	return strings.Join(names, ", ")
+}
+
+// stickinessParamNames lists a method's parameters for an error message.
+func stickinessParamNames(params []stickinessMethodParam) string {
+	names := make([]string, 0, len(params))
+	for _, param := range params {
+		names = append(names, param.Name)
+	}
+
+	return strings.Join(names, ", ")
+}
+
+// applyStickinessPolicies updates the stickiness policy of every desired rule, once the rules are
+// in place. It tries every rule and returns all errors together.
+func (lb *loadBalancer) applyStickinessPolicies(desired []desiredLBRule, rules []*cloudstack.LoadBalancerRule, spec *stickinessSpec) error {
+	var errs []error
+	for i, d := range desired {
+		if err := lb.applyStickinessPolicy(d, rules[i], spec); err != nil {
+			errs = append(errs, fmt.Errorf("load balancer rule %v: %w", d.name, err))
+		}
+	}
+
+	return errors.Join(errs...)
+}
+
+// applyStickinessPolicy updates the stickiness policy of one rule. A rule created in this sync has
+// no policy yet, so it is not looked up. If the account may not call the stickiness APIs and the
+// rule needs no policy, nothing is done. The account CloudStack's Kubernetes service creates for
+// clusters in projects is one such account.
+func (lb *loadBalancer) applyStickinessPolicy(d desiredLBRule, lbRule *cloudstack.LoadBalancerRule, spec *stickinessSpec) error {
+	want := spec.wants(d.port)
+	var live []cloudstack.LBStickinessPolicyStickinesspolicy
+	if !d.createsRule() {
+		var err error
+		live, err = lb.liveStickinessPolicies(lbRule.Id)
+		switch {
+		case err != nil && isNotAllowed(err) && !want:
+			klog.V(4).Infof("Skipping the stickiness policies of load balancer rule %v: %v", d.name, err)
+			return nil
+		case err != nil && isNotAllowed(err):
+			return fmt.Errorf("%w; stickiness needs the listLBStickinessPolicies, createLBStickinessPolicy and deleteLBStickinessPolicy APIs", err)
+		case err != nil:
+			return err
+		}
+	}
+
+	create, stale, err := stickinessChanges(live, spec, want)
+	if err != nil {
+		return err
+	}
+	for _, id := range stale {
+		if err := lb.deleteStickinessPolicy(d.name, id); err != nil {
+			return err
+		}
+	}
+	if create {
+		return lb.createStickinessPolicy(d.name, lbRule.Id, spec)
+	}
+
+	return nil
+}
+
+// isNotAllowed reports whether CloudStack refused a call because the account's role does not
+// allow that API. CloudStack answers with error 432, which the SDK only keeps in the message.
+func isNotAllowed(err error) bool {
+	return strings.Contains(err.Error(), "CloudStack API error 432 ")
+}
+
+// stickinessChanges decides what to do with a rule's live policies. A selected rule should end
+// with one policy, the controller's, matching the spec. Creating it is enough, as CloudStack then
+// revokes the rule's other policies. CloudStack refuses the create while two policies are live,
+// and deleting one first could leave the rule without the current policy if the create then
+// fails, so that case is an error and nothing changes. A rule that is not selected loses the
+// controller's policies and keeps the rest.
+func stickinessChanges(live []cloudstack.LBStickinessPolicyStickinesspolicy, spec *stickinessSpec, want bool) (bool, []string, error) {
+	if !want {
+		var owned []string
+		for _, policy := range live {
+			if policy.Description == stickinessPolicyDescription {
+				owned = append(owned, policy.Id)
+			}
+		}
+		return false, owned, nil
+	}
+
+	switch len(live) {
+	case 0:
+		return true, nil, nil
+	case 1:
+		return !spec.matches(live[0]), nil, nil
+	default:
+		return false, nil, fmt.Errorf("the rule has %d stickiness policies, and CloudStack adds a new one only when there is at most one: remove the extra ones", len(live))
+	}
+}
+
+// liveStickinessPolicies lists the policies of a rule, skipping revoked ones CloudStack has not
+// removed yet. Listing by rule ID returns one entry, so no paging is needed, and the API takes no
+// listall or project ID.
+func (lb *loadBalancer) liveStickinessPolicies(lbRuleID string) ([]cloudstack.LBStickinessPolicyStickinesspolicy, error) {
+	p := lb.LoadBalancer.NewListLBStickinessPoliciesParams()
+	p.SetLbruleid(lbRuleID)
+	l, err := lb.LoadBalancer.ListLBStickinessPolicies(p)
+	if err != nil {
+		return nil, fmt.Errorf("error listing stickiness policies: %w", err)
+	}
+
+	var live []cloudstack.LBStickinessPolicyStickinesspolicy
+	for _, wrapper := range l.LBStickinessPolicies {
+		for _, policy := range wrapper.Stickinesspolicy {
+			if !strings.EqualFold(policy.State, "Revoked") {
+				live = append(live, policy)
+			}
+		}
+	}
+
+	return live, nil
+}
+
+// createStickinessPolicy creates the spec's policy on a rule, marked as the controller's.
+// CloudStack revokes the rule's other policies when it applies the new one.
+func (lb *loadBalancer) createStickinessPolicy(lbRuleName string, lbRuleID string, spec *stickinessSpec) error {
+	klog.V(4).Infof("Creating stickiness policy %v %v on load balancer rule %v", spec.method, spec.params, lbRuleName)
+	p := lb.LoadBalancer.NewCreateLBStickinessPolicyParams(lbRuleID, spec.method, lbRuleName)
+	p.SetDescription(stickinessPolicyDescription)
+	p.SetParam(spec.params)
+
+	if _, err := lb.LoadBalancer.CreateLBStickinessPolicy(p); err != nil {
+		return fmt.Errorf("error creating stickiness policy: %v", err)
+	}
+
+	return nil
+}
+
+// deleteStickinessPolicy deletes a stickiness policy.
+func (lb *loadBalancer) deleteStickinessPolicy(lbRuleName string, stickinessPolicyID string) error {
+	klog.V(4).Infof("Deleting stickiness policy %v from load balancer rule %v", stickinessPolicyID, lbRuleName)
+	p := lb.LoadBalancer.NewDeleteLBStickinessPolicyParams(stickinessPolicyID)
+
+	if _, err := lb.LoadBalancer.DeleteLBStickinessPolicy(p); err != nil {
+		return fmt.Errorf("error deleting stickiness policy %v: %v", stickinessPolicyID, err)
 	}
 
 	return nil

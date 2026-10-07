@@ -250,12 +250,14 @@ Both configs set `zone` explicitly. If `zone` is empty the CCM tries to
 detect it by looking up its own pod, which cannot work when running as a host
 process.
 
-The script then loads the image into kind, applies the repository's
-[`deployment.yaml`](../deployment.yaml) and patches it for testing: the local
-image with `imagePullPolicy: Never`, `--leader-elect=false` (single replica,
-faster startup), `--v=4` for useful logs, and higher CPU limits — the stock
-manifest's `limits.cpu: 50m` throttles informer startup badly on shared CI
-runners.
+The script then loads the image into kind and applies the repository's
+[`deployment.yaml`](../deployment.yaml), changed for testing before it is
+applied: the local image with `imagePullPolicy: Never`, `--leader-elect=false`
+(single replica, faster startup), `--v=4` for useful logs, and higher CPU
+limits — the stock manifest's `limits.cpu: 50m` throttles informer startup
+badly on shared CI runners. Applying the stock manifest first would start the
+released image, which can keep running for its 30s grace period and reconcile
+the test Services next to the build under test.
 
 Finally it waits for every node to lose the uninitialized taint.
 

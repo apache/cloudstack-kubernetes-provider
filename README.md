@@ -56,6 +56,11 @@ for example when the API user is not allowed to call `listCapabilities`.
 
 The access token needs to be able to fetch VM information and deploy load balancers in the project or domain where the nodes reside.
 
+Stickiness policies also need `listLBStickinessPolicies`, `createLBStickinessPolicy` and
+`deleteLBStickinessPolicy`. The account that CloudStack's Kubernetes service creates for clusters in
+projects cannot call them, so stickiness does not work there yet. Services without stickiness are
+not affected.
+
 To create the secret, use the following command:
 ```bash
 kubectl -n kube-system create secret generic cloudstack-secret --from-file=cloud-config
@@ -180,6 +185,119 @@ list, which briefly interrupts traffic on that port.
 Setting it to an empty value (`""`) sends an empty CIDR list to CloudStack — it does not block all
 traffic.
 
+#### `service.beta.kubernetes.io/cloudstack-load-balancer-stickiness-method-name`
+
+**Type:** String
+
+**Default:** Not set (no stickiness policy)
+
+**Description:** Adds a CloudStack **LB stickiness policy** to the service's load balancer rules,
+so the load balancer sends a client to the same node each time. The VirtualRouter, which VPC
+routers also use, supports:
+
+| Method | Keeps a client by | Ports |
+| --- | --- | --- |
+| `LbCookie` | A cookie the load balancer adds | Ports with `appProtocol: http` |
+| `SourceBased` | The client's IP address | All TCP ports |
+
+`LbCookie` switches its ports to HTTP mode, which breaks TLS and any other traffic that is not
+plain HTTP. So it only goes on ports that set
+[`appProtocol: http`](https://kubernetes.io/docs/concepts/services-networking/service/#application-protocol),
+and a service with no such port fails to sync. The ingress-nginx Helm chart sets `appProtocol` on
+its ports by default, so its HTTP port gets the cookie and its HTTPS port does not.
+
+`LbCookie` cannot work on HTTPS ports, because the load balancer passes TLS through and never sees
+the HTTP headers. Use `SourceBased` there, or the cookie affinity of the ingress controller or
+Gateway that terminates TLS.
+
+`AppCookie` is not supported. CloudStack sets it up with HAProxy's `appsession` option, which
+HAProxy removed in version 1.6.
+
+Method and parameter names are checked against what the network supports before anything is
+created, so a typo fails the sync without changing CloudStack. Method names are not case sensitive.
+
+Stickiness keeps a client on the same **node**, not the same pod. kube-proxy on that node can still
+send the request to a pod on another node. Set `externalTrafficPolicy: Local` to keep requests on
+the node's own pods. The router health-checks each node, so nodes without a local pod get no
+traffic.
+
+**Use Case:** Applications that keep a client's state in memory, such as sessions, and need the
+same client to reach the same node.
+
+**Example:**
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: my-ingress
+  annotations:
+    service.beta.kubernetes.io/cloudstack-load-balancer-stickiness-method-name: "LbCookie"
+    service.beta.kubernetes.io/cloudstack-load-balancer-stickiness-method-param: "cookie-name=SERVERID,nocache=true"
+spec:
+  type: LoadBalancer
+  externalTrafficPolicy: Local
+  ports:
+    - name: http
+      port: 80
+      appProtocol: http
+    - name: https
+      port: 443
+      appProtocol: https
+```
+
+**Notes:**
+- Changing the method or parameters replaces the policy. With `SourceBased`, clients may move to
+  another node. With `LbCookie`, they keep their node unless the cookie name changes.
+- If CloudStack rejects a change, the current policy stays. If the router fails to apply it, the
+  rule can be left without a policy until the service is synced again.
+- Removing the annotation deletes the policies the controller created. They have the description
+  `Managed by the CloudStack Kubernetes Provider`. Policies added by hand are kept, except on ports
+  the annotations select, where the controller replaces them, and on rules the controller
+  recreates, for example after a node port change.
+- A new service whose policy CloudStack rejects keeps its public IP and rules, but stays
+  `<pending>` until the annotation is fixed.
+- Changes apply the next time the service is synced, which happens when the service changes or the
+  controller restarts.
+
+#### `service.beta.kubernetes.io/cloudstack-load-balancer-stickiness-method-param`
+
+**Type:** String (comma-separated `key=value` list)
+
+**Default:** Not set (no parameters)
+
+**Description:** Parameters for the method in
+`service.beta.kubernetes.io/cloudstack-load-balancer-stickiness-method-name`. Without a method,
+this annotation does nothing. The VirtualRouter supports:
+
+| Method | Parameter | Value |
+| --- | --- | --- |
+| `LbCookie` | `cookie-name` | Name of the cookie. CloudStack picks one if it is not set |
+| `LbCookie` | `mode` | `insert` (default), `rewrite` or `prefix` |
+| `LbCookie` | `domain` | Domain the cookie is set for |
+| `LbCookie` | `nocache`, `indirect`, `postonly` | Flags: `true` turns one on, `false` leaves it off |
+| `SourceBased` | `tablesize` | Size of the client table: a number with `k`, `m` or `g`, such as `200k` |
+| `SourceBased` | `expire` | How long an idle client is remembered: a number with `d`, `h`, `m` or `s`, such as `30m` |
+
+Parameter names are not case sensitive. Flags accept the values of Go's `strconv.ParseBool`, such
+as `true`, `false`, `1` and `0`.
+
+**Format:** Comma-separated `key=value` pairs. Spaces around entries and empty entries are ignored.
+CloudStack copies the values into the router's HAProxy config, so the sync fails on:
+
+- an entry without a value, such as `nocache=` (write `nocache=true` instead)
+- a space or one of `= & " ' \ #` inside a key or value
+- a key that is set twice
+- an unknown parameter, an `LbCookie` mode other than the three above, or a flag that is not
+  `true` or `false`
+
+CloudStack itself rejects `tablesize` and `expire` values without a valid suffix.
+
+**Example:**
+```yaml
+    service.beta.kubernetes.io/cloudstack-load-balancer-stickiness-method-name: "SourceBased"
+    service.beta.kubernetes.io/cloudstack-load-balancer-stickiness-method-param: "tablesize=200k,expire=30m"
+```
+
 #### `service.beta.kubernetes.io/cloudstack-load-balancer-ip-associated-by-controller`
 
 **Type:** Boolean (`"true"` or `"false"`)
@@ -268,6 +386,13 @@ annotation for it.
 
 Any other value makes the service fail to sync with `unsupported load balancer affinity`. Other
 CloudStack algorithms, such as `leastconn`, cannot currently be selected.
+
+The algorithm is separate from stickiness. `spec.sessionAffinity: ClientIP` picks the algorithm,
+while the
+[`stickiness-method-name`](#servicebetakubernetesiocloudstack-load-balancer-stickiness-method-name)
+and
+[`stickiness-method-param`](#servicebetakubernetesiocloudstack-load-balancer-stickiness-method-param)
+annotations add a stickiness policy. The two can be used together.
 
 ### VPC Networks
 
@@ -385,6 +510,19 @@ autoscaler has marked it for deletion.
 The image architecture does not match the node. Releases up to v1.1.0 were published for amd64 only;
 use a newer release, which ships multi-architecture images including arm64.
 
+### A TLS or TCP port stopped working after enabling `LbCookie` stickiness
+
+`LbCookie` switches its ports to HTTP mode, which breaks traffic that is not plain HTTP. It only
+goes on ports with `appProtocol: http`. Set that only on plain HTTP ports, or use `SourceBased`,
+which works on any TCP port.
+
+### A service's events show a stickiness error
+
+The controller or CloudStack rejected the stickiness annotations, and the event says why.
+`Failed to create stickiness policy` with no reason means the router could not apply the policy.
+If CloudStack rejects a change, an existing service keeps its current policy. A new service keeps
+its public IP and rules, but stays `<pending>` until the annotation is fixed.
+
 ## Migration Guide
 
 There are several notable differences to the old Kubernetes CloudStack cloud provider that need to be taken into
@@ -404,6 +542,11 @@ through one IP address. Use separate services on separate IPs for that.
 A rule created by the old provider carries no protocol in its name. The controller adopts such a
 rule on the first reconcile, matching it by public IP, IP protocol and public port, and renames it
 to the current scheme. Existing rules therefore do not have to be removed before migrating.
+
+The old provider did not manage stickiness, so its rules may have policies added by hand. The
+controller keeps them. It only deletes policies it created, which have the description
+`Managed by the CloudStack Kubernetes Provider`. On ports the stickiness annotations select, the
+controller's policy replaces a hand-made one.
 
 :warning: **Rules of a Service that is recreated during the migration are not adopted.**
 
