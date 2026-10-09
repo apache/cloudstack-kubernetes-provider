@@ -28,6 +28,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/apache/cloudstack-go/v2/cloudstack"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -55,8 +56,8 @@ func vpcFramework(t *testing.T) (*Framework, string, string) {
 
 // TestVPC_LoadBalancer covers the VPC path end to end: the LB rule is
 // created, the public IP is associated with the VPC, ingress traffic is
-// allowed via a Network ACL rule on the custom ACL list (not a firewall
-// rule), and everything is cleaned up on delete.
+// allowed via a Network ACL rule of the Service's own on the custom ACL list
+// (not a firewall rule), and everything is cleaned up on delete.
 func TestVPC_LoadBalancer(t *testing.T) {
 	f, aclID, vpcID := vpcFramework(t)
 
@@ -85,7 +86,8 @@ func TestVPC_LoadBalancer(t *testing.T) {
 				if r.Startport == "80" && r.Endport == "80" &&
 					strings.EqualFold(r.Protocol, "tcp") &&
 					strings.EqualFold(r.Action, "Allow") &&
-					strings.EqualFold(r.Traffictype, "Ingress") {
+					strings.EqualFold(r.Traffictype, "Ingress") &&
+					r.Reason == aclRuleMarker(lbName) {
 					return true, nil
 				}
 			}
@@ -163,8 +165,8 @@ func countACLRules(f *Framework, aclID, port string) (int, error) {
 func TestVPC_ACLRuleNotDuplicatedOnResync(t *testing.T) {
 	f, aclID, _ := vpcFramework(t)
 
-	// An ACL rule belongs to the tier, not the service, so sharing port 80 with
-	// TestVPC_LoadBalancer would blur the count.
+	// Every ACL rule on the port is counted, so no other Service may hold one on
+	// it while this test runs; the VPC tests run one at a time and clean up.
 	const port = "8080"
 	svc := f.CreateLBService(func(s *corev1.Service) {
 		s.Spec.Ports = []corev1.ServicePort{
@@ -270,9 +272,9 @@ func TestVPC_ExplicitLoadBalancerIPReleased(t *testing.T) {
 func TestVPC_ProxyProtocolACL(t *testing.T) {
 	f, aclID, _ := vpcFramework(t)
 
-	// An ACL rule belongs to the tier, so this test uses a port of its own. Note
-	// that 8081 is the virtual router's HAProxy stats port, which CloudStack
-	// refuses to load balance.
+	// Every ACL rule on the port is counted, so no other Service may hold one on
+	// it while this test runs. Note that 8081 is the virtual router's HAProxy
+	// stats port, which CloudStack refuses to load balance.
 	const servicePort int32 = 8085
 	port := strconv.Itoa(int(servicePort))
 	svc := f.CreateLBService(func(s *corev1.Service) {
@@ -305,7 +307,7 @@ func TestVPC_ProxyProtocolACL(t *testing.T) {
 		}
 	}
 
-	// Turning the annotation off keeps the one ACL rule: both protocols share it.
+	// Turning the annotation off keeps the Service's one ACL rule: both protocols share it.
 	f.UpdateService(svc, func(s *corev1.Service) {
 		delete(s.Annotations, annotationProxyProtocol)
 	})
@@ -324,5 +326,179 @@ func TestVPC_ProxyProtocolACL(t *testing.T) {
 	}
 	if n != 1 {
 		t.Errorf("ACL rules for port %s = %d, want exactly 1 across the toggle", port, n)
+	}
+}
+
+// aclRulesOnPort returns the ingress tcp ACL rules on the list for one port.
+func aclRulesOnPort(f *Framework, aclID, port string) ([]*cloudstack.NetworkACL, error) {
+	rules, err := f.ACLRules(aclID)
+	if err != nil {
+		return nil, err
+	}
+	var onPort []*cloudstack.NetworkACL
+	for _, r := range rules {
+		if r.Startport == port && r.Endport == port && strings.EqualFold(r.Protocol, "tcp") &&
+			strings.EqualFold(r.Traffictype, "Ingress") {
+			onPort = append(onPort, r)
+		}
+	}
+	return onPort, nil
+}
+
+// hasACLRuleWithReason reports whether one of the rules carries the reason.
+func hasACLRuleWithReason(rules []*cloudstack.NetworkACL, reason string) bool {
+	for _, r := range rules {
+		if r.Reason == reason {
+			return true
+		}
+	}
+	return false
+}
+
+// requireNoACLRules stops the test when rules for the port are left over from an earlier run,
+// since the tests below count every rule on their port.
+func requireNoACLRules(f *Framework, aclID, port string) {
+	f.T.Helper()
+	rules, err := aclRulesOnPort(f, aclID, port)
+	if err != nil {
+		f.T.Fatalf("listing ACL rules for port %s: %v", port, err)
+	}
+	for _, r := range rules {
+		f.T.Errorf("leftover ACL rule %s for port %s (reason %q); delete it before rerunning", r.Id, port, r.Reason)
+	}
+	if len(rules) > 0 {
+		f.T.FailNow()
+	}
+}
+
+// TestVPC_ACLRulePerService is a regression test for issue #107: two Services
+// on one tier exposing the same port each get an ACL rule of their own, so
+// deleting one Service leaves the port open for the other. Earlier releases
+// shared one rule between them and deleted it with the first Service, which
+// this test reports as the port no longer being open.
+func TestVPC_ACLRulePerService(t *testing.T) {
+	f, aclID, _ := vpcFramework(t)
+
+	const port = "80"
+	requireNoACLRules(f, aclID, port)
+
+	first := f.CreateLBService(nil)
+	second := f.CreateLBService(func(s *corev1.Service) { s.Name = "e2e-second" })
+	f.WaitForIngressIP(first)
+	f.WaitForIngressIP(second)
+	firstReason := aclRuleMarker(defaultLoadBalancerName(first))
+	secondReason := aclRuleMarker(defaultLoadBalancerName(second))
+
+	f.Eventually(lbSyncTimeout, lbSyncInterval, "port "+port+" to be open on the tier",
+		func() (bool, error) {
+			rules, err := aclRulesOnPort(f, aclID, port)
+			return opensPortToAll(rules), err
+		})
+
+	f.DeleteServiceAndWait(first)
+
+	rules, err := aclRulesOnPort(f, aclID, port)
+	if err != nil {
+		t.Fatalf("listing ACL rules: %v", err)
+	}
+	if !opensPortToAll(rules) {
+		t.Fatalf("port %s is no longer open on the tier after deleting one of the two Services using it", port)
+	}
+	if !hasACLRuleWithReason(rules, secondReason) {
+		t.Errorf("the remaining Service has no ACL rule of its own for port %s", port)
+	}
+	f.Eventually(lbSyncTimeout, lbSyncInterval, "the deleted Service's ACL rule to be removed",
+		func() (bool, error) {
+			rules, err := aclRulesOnPort(f, aclID, port)
+			return !hasACLRuleWithReason(rules, firstReason), err
+		})
+}
+
+// opensPortToAll reports whether one of the rules allows the port from anywhere and is not being
+// deleted.
+func opensPortToAll(rules []*cloudstack.NetworkACL) bool {
+	for _, r := range rules {
+		if strings.EqualFold(r.Action, "Allow") && r.State != "Deleting" &&
+			strings.Contains(r.Cidrlist, "0.0.0.0/0") {
+			return true
+		}
+	}
+	return false
+}
+
+// TestVPC_LegacyACLRuleAdopted covers the upgrade path of issue #107: a rule
+// shaped like the ones earlier releases created is adopted by the Service that
+// needs its port, not duplicated, and is removed with that Service.
+func TestVPC_LegacyACLRuleAdopted(t *testing.T) {
+	f, aclID, _ := vpcFramework(t)
+
+	const servicePort int32 = 8080
+	port := strconv.Itoa(int(servicePort))
+	requireNoACLRules(f, aclID, port)
+
+	legacyID := f.CreateACLRule(aclID, int(servicePort), "0.0.0.0/0")
+	svc := f.CreateLBService(func(s *corev1.Service) {
+		s.Spec.Ports = []corev1.ServicePort{
+			{Name: "http", Port: servicePort, Protocol: corev1.ProtocolTCP},
+		}
+	})
+	reason := aclRuleMarker(defaultLoadBalancerName(svc))
+	f.WaitForIngressIP(svc)
+
+	f.Eventually(lbSyncTimeout, lbSyncInterval, "the existing ACL rule to be adopted",
+		func() (bool, error) {
+			r, err := f.ACLRule(aclID, legacyID)
+			return r != nil && r.Reason == reason, err
+		})
+	if n, err := countACLRules(f, aclID, port); err != nil || n != 1 {
+		t.Errorf("ACL rules for port %s = %d (error %v), want exactly 1; the Service added a rule instead of adopting", port, n, err)
+	}
+
+	f.DeleteServiceAndWait(svc)
+	f.Eventually(lbSyncTimeout, lbSyncInterval, "the adopted ACL rule to be removed with its Service",
+		func() (bool, error) {
+			r, err := f.ACLRule(aclID, legacyID)
+			return r == nil, err
+		})
+}
+
+// TestVPC_OperatorACLRuleKept checks that the controller leaves an ACL rule
+// someone else made for its port alone (issue #107): it adds no rule of its
+// own and keeps the other rule when the Service is deleted.
+func TestVPC_OperatorACLRuleKept(t *testing.T) {
+	f, aclID, _ := vpcFramework(t)
+
+	const servicePort int32 = 8085
+	const operatorCIDR = "10.0.0.0/8"
+	port := strconv.Itoa(int(servicePort))
+	requireNoACLRules(f, aclID, port)
+
+	operatorID := f.CreateACLRule(aclID, int(servicePort), operatorCIDR)
+	svc := f.CreateLBService(func(s *corev1.Service) {
+		s.Spec.Ports = []corev1.ServicePort{
+			{Name: "http", Port: servicePort, Protocol: corev1.ProtocolTCP},
+		}
+	})
+	f.WaitForIngressIP(svc)
+
+	rules, err := aclRulesOnPort(f, aclID, port)
+	if err != nil {
+		t.Fatalf("listing ACL rules: %v", err)
+	}
+	if len(rules) != 1 || rules[0].Id != operatorID {
+		t.Errorf("ACL rules for port %s = %d, want only the hand-made rule %s", port, len(rules), operatorID)
+	}
+
+	f.DeleteServiceAndWait(svc)
+
+	r, err := f.ACLRule(aclID, operatorID)
+	if err != nil {
+		t.Fatalf("looking up the hand-made ACL rule: %v", err)
+	}
+	if r == nil {
+		t.Fatalf("the hand-made ACL rule for port %s was deleted with the Service", port)
+	}
+	if r.Cidrlist != operatorCIDR || r.Reason != "" {
+		t.Errorf("the hand-made ACL rule changed: cidrlist %q, reason %q", r.Cidrlist, r.Reason)
 	}
 }

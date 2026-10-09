@@ -559,6 +559,60 @@ func (f *Framework) ACLRules(aclListID string) ([]*cloudstack.NetworkACL, error)
 	return resp.NetworkACLs, nil
 }
 
+// aclRuleMarker is the reason the CCM gives the Network ACL rules it creates for a load balancer.
+func aclRuleMarker(lbName string) string {
+	return "Managed by the CloudStack Kubernetes Provider for " + lbName
+}
+
+// ACLRule fetches one rule of an ACL list, or returns nil when the rule no longer exists.
+func (f *Framework) ACLRule(aclListID, id string) (*cloudstack.NetworkACL, error) {
+	rules, err := f.ACLRules(aclListID)
+	if err != nil {
+		return nil, err
+	}
+	for _, r := range rules {
+		if r.Id == id {
+			return r, nil
+		}
+	}
+	return nil, nil
+}
+
+// CreateACLRule adds an ingress tcp rule with no reason for one port to an ACL list through the
+// CloudStack API, the way an operator would, and returns its ID. Cleanup deletes the rule unless
+// it is already gone. The CIDR is always sent, because CloudStack 4.17 and later stores
+// 0.0.0.0/0,::/0 when it is left out.
+func (f *Framework) CreateACLRule(aclListID string, port int, cidr string) string {
+	f.T.Helper()
+	p := f.CS.NetworkACL.NewCreateNetworkACLParams("tcp")
+	p.SetAclid(aclListID)
+	p.SetAction("Allow")
+	p.SetCidrlist([]string{cidr})
+	p.SetStartport(port)
+	p.SetEndport(port)
+	p.SetTraffictype("Ingress")
+	resp, err := f.CS.NetworkACL.CreateNetworkACL(p)
+	if err != nil {
+		f.T.Fatalf("creating ACL rule for port %d: %v", port, err)
+	}
+
+	id := resp.Id
+	f.T.Cleanup(func() {
+		aclRule, err := f.ACLRule(aclListID, id)
+		if err != nil {
+			f.T.Errorf("looking up ACL rule %s for cleanup: %v", id, err)
+			return
+		}
+		if aclRule == nil {
+			return
+		}
+		if _, err := f.CS.NetworkACL.DeleteNetworkACL(f.CS.NetworkACL.NewDeleteNetworkACLParams(id)); err != nil {
+			f.T.Errorf("deleting ACL rule %s: %v", id, err)
+		}
+	})
+	return id
+}
+
 // PublicIP fetches a public IP address record by its ID.
 func (f *Framework) PublicIP(id string) (*cloudstack.PublicIpAddress, error) {
 	p := f.CS.Address.NewListPublicIpAddressesParams()

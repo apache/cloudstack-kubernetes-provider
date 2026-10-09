@@ -381,6 +381,10 @@ Each test creates its own namespace and cleans up after itself. Because load
 balancer provisioning is asynchronous, all assertions poll rather than
 assuming immediate consistency.
 
+The VPC tests count every ACL rule on their port, and some create rules of
+their own on 8080 and 8085 the way an operator would, deleting them on cleanup.
+They stop at once if a rule for their port is left over from an earlier run.
+
 ### Known limitation: provider IDs
 
 kind starts kubelet with `--provider-id=kind://docker/<cluster>/<node>`, and
@@ -420,7 +424,8 @@ so a run is reproducible; avoid floating tags like `latest`.
 | Nodes keep the uninitialized taint; CCM logs `provided node ip for node "..." is not valid` | The CloudStack VM's NIC IP does not match the IP kubelet registered with. Recreate the VM with `ipaddress=` set to the kind node's docker IP. |
 | Services stay `<pending>`; CCM logs `none of the hosts matched the list of VMs retrieved from CS API` | No CloudStack VM has a name matching a Kubernetes node name. |
 | CCM logs `found hosts that belong to different networks` | VMs matching the node names exist on more than one network — typically leftovers from a previous scenario. |
-| No ACL rules are created on a VPC network | The tier uses `default_allow` or `default_deny`. The CCM only manages rules on custom ACL lists. |
+| No ACL rules are created on a VPC network | The tier uses `default_allow` or `default_deny`; the CCM only manages rules on custom ACL lists. Or the list already has an ingress rule for the port that the CCM did not create, which it leaves the port to. |
+| A VPC test fails at once with `leftover ACL rule` | A rule for its port survived an earlier run. Delete it from the tier's ACL list and rerun. |
 | CoreDNS stuck `Pending` | Expected until the CCM removes the uninitialized taint. If it persists, the CCM is not working — check its logs. |
 | `kubectl logs`/`exec` fail after nodes initialize | The API server is preferring the Hostname address, which the CCM set to the CloudStack instance hostname. Use `kubelet-preferred-address-types: InternalIP` as the provided kind config does. |
 | Simulator never becomes ready | It runs `mvn jetty:run` and fetches from Maven Central at startup. Check `docker logs cloudstack-simulator`. |

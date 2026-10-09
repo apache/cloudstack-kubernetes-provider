@@ -351,6 +351,7 @@ func (cs *CSCloud) EnsureLoadBalancerDeleted(ctx context.Context, clusterName st
 		klog.Errorf("Error removing duplicate load balancer rules for %v/%v: %v", service.Namespace, service.Name, sweepErr)
 	}
 
+	var aclErr error
 	for _, lbRule := range lb.rules {
 		klog.V(4).Infof("Deleting firewall rules / Network ACLs for load balancer: %v", lbRule.Name)
 		protocol := ProtocolFromLoadBalancer(lbRule.Protocol)
@@ -361,9 +362,12 @@ func (cs *CSCloud) EnsureLoadBalancerDeleted(ctx context.Context, clusterName st
 			if err != nil {
 				klog.Errorf("Error parsing port: %v", err)
 			} else {
-				networkId, err := cs.getNetworkIDFromIPAddress(lb.ipAddrID)
-				if err != nil {
-					return err
+				networkId := lbRule.Networkid
+				if networkId == "" {
+					networkId, err = cs.getNetworkIDFromIPAddress(lb.ipAddrID)
+					if err != nil {
+						return err
+					}
 				}
 				network, count, err := lb.Network.GetNetworkByID(networkId, cloudstack.WithProject(lb.projectID))
 				if err != nil {
@@ -382,7 +386,13 @@ func (cs *CSCloud) EnsureLoadBalancerDeleted(ctx context.Context, clusterName st
 					klog.V(4).Infof("Deleting network ACLs for %v - %v", int(port), protocol)
 					_, err = lb.deleteNetworkACLRule(int(port), protocol, networkId)
 					if err != nil {
-						klog.Errorf("Error deleting Network ACL rule: %v", err)
+						// Kubernetes stops retrying once no load balancer rule is left, and only
+						// this rule leads back to the tier and port of its ACL rule, so it is kept.
+						klog.Errorf("Error deleting Network ACL rule, keeping load balancer rule %v for the retry: %v", lbRule.Name, err)
+						if aclErr == nil {
+							aclErr = err
+						}
+						continue
 					}
 				}
 			}
@@ -392,6 +402,11 @@ func (cs *CSCloud) EnsureLoadBalancerDeleted(ctx context.Context, clusterName st
 				return err
 			}
 		}
+	}
+
+	// Releasing the IP would make CloudStack revoke the rules kept for the retry.
+	if aclErr != nil {
+		return errors.Join(aclErr, sweepErr)
 	}
 
 	if lb.ipAddr != "" {
@@ -912,9 +927,9 @@ func (lb *loadBalancer) pruneFirewallRule(o obsoleteRule, claimed map[portProtoc
 	return err
 }
 
-// pruneNetworkACLRule deletes the network ACL rule admitting traffic to an obsolete load
-// balancer rule, in the network that rule belongs to. ACL rules belong to a network rather than
-// an IP, so a claim only covers a rule in the network the service is being reconciled towards.
+// pruneNetworkACLRule deletes this service's network ACL rule admitting traffic to an obsolete
+// load balancer rule, in the network that rule belongs to. ACL rules belong to a network rather
+// than an IP, so a claim only covers a rule in the network the service is being reconciled towards.
 func (lb *loadBalancer) pruneNetworkACLRule(o obsoleteRule, claimed map[portProtocol]bool, networkID string) error {
 	lbRule, port := o.rule, int(o.tuple.publicPort)
 
@@ -1653,8 +1668,9 @@ func (lb *loadBalancer) deleteLoadBalancerRule(lbRule *cloudstack.LoadBalancerRu
 
 // deleteDuplicateRules removes rules that collided by name with the one being
 // managed. A duplicate sits on its own public IP, since CloudStack rejects a
-// second rule on the same IP and port, so its firewall rule and IP go with it;
-// network ACL rules are shared per tier and port with the kept rule and stay.
+// second rule on the same IP and port, so its firewall rule and IP go with it.
+// Network ACL rules are never deleted here: a duplicate has the kept rule's name,
+// so in the same tier it uses the same ACL rule as the kept one.
 func (lb *loadBalancer) deleteDuplicateRules() error {
 	for _, lbRule := range lb.duplicateRules {
 		klog.V(4).Infof("Deleting duplicate load balancer rule: %v (%v)", lbRule.Name, lbRule.Id)
@@ -1952,6 +1968,10 @@ func (lb *loadBalancer) updateFirewallRule(publicIpId string, publicPort int, pr
 	return true, err
 }
 
+// updateNetworkACL opens a port on a VPC tier with a Network ACL rule this load balancer owns.
+// Rules of other load balancers never count, so each Service has its own rule and deleting one
+// Service leaves the port open for the others (issue #107). A rule from an earlier release is
+// adopted, and when someone else's rule already covers the port none is added.
 func (lb *loadBalancer) updateNetworkACL(publicPort int, protocol LoadBalancerProtocol, networkId string) (bool, error) {
 	network, _, err := lb.Network.GetNetworkByID(networkId, cloudstack.WithProject(lb.projectID))
 	if err != nil {
@@ -1972,57 +1992,176 @@ func (lb *loadBalancer) updateNetworkACL(publicPort int, protocol LoadBalancerPr
 		return true, err
 	}
 
-	networkAclParams := lb.NetworkACL.NewListNetworkACLsParams()
-	networkAclParams.SetAclid(network.Aclid)
-	networkAclParams.SetNetworkid(networkId)
-	networkAclParams.SetListall(true)
-	if lb.projectID != "" {
-		networkAclParams.SetProjectid(lb.projectID)
-	}
-
-	networkAcls, err := listAll(networkAclParams, func() (int, []*cloudstack.NetworkACL, error) {
-		networkAclResponse, err := lb.NetworkACL.ListNetworkACLs(networkAclParams)
-		if err != nil {
-			return 0, nil, err
-		}
-
-		return networkAclResponse.Count, networkAclResponse.NetworkACLs, nil
-	})
+	ipProtocol := protocol.IPProtocol()
+	aclRules, err := lb.listNetworkACLRules(networkId, ipProtocol, publicPort)
 	if err != nil {
 		return false, fmt.Errorf("error fetching Network ACL with ID: %v for network with id: %v, due to: %s", network.Aclid, networkId, err)
 	}
 
-	// find all network ACL rules that have a matching proto+port
-	// a map may or may not be faster, but is a bit easier to understand
-	filtered := make(map[*cloudstack.NetworkACL]bool)
-	for _, netAclRule := range networkAcls {
-		if netAclRule.Protocol == protocol.IPProtocol() && netAclRule.Startport == strconv.Itoa(publicPort) && netAclRule.Endport == strconv.Itoa(publicPort) {
-			filtered[netAclRule] = true
+	// Only a root admin may change the rules of a global list, the kind that belongs to no VPC.
+	adoptable := networkAclList.Vpcid != ""
+	kind, aclRule := lb.decidingNetworkACLRule(aclRules, adoptable)
+	switch kind {
+	case aclRuleOwn:
+		klog.V(4).Infof("Network ACL rule %v already opens %v port %v for load balancer %v", aclRule.Id, protocol, publicPort, lb.name)
+		return true, nil
+	case aclRuleOperator:
+		klog.Infof("Network ACL rule %v already covers %v port %v on network %v; not adding one for load balancer %v", aclRule.Id, protocol, publicPort, networkId, lb.name)
+		return true, nil
+	case aclRuleLegacy:
+		if err := lb.adoptNetworkACLRule(aclRule, network.Aclid, networkId, ipProtocol, publicPort); err != nil {
+			return false, err
+		}
+		return true, nil
+	}
+
+	if err := lb.createNetworkACLRule(network.Aclid, networkId, ipProtocol, publicPort); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// networkACLReasonPrefix starts the reason of every Network ACL rule the controller creates.
+// The rest of the reason names the owning load balancer, and only rules carrying a load
+// balancer's own reason are ever deleted for it, so this text must not change.
+const networkACLReasonPrefix = "Managed by the CloudStack Kubernetes Provider for "
+
+// networkACLReason is the reason that marks a Network ACL rule as this load balancer's.
+func (lb *loadBalancer) networkACLReason() string {
+	return networkACLReasonPrefix + lb.name
+}
+
+// networkACLRuleKind is what an existing Network ACL rule on a needed port means to a load
+// balancer. The kinds are ordered by precedence.
+type networkACLRuleKind int
+
+const (
+	aclRuleIgnored  networkACLRuleKind = iota // being deleted, or another load balancer's
+	aclRuleOperator                           // someone else's; the port is left to them
+	aclRuleLegacy                             // made by a release before rules had owners
+	aclRuleOwn                                // this load balancer's
+)
+
+// classifyNetworkACLRule tells what an ingress rule on the needed port is to the load balancer
+// whose reason is given. CloudStack shows a rule being revoked as Deleting, and updating such a
+// rule would bring it back, so it never counts. A rule from an earlier release has exactly the
+// shape those releases created; any other unmarked rule, such as one with a restricted CIDR, a
+// deny rule or "0.0.0.0/0,::/0", is someone else's.
+func classifyNetworkACLRule(aclRule *cloudstack.NetworkACL, reason string) networkACLRuleKind {
+	switch {
+	case aclRule.State == "Deleting":
+		return aclRuleIgnored
+	case aclRule.Reason == reason:
+		return aclRuleOwn
+	case strings.HasPrefix(aclRule.Reason, networkACLReasonPrefix):
+		return aclRuleIgnored
+	case aclRule.Reason == "" && aclRule.Action == "Allow" &&
+		compareStringSlice(splitCIDRList(aclRule.Cidrlist), []string{defaultAllowedCIDR}):
+		return aclRuleLegacy
+	}
+	return aclRuleOperator
+}
+
+// decidingNetworkACLRule picks the rule that decides what this load balancer does about a port:
+// its own rule, else one from an earlier release to adopt, else someone else's. A rule from an
+// earlier release counts as someone else's when it cannot be adopted.
+func (lb *loadBalancer) decidingNetworkACLRule(aclRules []*cloudstack.NetworkACL, adoptable bool) (networkACLRuleKind, *cloudstack.NetworkACL) {
+	kind, deciding := aclRuleIgnored, (*cloudstack.NetworkACL)(nil)
+	for _, aclRule := range aclRules {
+		k := classifyNetworkACLRule(aclRule, lb.networkACLReason())
+		if k == aclRuleLegacy && !adoptable {
+			k = aclRuleOperator
+		}
+		if k > kind {
+			kind, deciding = k, aclRule
+		}
+	}
+	return kind, deciding
+}
+
+// listNetworkACLRules lists the ingress rules of a tier for exactly one port and IP protocol.
+// Listing by network covers the ACL list the tier uses now. CloudStack stores the protocol as it
+// was sent, and the protocol is compared exactly, as earlier releases did, so rules stored in upper
+// case, such as the "TCP" rules CloudStack's Kubernetes service adds for its own ports, are left
+// alone.
+func (lb *loadBalancer) listNetworkACLRules(networkID, ipProtocol string, publicPort int) ([]*cloudstack.NetworkACL, error) {
+	p := lb.NetworkACL.NewListNetworkACLsParams()
+	p.SetNetworkid(networkID)
+	p.SetListall(true)
+	if lb.projectID != "" {
+		p.SetProjectid(lb.projectID)
+	}
+
+	aclRules, err := listAll(p, func() (int, []*cloudstack.NetworkACL, error) {
+		r, err := lb.NetworkACL.ListNetworkACLs(p)
+		if err != nil {
+			return 0, nil, err
+		}
+
+		return r.Count, r.NetworkACLs, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	port := strconv.Itoa(publicPort)
+	var matching []*cloudstack.NetworkACL
+	for _, aclRule := range dedupeByID(aclRules, func(r *cloudstack.NetworkACL) string { return r.Id }) {
+		if strings.EqualFold(aclRule.Traffictype, "Ingress") && aclRule.Protocol == ipProtocol &&
+			aclRule.Startport == port && aclRule.Endport == port {
+			matching = append(matching, aclRule)
 		}
 	}
 
-	if len(filtered) > 0 {
-		klog.V(4).Infof("Network ACL rule for port %v and protocol %v already exists. No need to added a duplicate rule", publicPort, protocol)
-		return true, err
+	return matching, nil
+}
+
+// adoptNetworkACLRule marks a rule an earlier release created as this load balancer's. Only the
+// reason is sent: an update is partial by default, so CloudStack keeps the other fields. An account
+// that may not update ACL rules creates a rule of its own instead, and one that may not create
+// them either keeps relying on the old rule, as earlier releases did.
+func (lb *loadBalancer) adoptNetworkACLRule(aclRule *cloudstack.NetworkACL, aclID, networkID, ipProtocol string, publicPort int) error {
+	p := lb.NetworkACL.NewUpdateNetworkACLItemParams(aclRule.Id)
+	p.SetReason(lb.networkACLReason())
+
+	_, err := lb.NetworkACL.UpdateNetworkACLItem(p)
+	if err == nil {
+		klog.Infof("Adopted Network ACL rule %v for load balancer %v", aclRule.Id, lb.name)
+		return nil
+	}
+	if !isNotAllowed(err) {
+		return fmt.Errorf("error adopting Network ACL rule %v: %w", aclRule.Id, err)
 	}
 
-	// create ACL rule
-	// ACL rules only know tcp/udp/icmp, so tcp-proxy maps to tcp. This also matches the
-	// filter above, which would otherwise never find the rule again.
-	acl := lb.NetworkACL.NewCreateNetworkACLParams(protocol.IPProtocol())
-	acl.SetAclid(network.Aclid)
+	klog.Warningf("Cannot adopt Network ACL rule %v for load balancer %v, creating a new one; delete the old rule by hand: %v", aclRule.Id, lb.name, err)
+	err = lb.createNetworkACLRule(aclID, networkID, ipProtocol, publicPort)
+	if err != nil && isNotAllowed(err) {
+		klog.Warningf("Cannot create a Network ACL rule for load balancer %v either; port %v stays open through rule %v: %v", lb.name, publicPort, aclRule.Id, err)
+		return nil
+	}
+
+	return err
+}
+
+// createNetworkACLRule opens a port on a tier with a rule marked as this load balancer's. ACL
+// rules only know tcp, udp and icmp, so the rule takes the IP protocol and a tcp-proxy port
+// opens tcp.
+func (lb *loadBalancer) createNetworkACLRule(aclID, networkID, ipProtocol string, publicPort int) error {
+	acl := lb.NetworkACL.NewCreateNetworkACLParams(ipProtocol)
+	acl.SetAclid(aclID)
 	acl.SetAction("Allow")
-	acl.SetCidrlist([]string{"0.0.0.0/0"})
+	acl.SetCidrlist([]string{defaultAllowedCIDR})
 	acl.SetStartport(publicPort)
 	acl.SetEndport(publicPort)
-	acl.SetNetworkid(networkId)
+	acl.SetNetworkid(networkID)
 	acl.SetTraffictype("Ingress")
+	acl.SetReason(lb.networkACLReason())
 
-	_, err = lb.NetworkACL.CreateNetworkACL(acl)
-	if err != nil {
-		return false, fmt.Errorf("error creating Network ACL for port: %v, due to: %s", publicPort, err)
+	if _, err := lb.NetworkACL.CreateNetworkACL(acl); err != nil {
+		return fmt.Errorf("error creating Network ACL for port: %v, due to: %s", publicPort, err)
 	}
-	return true, err
+
+	return nil
 }
 
 // deleteFirewallRule deletes the firewall rule associated with the ip:port:protocol combo
@@ -2057,51 +2196,39 @@ func (lb *loadBalancer) deleteFirewallRule(publicIpId string, publicPort int, pr
 	return deleted, err
 }
 
-// Delete Network ACLs deletes the Network ACL rule associated with the ip:port:protocol combo
+// deleteNetworkACLRule deletes this load balancer's Network ACL rules for a port on a tier and
+// leaves every other rule alone, so another Service using the same port keeps it open. A rule
+// CloudStack still shows as Deleting is deleted again, which retries applying the list; a failure
+// there is only logged, as CloudStack removes the rule on its next successful apply. Every rule
+// is tried and the first error is returned.
 func (lb *loadBalancer) deleteNetworkACLRule(publicPort int, protocol LoadBalancerProtocol, networkID string) (bool, error) {
-	p := lb.NetworkACL.NewListNetworkACLsParams()
-	p.SetListall(true)
-	p.SetNetworkid(networkID)
-	if lb.projectID != "" {
-		p.SetProjectid(lb.projectID)
-	}
-
-	networkAcls, err := listAll(p, func() (int, []*cloudstack.NetworkACL, error) {
-		r, err := lb.NetworkACL.ListNetworkACLs(p)
-		if err != nil {
-			return 0, nil, err
-		}
-
-		return r.Count, r.NetworkACLs, nil
-	})
+	aclRules, err := lb.listNetworkACLRules(networkID, protocol.IPProtocol(), publicPort)
 	if err != nil {
 		return false, fmt.Errorf("error fetching Network ACL rules Network ID %v: %v", networkID, err)
 	}
 
-	// filter by proto:port
-	filtered := make([]*cloudstack.NetworkACL, 0, 1)
-	for _, rule := range networkAcls {
-		if rule.Protocol == protocol.IPProtocol() && rule.Startport == strconv.Itoa(publicPort) && rule.Endport == strconv.Itoa(publicPort) {
-			filtered = append(filtered, rule)
+	owned := 0
+	var firstErr error
+	for _, aclRule := range aclRules {
+		if aclRule.Reason != lb.networkACLReason() {
+			continue
+		}
+		owned++
+
+		p := lb.NetworkACL.NewDeleteNetworkACLParams(aclRule.Id)
+		if _, err := lb.NetworkACL.DeleteNetworkACL(p); err != nil {
+			klog.Errorf("Error deleting Network ACL rule %v: %v", aclRule.Id, err)
+			if aclRule.State != "Deleting" && firstErr == nil {
+				firstErr = err
+			}
 		}
 	}
 
-	// delete first filtered rules
-	if len(filtered) == 0 {
-		klog.V(4).Infof("No ACL rules found matching protocol: %v and port: %v", protocol, publicPort)
-		return true, nil
-	}
-	deleted := false
-	ruleToBeDeleted := filtered[0]
-	deleteAclParams := lb.NetworkACL.NewDeleteNetworkACLParams(ruleToBeDeleted.Id)
-	_, err = lb.NetworkACL.DeleteNetworkACL(deleteAclParams)
-	if err != nil {
-		klog.Errorf("Error deleting old Network ACL rule %v: %v", ruleToBeDeleted.Id, err)
-	} else {
-		deleted = true
+	if owned == 0 {
+		klog.V(4).Infof("No Network ACL rules of load balancer %v found for protocol %v and port %v", lb.name, protocol, publicPort)
 	}
 
-	return deleted, err
+	return firstErr == nil, firstErr
 }
 
 // getStringFromServiceAnnotation searches a given v1.Service for a specific annotationKey and either returns the annotation's value or a specified defaultSetting

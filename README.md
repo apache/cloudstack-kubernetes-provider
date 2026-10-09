@@ -61,6 +61,10 @@ Stickiness policies also need `listLBStickinessPolicies`, `createLBStickinessPol
 projects cannot call them, so stickiness does not work there yet. Services without stickiness are
 not affected.
 
+On VPC tiers the controller also calls `updateNetworkACLItem`, to take over Network ACL rules that
+earlier releases created (see [Per-Service Network ACL rules](#per-service-network-acl-rules)).
+Without it the controller creates its own rules and leaves the old ones for you to delete.
+
 To create the secret, use the following command:
 ```bash
 kubectl -n kube-system create secret generic cloudstack-secret --from-file=cloud-config
@@ -406,7 +410,22 @@ chooses the mechanism based on the services the network offers, so on such netwo
 firewall rules instead of Network ACL rules, and `spec.loadBalancerSourceRanges` is applied to
 them.
 
-Two things to be aware of when the controller manages Network ACL rules:
+When the controller manages Network ACL rules:
+* Each Service gets its own ACL rule for each port, even when another Service on the tier uses the
+  same port. The rule's reason is `Managed by the CloudStack Kubernetes Provider for <name>`, where
+  `<name>` is the start of the Service's load balancer rule names: `a` followed by the Service UID
+  without dashes, cut to 32 characters. The controller only deletes rules with its Service's reason.
+* If the tier already has an ingress rule for exactly that port (not a port range) and protocol
+  that the controller did not create, for example one with a restricted CIDR, a deny rule, or a
+  rule with a reason of its own, the controller adds no rule for that port and never changes or
+  deletes yours.
+* A rule that looks exactly like the ones earlier releases created (allow, `0.0.0.0/0`, one port,
+  no reason) is taken over by the first Service that needs its port. Give rules you create by hand
+  a reason to keep them. Rules in a global ACL list, one that belongs to no VPC, are never taken
+  over: the controller leaves the port to them and never deletes them.
+* As before, the controller only looks at rules whose protocol is stored in lower case. Rules stored
+  as `TCP` or `UDP`, such as the ones CloudStack's Kubernetes service adds for its own ports, are
+  left alone, and the controller adds its own rule next to them.
 * The ACL rules the controller creates always allow `0.0.0.0/0`; `spec.loadBalancerSourceRanges` is
   not applied. Use the `cloudstack-load-balancer-source-cidrs` annotation to restrict sources.
 * If the network uses one of the default ACL lists (`default_allow` or `default_deny`), the
@@ -522,6 +541,80 @@ The controller or CloudStack rejected the stickiness annotations, and the event 
 `Failed to create stickiness policy` with no reason means the router could not apply the policy.
 If CloudStack rejects a change, an existing service keeps its current policy. A new service keeps
 its public IP and rules, but stays `<pending>` until the annotation is fixed.
+
+### A port on a VPC tier stays closed and the controller added no ACL rule for it
+
+The tier already has an ingress ACL rule for exactly that port and protocol that the controller did
+not create, so the controller leaves the port to it. Check that rule's action and CIDRs. If you delete
+it, the controller adds its own rule the next time it syncs the Service, which happens when the
+Service changes or the controller restarts.
+
+### An ACL rule disappeared when a Service was deleted
+
+The rule allowed exactly `0.0.0.0/0` on one port and had no reason, so the controller took it over
+as a rule left by an earlier release and deleted it with its Service. Give rules you create by hand
+a reason.
+
+### A deleted Service stays `Terminating`, log shows `Error deleting Network ACL rule`
+
+The controller keeps the Service's load balancer rule until its ACL rule is deleted, because
+Kubernetes only retries the cleanup while a load balancer rule is left. Fix the cause shown in the
+log, for example the account's permissions, and the cleanup finishes on its own.
+
+## Upgrading
+
+### Per-Service Network ACL rules
+
+This affects VPC tiers whose ACL rules the controller manages, that is tiers with a custom ACL list.
+Isolated networks, and VPC networks that use firewall rules, behave as before.
+
+Earlier releases opened a port on a VPC tier with one ACL rule shared by every Service using that
+port. They deleted it when any of those Services was deleted or stopped using the port, so the
+other Services lost traffic on that port. Each Service now has its own rule, marked with its
+reason, and the controller only deletes rules that carry its Service's reason.
+
+What you may notice after upgrading:
+* Existing controller rules get a reason. The controller syncs every Service when it starts. On that
+  first sync, the first Service using an old rule (allow, `0.0.0.0/0`, one port, no reason) takes it
+  over by setting its reason.
+* More ACL rules. When several Services use the same port, each gets a rule of its own, numbered
+  after the existing rules.
+* On that first start, the tier's router applies its ACL list once for each rule taken over.
+* A rule you created for a Service's port, for example with a restricted CIDR, a deny action or a
+  reason of its own, is no longer deleted with the Service. As before, the controller adds no rule
+  of its own on that port.
+* An egress rule for a port no longer stops the controller from opening that port for ingress. A
+  port that stayed closed because of one opens on the next sync of its Service.
+* Deleting a Service waits until its ACL rule is deleted. While that keeps failing the Service stays
+  `Terminating`; see [Troubleshooting](#a-deleted-service-stays-terminating-log-shows-error-deleting-network-acl-rule).
+* Old rules in a global ACL list, one that belongs to no VPC, are never taken over or deleted.
+
+Before upgrading:
+* Give a reason to every rule you created by hand that allows `0.0.0.0/0` on a single port of a
+  tier. Without one it looks like an old controller rule, so a Service using that port takes it
+  over and deletes it together with the Service.
+* Allow the controller's account to call `updateNetworkACLItem`. Without it the controller cannot
+  take old rules over: it creates a rule of its own next to each one, or keeps using the old rule if
+  it may not create rules either.
+* Upgrade every controller whose Services share a VPC tier or ACL list, for example several clusters
+  on one tier. An older controller still treats any rule on its port as its own and can delete
+  another Service's rule.
+
+After upgrading, check:
+* The controller log for `Cannot adopt Network ACL rule`. The Service now has a rule of its own, so
+  the old rule named in the message can be deleted once no other Service relies on it.
+* The controller log for `Cannot create a Network ACL rule for load balancer ... either`. The Service
+  still relies on the old rule named there; keep it, and give the account the missing permissions.
+* The tier's ACL list for rules with no reason that allow `0.0.0.0/0` on a port no Service uses.
+  They are left from Services that were deleted, or changed their port or protocol, before or
+  during the first sync. Old rules in a global ACL list stay too. Delete them by hand.
+* Services that stay `Terminating`.
+
+If the controller runs with `--concurrent-service-syncs` above 1, two Services can take over the
+same old rule at once. The one that loses relies on the other's rule until its next sync.
+
+Downgrading brings the shared behaviour back. An older controller treats any rule on its port as
+its own, so it can again delete a rule another Service relies on.
 
 ## Migration Guide
 
