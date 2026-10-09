@@ -3090,6 +3090,33 @@ func TestDeleteFirewallRule(t *testing.T) {
 	})
 }
 
+// testACLReason marks a Network ACL rule as owned by the test load balancer "atestuid".
+const testACLReason = networkACLReasonPrefix + "atestuid"
+
+// legacyACLRule is an ingress tcp rule for port 80 shaped as earlier releases created it. edit
+// turns it into the kind of rule a test needs.
+func legacyACLRule(id string, edit func(*cloudstack.NetworkACL)) *cloudstack.NetworkACL {
+	aclRule := &cloudstack.NetworkACL{
+		Id:          id,
+		Protocol:    "tcp",
+		Startport:   "80",
+		Endport:     "80",
+		Traffictype: "Ingress",
+		Action:      "Allow",
+		Cidrlist:    defaultAllowedCIDR,
+		State:       "Active",
+	}
+	if edit != nil {
+		edit(aclRule)
+	}
+	return aclRule
+}
+
+// ownACLRule is the tcp/80 rule of the test load balancer "atestuid".
+func ownACLRule(id string) *cloudstack.NetworkACL {
+	return legacyACLRule(id, func(r *cloudstack.NetworkACL) { r.Reason = testACLReason })
+}
+
 func TestUpdateNetworkACL(t *testing.T) {
 	t.Run("create new ACL rule", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
@@ -3129,6 +3156,7 @@ func TestUpdateNetworkACL(t *testing.T) {
 		)
 
 		lb := &loadBalancer{
+			name: "atestuid",
 			CloudStackClient: &cloudstack.CloudStackClient{
 				Network:    mockNetwork,
 				NetworkACL: mockNetworkACL,
@@ -3141,6 +3169,15 @@ func TestUpdateNetworkACL(t *testing.T) {
 		}
 		if !updated {
 			t.Errorf("updated = false, want true")
+		}
+		if reason, _ := createParams.GetReason(); reason != testACLReason {
+			t.Errorf("reason = %q, want %q", reason, testACLReason)
+		}
+		if cidrs, _ := createParams.GetCidrlist(); !compareStringSlice(cidrs, []string{defaultAllowedCIDR}) {
+			t.Errorf("cidrlist = %v, want [%v]", cidrs, defaultAllowedCIDR)
+		}
+		if trafficType, _ := createParams.GetTraffictype(); trafficType != "Ingress" {
+			t.Errorf("traffictype = %q, want Ingress", trafficType)
 		}
 	})
 
@@ -3198,7 +3235,7 @@ func TestUpdateNetworkACL(t *testing.T) {
 		}
 	})
 
-	t.Run("tcp-proxy matches existing tcp ACL rule", func(t *testing.T) {
+	t.Run("tcp-proxy matches this service's tcp ACL rule", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		t.Cleanup(ctrl.Finish)
 
@@ -3219,12 +3256,7 @@ func TestUpdateNetworkACL(t *testing.T) {
 		listResp := &cloudstack.ListNetworkACLsResponse{
 			Count: 1,
 			NetworkACLs: []*cloudstack.NetworkACL{
-				{
-					Id:        "acl-rule-123",
-					Protocol:  "tcp",
-					Startport: "80",
-					Endport:   "80",
-				},
+				ownACLRule("acl-rule-123"),
 			},
 		}
 
@@ -3237,6 +3269,7 @@ func TestUpdateNetworkACL(t *testing.T) {
 		)
 
 		lb := &loadBalancer{
+			name: "atestuid",
 			CloudStackClient: &cloudstack.CloudStackClient{
 				Network:    mockNetwork,
 				NetworkACL: mockNetworkACL,
@@ -3252,7 +3285,7 @@ func TestUpdateNetworkACL(t *testing.T) {
 		}
 	})
 
-	t.Run("rule already exists", func(t *testing.T) {
+	t.Run("this service's rule already exists", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		t.Cleanup(ctrl.Finish)
 
@@ -3273,12 +3306,7 @@ func TestUpdateNetworkACL(t *testing.T) {
 		listResp := &cloudstack.ListNetworkACLsResponse{
 			Count: 1,
 			NetworkACLs: []*cloudstack.NetworkACL{
-				{
-					Id:        "acl-rule-123",
-					Protocol:  "tcp",
-					Startport: "80",
-					Endport:   "80",
-				},
+				ownACLRule("acl-rule-123"),
 			},
 		}
 
@@ -3290,6 +3318,7 @@ func TestUpdateNetworkACL(t *testing.T) {
 		)
 
 		lb := &loadBalancer{
+			name: "atestuid",
 			CloudStackClient: &cloudstack.CloudStackClient{
 				Network:    mockNetwork,
 				NetworkACL: mockNetworkACL,
@@ -3498,7 +3527,7 @@ func TestUpdateNetworkACL(t *testing.T) {
 }
 
 func TestDeleteNetworkACLRule(t *testing.T) {
-	t.Run("delete matching rule", func(t *testing.T) {
+	t.Run("delete this service's rule", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		t.Cleanup(ctrl.Finish)
 
@@ -3507,12 +3536,7 @@ func TestDeleteNetworkACLRule(t *testing.T) {
 		listResp := &cloudstack.ListNetworkACLsResponse{
 			Count: 1,
 			NetworkACLs: []*cloudstack.NetworkACL{
-				{
-					Id:        "acl-rule-123",
-					Protocol:  "tcp",
-					Startport: "80",
-					Endport:   "80",
-				},
+				ownACLRule("acl-rule-123"),
 			},
 		}
 
@@ -3526,6 +3550,7 @@ func TestDeleteNetworkACLRule(t *testing.T) {
 		)
 
 		lb := &loadBalancer{
+			name: "atestuid",
 			CloudStackClient: &cloudstack.CloudStackClient{
 				NetworkACL: mockNetworkACL,
 			},
@@ -3608,12 +3633,7 @@ func TestDeleteNetworkACLRule(t *testing.T) {
 		listResp := &cloudstack.ListNetworkACLsResponse{
 			Count: 1,
 			NetworkACLs: []*cloudstack.NetworkACL{
-				{
-					Id:        "acl-rule-123",
-					Protocol:  "tcp",
-					Startport: "80",
-					Endport:   "80",
-				},
+				ownACLRule("acl-rule-123"),
 			},
 		}
 
@@ -3628,6 +3648,7 @@ func TestDeleteNetworkACLRule(t *testing.T) {
 		)
 
 		lb := &loadBalancer{
+			name: "atestuid",
 			CloudStackClient: &cloudstack.CloudStackClient{
 				NetworkACL: mockNetworkACL,
 			},
@@ -3641,6 +3662,426 @@ func TestDeleteNetworkACLRule(t *testing.T) {
 			t.Errorf("error = %v, want %v", err, deleteErr)
 		}
 	})
+}
+
+func TestClassifyNetworkACLRule(t *testing.T) {
+	tests := []struct {
+		name string
+		edit func(*cloudstack.NetworkACL)
+		want networkACLRuleKind
+	}{
+		{"this service's rule", func(r *cloudstack.NetworkACL) { r.Reason = testACLReason }, aclRuleOwn},
+		{"this service's rule being deleted", func(r *cloudstack.NetworkACL) { r.Reason = testACLReason; r.State = "Deleting" }, aclRuleIgnored},
+		{"this service's rule with a CIDR edited by hand", func(r *cloudstack.NetworkACL) { r.Reason = testACLReason; r.Cidrlist = "10.0.0.0/8" }, aclRuleOwn},
+		{"another service's rule", func(r *cloudstack.NetworkACL) { r.Reason = networkACLReasonPrefix + "aotheruid" }, aclRuleIgnored},
+		{"a rule from an earlier release", nil, aclRuleLegacy},
+		{"a rule from an earlier release being deleted", func(r *cloudstack.NetworkACL) { r.State = "Deleting" }, aclRuleIgnored},
+		{"a restricted CIDR", func(r *cloudstack.NetworkACL) { r.Cidrlist = "10.0.0.0/8" }, aclRuleOperator},
+		{"an IPv6 range as well", func(r *cloudstack.NetworkACL) { r.Cidrlist = "0.0.0.0/0,::/0" }, aclRuleOperator},
+		{"a deny rule", func(r *cloudstack.NetworkACL) { r.Action = "Deny" }, aclRuleOperator},
+		{"a reason of its own", func(r *cloudstack.NetworkACL) { r.Reason = "allow https" }, aclRuleOperator},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := classifyNetworkACLRule(legacyACLRule("acl-1", tt.edit), testACLReason); got != tt.want {
+				t.Errorf("classifyNetworkACLRule() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestListNetworkACLRules(t *testing.T) {
+	t.Run("keeps ingress rules for exactly the port and protocol", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+
+		mockNetworkACL := cloudstack.NewMockNetworkACLServiceIface(ctrl)
+		listParams := &cloudstack.ListNetworkACLsParams{}
+		mockNetworkACL.EXPECT().NewListNetworkACLsParams().Return(listParams)
+		mockNetworkACL.EXPECT().ListNetworkACLs(listParams).Return(&cloudstack.ListNetworkACLsResponse{
+			Count: 8,
+			NetworkACLs: []*cloudstack.NetworkACL{
+				legacyACLRule("tcp-80", nil),
+				legacyACLRule("upper-case-tcp-80", func(r *cloudstack.NetworkACL) { r.Protocol = "TCP" }),
+				legacyACLRule("deleting-tcp-80", func(r *cloudstack.NetworkACL) { r.State = "Deleting" }),
+				legacyACLRule("egress-tcp-80", func(r *cloudstack.NetworkACL) { r.Traffictype = "Egress" }),
+				legacyACLRule("udp-80", func(r *cloudstack.NetworkACL) { r.Protocol = "udp" }),
+				legacyACLRule("tcp-81", func(r *cloudstack.NetworkACL) { r.Startport, r.Endport = "81", "81" }),
+				legacyACLRule("tcp-80-81", func(r *cloudstack.NetworkACL) { r.Endport = "81" }),
+				legacyACLRule("all", func(r *cloudstack.NetworkACL) { r.Protocol, r.Startport, r.Endport = "all", "", "" }),
+			},
+		}, nil)
+
+		lb := &loadBalancer{
+			CloudStackClient: &cloudstack.CloudStackClient{NetworkACL: mockNetworkACL},
+			projectID:        "proj-1",
+		}
+
+		aclRules, err := lb.listNetworkACLRules("net-1", "tcp", 80)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		var ids []string
+		for _, aclRule := range aclRules {
+			ids = append(ids, aclRule.Id)
+		}
+		if want := []string{"tcp-80", "deleting-tcp-80"}; !compareStringSlice(ids, want) {
+			t.Errorf("rules = %v, want %v", ids, want)
+		}
+		if networkID, _ := listParams.GetNetworkid(); networkID != "net-1" {
+			t.Errorf("networkid = %q, want net-1", networkID)
+		}
+		if listAll, _ := listParams.GetListall(); !listAll {
+			t.Errorf("listall not set")
+		}
+		if projectID, _ := listParams.GetProjectid(); projectID != "proj-1" {
+			t.Errorf("projectid = %q, want proj-1", projectID)
+		}
+	})
+
+	t.Run("a rule repeated across pages is returned once", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+
+		var all []*cloudstack.NetworkACL
+		for i := 0; i < 501; i++ {
+			all = append(all, legacyACLRule(fmt.Sprintf("acl-%d", i), func(r *cloudstack.NetworkACL) { r.Startport, r.Endport = "81", "81" }))
+		}
+		all[499] = ownACLRule("acl-own")
+		all[500] = ownACLRule("acl-own")
+
+		mockNetworkACL := cloudstack.NewMockNetworkACLServiceIface(ctrl)
+		listParams := &cloudstack.ListNetworkACLsParams{}
+		mockNetworkACL.EXPECT().NewListNetworkACLsParams().Return(listParams)
+		mockNetworkACL.EXPECT().ListNetworkACLs(listParams).DoAndReturn(func(p *cloudstack.ListNetworkACLsParams) (*cloudstack.ListNetworkACLsResponse, error) {
+			return &cloudstack.ListNetworkACLsResponse{Count: len(all), NetworkACLs: pageOf(t, p, all, 500)}, nil
+		}).Times(2)
+
+		lb := &loadBalancer{CloudStackClient: &cloudstack.CloudStackClient{NetworkACL: mockNetworkACL}}
+
+		aclRules, err := lb.listNetworkACLRules("net-1", "tcp", 80)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(aclRules) != 1 {
+			t.Errorf("rules = %d, want acl-own once", len(aclRules))
+		}
+	})
+
+	t.Run("pages through every rule of the tier once", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+
+		var all []*cloudstack.NetworkACL
+		for i := 0; i < 600; i++ {
+			all = append(all, legacyACLRule(fmt.Sprintf("acl-%d", i), func(r *cloudstack.NetworkACL) { r.Startport, r.Endport = "81", "81" }))
+		}
+		all[550] = ownACLRule("acl-own")
+
+		mockNetworkACL := cloudstack.NewMockNetworkACLServiceIface(ctrl)
+		listParams := &cloudstack.ListNetworkACLsParams{}
+		mockNetworkACL.EXPECT().NewListNetworkACLsParams().Return(listParams)
+		mockNetworkACL.EXPECT().ListNetworkACLs(listParams).DoAndReturn(func(p *cloudstack.ListNetworkACLsParams) (*cloudstack.ListNetworkACLsResponse, error) {
+			return &cloudstack.ListNetworkACLsResponse{Count: len(all), NetworkACLs: pageOf(t, p, all, 500)}, nil
+		}).Times(2)
+
+		lb := &loadBalancer{CloudStackClient: &cloudstack.CloudStackClient{NetworkACL: mockNetworkACL}}
+
+		aclRules, err := lb.listNetworkACLRules("net-1", "tcp", 80)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(aclRules) != 1 || aclRules[0].Id != "acl-own" {
+			t.Errorf("rules = %v, want only acl-own from the second page", aclRules)
+		}
+	})
+}
+
+// sentUpdateFields names the fields of an updateNetworkACLItem call that were set, apart from
+// the id, so a test can assert that an adoption sends nothing but the reason.
+func sentUpdateFields(p *cloudstack.UpdateNetworkACLItemParams) []string {
+	var sent []string
+	set := func(name string, ok bool) {
+		if ok {
+			sent = append(sent, name)
+		}
+	}
+	_, ok := p.GetAction()
+	set("action", ok)
+	_, ok = p.GetCidrlist()
+	set("cidrlist", ok)
+	_, ok = p.GetCustomid()
+	set("customid", ok)
+	_, ok = p.GetEndport()
+	set("endport", ok)
+	_, ok = p.GetFordisplay()
+	set("fordisplay", ok)
+	_, ok = p.GetIcmpcode()
+	set("icmpcode", ok)
+	_, ok = p.GetIcmptype()
+	set("icmptype", ok)
+	_, ok = p.GetNumber()
+	set("number", ok)
+	_, ok = p.GetPartialupgrade()
+	set("partialupgrade", ok)
+	_, ok = p.GetProtocol()
+	set("protocol", ok)
+	_, ok = p.GetReason()
+	set("reason", ok)
+	_, ok = p.GetStartport()
+	set("startport", ok)
+	_, ok = p.GetTraffictype()
+	set("traffictype", ok)
+	return sent
+}
+
+// Regression test for issue #107: a Network ACL rule is owned by one Service, so a rule of
+// another Service, or one an operator made, never stands in for this Service's own rule.
+func TestUpdateNetworkACLOwnership(t *testing.T) {
+	notAllowed := fmt.Errorf("CloudStack API error 432 (CSExceptionErrorCode: 9999): The API [updateNetworkACLItem] does not exist or is not available for the account")
+	otherService := func(r *cloudstack.NetworkACL) { r.Reason = networkACLReasonPrefix + "aotheruid" }
+
+	tests := []struct {
+		name       string
+		rules      []*cloudstack.NetworkACL
+		protocol   LoadBalancerProtocol
+		globalList bool
+		adopt      string
+		adoptErr   error
+		wantCreate bool
+		createErr  error
+		wantErr    string
+	}{
+		{name: "creates its own rule next to another service's rule", rules: []*cloudstack.NetworkACL{legacyACLRule("acl-other", otherService)}, wantCreate: true},
+		{name: "an egress rule does not open the port", rules: []*cloudstack.NetworkACL{legacyACLRule("acl-egress", func(r *cloudstack.NetworkACL) { r.Traffictype = "Egress" })}, wantCreate: true},
+		{name: "its own rule being deleted does not open the port", rules: []*cloudstack.NetworkACL{legacyACLRule("acl-own", func(r *cloudstack.NetworkACL) { r.Reason = testACLReason; r.State = "Deleting" })}, wantCreate: true},
+		{name: "adopts a rule from an earlier release", rules: []*cloudstack.NetworkACL{legacyACLRule("acl-legacy", nil)}, adopt: "acl-legacy"},
+		{name: "adopts only one of several rules from an earlier release", rules: []*cloudstack.NetworkACL{legacyACLRule("acl-legacy-1", nil), legacyACLRule("acl-legacy-2", nil)}, adopt: "acl-legacy-1"},
+		{name: "keeps its own rule rather than adopting another", rules: []*cloudstack.NetworkACL{legacyACLRule("acl-legacy", nil), ownACLRule("acl-own")}},
+		{name: "adopts a rule from an earlier release before deferring to an operator", rules: []*cloudstack.NetworkACL{legacyACLRule("acl-operator", func(r *cloudstack.NetworkACL) { r.Cidrlist = "10.0.0.0/8" }), legacyACLRule("acl-legacy", nil)}, adopt: "acl-legacy"},
+		{name: "creates its own rule when adopting is not allowed", rules: []*cloudstack.NetworkACL{legacyACLRule("acl-legacy", nil)}, adopt: "acl-legacy", adoptErr: notAllowed, wantCreate: true},
+		{name: "keeps relying on the old rule when adopting and creating are both refused", rules: []*cloudstack.NetworkACL{legacyACLRule("acl-legacy", nil)}, adopt: "acl-legacy", adoptErr: notAllowed, wantCreate: true, createErr: fmt.Errorf("CloudStack API error 432 (CSExceptionErrorCode: 9999): The API [createNetworkACL] does not exist or is not available for the account")},
+		{name: "adopts a udp rule from an earlier release", protocol: LoadBalancerProtocolUDP, rules: []*cloudstack.NetworkACL{legacyACLRule("acl-legacy-udp", func(r *cloudstack.NetworkACL) { r.Protocol = "udp" })}, adopt: "acl-legacy-udp"},
+		{name: "creates a udp rule next to a tcp rule on the same port", protocol: LoadBalancerProtocolUDP, rules: []*cloudstack.NetworkACL{legacyACLRule("acl-legacy-tcp", nil)}, wantCreate: true},
+		{name: "fails when adopting fails otherwise", rules: []*cloudstack.NetworkACL{legacyACLRule("acl-legacy", nil)}, adopt: "acl-legacy", adoptErr: fmt.Errorf("router unreachable"), wantErr: "error adopting Network ACL rule acl-legacy"},
+		{name: "leaves the port to an operator rule with a restricted CIDR", rules: []*cloudstack.NetworkACL{legacyACLRule("acl-operator", func(r *cloudstack.NetworkACL) { r.Cidrlist = "10.0.0.0/8" })}},
+		{name: "adds its own rule next to an upper case TCP rule, as earlier releases did", rules: []*cloudstack.NetworkACL{legacyACLRule("acl-cks", func(r *cloudstack.NetworkACL) { r.Protocol = "TCP"; r.Cidrlist = "0.0.0.0/0,::/0" })}, wantCreate: true},
+		{name: "leaves the port to an operator deny rule", rules: []*cloudstack.NetworkACL{legacyACLRule("acl-deny", func(r *cloudstack.NetworkACL) { r.Action = "Deny" })}},
+		{name: "never adopts in a global ACL list", rules: []*cloudstack.NetworkACL{legacyACLRule("acl-legacy", nil)}, globalList: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			t.Cleanup(ctrl.Finish)
+
+			listVpcID := "vpc-1"
+			if tt.globalList {
+				listVpcID = ""
+			}
+
+			mockNetwork := cloudstack.NewMockNetworkServiceIface(ctrl)
+			mockNetworkACL := cloudstack.NewMockNetworkACLServiceIface(ctrl)
+			mockNetwork.EXPECT().GetNetworkByID("net-1", gomock.Any()).Return(&cloudstack.Network{Id: "net-1", Aclid: "acl-1"}, 1, nil)
+			mockNetworkACL.EXPECT().GetNetworkACLListByID("acl-1", gomock.Any()).Return(&cloudstack.NetworkACLList{Id: "acl-1", Name: "tier-acl", Vpcid: listVpcID}, 1, nil)
+			mockNetworkACL.EXPECT().NewListNetworkACLsParams().Return(&cloudstack.ListNetworkACLsParams{})
+			mockNetworkACL.EXPECT().ListNetworkACLs(gomock.Any()).Return(&cloudstack.ListNetworkACLsResponse{Count: len(tt.rules), NetworkACLs: tt.rules}, nil)
+
+			updateParams := &cloudstack.UpdateNetworkACLItemParams{}
+			if tt.adopt != "" {
+				mockNetworkACL.EXPECT().NewUpdateNetworkACLItemParams(tt.adopt).Return(updateParams)
+				mockNetworkACL.EXPECT().UpdateNetworkACLItem(updateParams).Return(&cloudstack.UpdateNetworkACLItemResponse{}, tt.adoptErr)
+			}
+			createParams := &cloudstack.CreateNetworkACLParams{}
+			if tt.wantCreate {
+				mockNetworkACL.EXPECT().NewCreateNetworkACLParams(tt.protocol.IPProtocol()).Return(createParams)
+				mockNetworkACL.EXPECT().CreateNetworkACL(createParams).Return(&cloudstack.CreateNetworkACLResponse{Id: "acl-new"}, tt.createErr)
+			}
+
+			lb := &loadBalancer{
+				name:             "atestuid",
+				CloudStackClient: &cloudstack.CloudStackClient{Network: mockNetwork, NetworkACL: mockNetworkACL},
+			}
+
+			updated, err := lb.updateNetworkACL(80, tt.protocol, "net-1")
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("error = %v, want it to contain %q", err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if !updated {
+				t.Errorf("updated = false, want true")
+			}
+			if tt.adopt != "" {
+				if sent := sentUpdateFields(updateParams); !compareStringSlice(sent, []string{"reason"}) {
+					t.Errorf("adoption sent %v, want only the reason", sent)
+				}
+				if reason, _ := updateParams.GetReason(); reason != testACLReason {
+					t.Errorf("adopted with reason %q, want %q", reason, testACLReason)
+				}
+			}
+			if tt.wantCreate {
+				if reason, _ := createParams.GetReason(); reason != testACLReason {
+					t.Errorf("created with reason %q, want %q", reason, testACLReason)
+				}
+				if networkID, _ := createParams.GetNetworkid(); networkID != "net-1" {
+					t.Errorf("created in network %q, want net-1", networkID)
+				}
+			}
+		})
+	}
+}
+
+func TestDeleteNetworkACLRuleOwnership(t *testing.T) {
+	otherService := func(r *cloudstack.NetworkACL) { r.Reason = networkACLReasonPrefix + "aotheruid" }
+	deleting := func(r *cloudstack.NetworkACL) { r.Reason = testACLReason; r.State = "Deleting" }
+	firstErr := fmt.Errorf("first delete failed")
+
+	tests := []struct {
+		name        string
+		protocol    LoadBalancerProtocol
+		rules       []*cloudstack.NetworkACL
+		deleteErrs  map[string]error
+		wantDeleted []string
+		wantErr     error
+	}{
+		{
+			name: "deletes only this service's rules",
+			rules: []*cloudstack.NetworkACL{
+				legacyACLRule("acl-other", otherService),
+				ownACLRule("acl-own"),
+				legacyACLRule("acl-legacy", nil),
+				legacyACLRule("acl-operator", func(r *cloudstack.NetworkACL) { r.Cidrlist = "10.0.0.0/8" }),
+				legacyACLRule("acl-cks", func(r *cloudstack.NetworkACL) { r.Protocol = "TCP" }),
+			},
+			wantDeleted: []string{"acl-own"},
+		},
+		{
+			name:        "deletes its own rule again while it is being deleted",
+			rules:       []*cloudstack.NetworkACL{legacyACLRule("acl-own", deleting)},
+			wantDeleted: []string{"acl-own"},
+		},
+		{
+			name:        "only logs a failure on a rule already being deleted",
+			rules:       []*cloudstack.NetworkACL{legacyACLRule("acl-own", deleting)},
+			deleteErrs:  map[string]error{"acl-own": fmt.Errorf("router unreachable")},
+			wantDeleted: []string{"acl-own"},
+		},
+		{
+			name:        "tries every rule and reports the first error",
+			rules:       []*cloudstack.NetworkACL{ownACLRule("acl-own-1"), ownACLRule("acl-own-2")},
+			deleteErrs:  map[string]error{"acl-own-1": firstErr, "acl-own-2": fmt.Errorf("second delete failed")},
+			wantDeleted: []string{"acl-own-1", "acl-own-2"},
+			wantErr:     firstErr,
+		},
+		{
+			name:     "deletes a udp rule but not the tcp rule on the same port",
+			protocol: LoadBalancerProtocolUDP,
+			rules: []*cloudstack.NetworkACL{
+				ownACLRule("acl-own-tcp"),
+				legacyACLRule("acl-own-udp", func(r *cloudstack.NetworkACL) { r.Reason = testACLReason; r.Protocol = "udp" }),
+			},
+			wantDeleted: []string{"acl-own-udp"},
+		},
+		{
+			name:  "deletes nothing when no rule is this service's",
+			rules: []*cloudstack.NetworkACL{legacyACLRule("acl-legacy", nil), legacyACLRule("acl-other", otherService)},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			t.Cleanup(ctrl.Finish)
+
+			mockNetworkACL := cloudstack.NewMockNetworkACLServiceIface(ctrl)
+			mockNetworkACL.EXPECT().NewListNetworkACLsParams().Return(&cloudstack.ListNetworkACLsParams{})
+			mockNetworkACL.EXPECT().ListNetworkACLs(gomock.Any()).Return(&cloudstack.ListNetworkACLsResponse{Count: len(tt.rules), NetworkACLs: tt.rules}, nil)
+
+			var deleted []string
+			for _, id := range tt.wantDeleted {
+				deleteParams := &cloudstack.DeleteNetworkACLParams{}
+				mockNetworkACL.EXPECT().NewDeleteNetworkACLParams(id).Return(deleteParams)
+				mockNetworkACL.EXPECT().DeleteNetworkACL(deleteParams).DoAndReturn(func(*cloudstack.DeleteNetworkACLParams) (*cloudstack.DeleteNetworkACLResponse, error) {
+					deleted = append(deleted, id)
+					if err := tt.deleteErrs[id]; err != nil {
+						return nil, err
+					}
+					return &cloudstack.DeleteNetworkACLResponse{}, nil
+				})
+			}
+
+			lb := &loadBalancer{
+				name:             "atestuid",
+				CloudStackClient: &cloudstack.CloudStackClient{NetworkACL: mockNetworkACL},
+			}
+
+			ok, err := lb.deleteNetworkACLRule(80, tt.protocol, "net-1")
+			if err != tt.wantErr {
+				t.Errorf("error = %v, want %v", err, tt.wantErr)
+			}
+			if ok != (tt.wantErr == nil) {
+				t.Errorf("ok = %v, want %v", ok, tt.wantErr == nil)
+			}
+			if !compareStringSlice(deleted, tt.wantDeleted) {
+				t.Errorf("deleted %v, want %v", deleted, tt.wantDeleted)
+			}
+		})
+	}
+}
+
+// Firewall rules are not shared like Network ACL rules (issue #107): Services can only share a
+// public IP on different ports, so pruning touches the firewall rules of the rule's own IP only.
+func TestPruneRulesScopesFirewallRulesToTheirIP(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	t.Cleanup(ctrl.Finish)
+
+	mockLB := cloudstack.NewMockLoadBalancerServiceIface(ctrl)
+	mockFirewall := cloudstack.NewMockFirewallServiceIface(ctrl)
+	listParams := &cloudstack.ListFirewallRulesParams{}
+	deleteParams := &cloudstack.DeleteFirewallRuleParams{}
+	gomock.InOrder(
+		mockFirewall.EXPECT().NewListFirewallRulesParams().Return(listParams),
+		mockFirewall.EXPECT().ListFirewallRules(listParams).Return(&cloudstack.ListFirewallRulesResponse{
+			Count:         1,
+			FirewallRules: []*cloudstack.FirewallRule{{Id: "fw-old", Protocol: "tcp", Startport: 80, Endport: 80, Cidrlist: defaultAllowedCIDR}},
+		}, nil),
+		mockFirewall.EXPECT().NewDeleteFirewallRuleParams("fw-old").Return(deleteParams),
+		mockFirewall.EXPECT().DeleteFirewallRule(deleteParams).Return(&cloudstack.DeleteFirewallRuleResponse{}, nil),
+		mockLB.EXPECT().NewDeleteLoadBalancerRuleParams("rule-old").Return(&cloudstack.DeleteLoadBalancerRuleParams{}),
+		mockLB.EXPECT().DeleteLoadBalancerRule(gomock.Any()).Return(&cloudstack.DeleteLoadBalancerRuleResponse{}, nil),
+	)
+
+	lb := &loadBalancer{
+		CloudStackClient: &cloudstack.CloudStackClient{LoadBalancer: mockLB, Firewall: mockFirewall},
+		name:             "atestuid",
+		networkID:        "net-1",
+		ipAddrID:         "ip-current",
+	}
+	network := &cloudstack.Network{Id: "net-1", Service: []cloudstack.NetworkServiceInternal{{Name: "Firewall"}}}
+	obsolete := []obsoleteRule{{
+		rule:     &cloudstack.LoadBalancerRule{Id: "rule-old", Name: "atestuid-tcp-80", Publicipid: "ip-old", Publicport: "80", Protocol: "tcp", Networkid: "net-1"},
+		protocol: LoadBalancerProtocolTCP,
+		tuple:    portProtocol{"tcp", 80},
+	}}
+	desired := []desiredLBRule{{
+		name:     "atestuid-tcp-443",
+		port:     corev1.ServicePort{Port: 443, NodePort: 30443, Protocol: corev1.ProtocolTCP},
+		protocol: LoadBalancerProtocolTCP,
+	}}
+
+	if err := lb.pruneRules(obsolete, desired, network); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ipID, _ := listParams.GetIpaddressid(); ipID != "ip-old" {
+		t.Errorf("firewall rules listed on IP %q, want the rule's own ip-old", ipID)
+	}
 }
 
 func TestGetLoadBalancer(t *testing.T) {
@@ -4621,6 +5062,7 @@ type ensureLBTestEnv struct {
 	network  *cloudstack.MockNetworkServiceIface
 	firewall *cloudstack.MockFirewallServiceIface
 	address  *cloudstack.MockAddressServiceIface
+	acl      *cloudstack.MockNetworkACLServiceIface
 	service  *corev1.Service
 	nodes    []*corev1.Node
 
@@ -4637,6 +5079,7 @@ func newEnsureLBTestEnv(ctrl *gomock.Controller, annotations map[string]string, 
 		network:  cloudstack.NewMockNetworkServiceIface(ctrl),
 		firewall: cloudstack.NewMockFirewallServiceIface(ctrl),
 		address:  cloudstack.NewMockAddressServiceIface(ctrl),
+		acl:      cloudstack.NewMockNetworkACLServiceIface(ctrl),
 	}
 
 	e.cs = &CSCloud{
@@ -4646,6 +5089,7 @@ func newEnsureLBTestEnv(ctrl *gomock.Controller, annotations map[string]string, 
 			Network:        e.network,
 			Firewall:       e.firewall,
 			Address:        e.address,
+			NetworkACL:     e.acl,
 		},
 		version: semver.Version{Major: 4, Minor: 22, Patch: 0},
 	}
@@ -5521,6 +5965,258 @@ func TestUpdateLoadBalancerPagination(t *testing.T) {
 	}
 }
 
+// Regression test for issue #107 through a whole sync of a Service on a VPC tier.
+func TestEnsureLoadBalancerNetworkACLOwnership(t *testing.T) {
+	vpcTier := &cloudstack.Network{
+		Id:      "net-1",
+		Vpcid:   "vpc-1",
+		Aclid:   "acl-1",
+		Service: []cloudstack.NetworkServiceInternal{{Name: "NetworkACL"}},
+	}
+	tierACLList := &cloudstack.NetworkACLList{Id: "acl-1", Name: "tier-acl", Vpcid: "vpc-1"}
+	existingRule := func() *cloudstack.LoadBalancerRule {
+		return &cloudstack.LoadBalancerRule{
+			Id:          "rule-1",
+			Name:        "atestuid-tcp-80",
+			Publicip:    "10.0.0.1",
+			Publicipid:  "ip-1",
+			Publicport:  "80",
+			Privateport: "30000",
+			Cidrlist:    defaultAllowedCIDR,
+			Algorithm:   "roundrobin",
+			Protocol:    "tcp",
+			Networkid:   "net-1",
+		}
+	}
+	otherServiceRule := legacyACLRule("acl-other", func(r *cloudstack.NetworkACL) { r.Reason = networkACLReasonPrefix + "aotheruid" })
+
+	t.Run("a service sharing a port with another service opens it with its own rule", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+
+		env := newEnsureLBTestEnv(ctrl, nil, []corev1.ServicePort{{Port: 80, NodePort: 30000, Protocol: corev1.ProtocolTCP}})
+		env.expectHosts()
+		env.expectRules(existingRule())
+		env.network.EXPECT().GetNetworkByID("net-1", gomock.Any()).Return(vpcTier, 1, nil).Times(2)
+		env.acl.EXPECT().GetNetworkACLListByID("acl-1", gomock.Any()).Return(tierACLList, 1, nil)
+		env.acl.EXPECT().NewListNetworkACLsParams().Return(&cloudstack.ListNetworkACLsParams{})
+		env.acl.EXPECT().ListNetworkACLs(gomock.Any()).Return(&cloudstack.ListNetworkACLsResponse{Count: 1, NetworkACLs: []*cloudstack.NetworkACL{otherServiceRule}}, nil)
+		createParams := &cloudstack.CreateNetworkACLParams{}
+		env.acl.EXPECT().NewCreateNetworkACLParams("tcp").Return(createParams)
+		env.acl.EXPECT().CreateNetworkACL(createParams).Return(&cloudstack.CreateNetworkACLResponse{Id: "acl-own"}, nil)
+
+		if _, err := env.cs.EnsureLoadBalancer(context.TODO(), "test-cluster", env.service, env.nodes); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if reason, _ := createParams.GetReason(); reason != testACLReason {
+			t.Errorf("created with reason %q, want %q", reason, testACLReason)
+		}
+	})
+
+	t.Run("a port change deletes only its own rule on the old port", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+
+		env := newEnsureLBTestEnv(ctrl, nil, []corev1.ServicePort{{Port: 8080, NodePort: 30000, Protocol: corev1.ProtocolTCP}})
+		env.expectHosts()
+		env.expectRules(existingRule())
+		env.network.EXPECT().GetNetworkByID("net-1", gomock.Any()).Return(vpcTier, 1, nil).Times(2)
+
+		env.lb.EXPECT().NewCreateLoadBalancerRuleParams("roundrobin", "atestuid-tcp-8080", 30000, 8080).Return(&cloudstack.CreateLoadBalancerRuleParams{})
+		env.lb.EXPECT().CreateLoadBalancerRule(gomock.Any()).Return(&cloudstack.CreateLoadBalancerRuleResponse{
+			Id: "rule-2", Name: "atestuid-tcp-8080", Publicip: "10.0.0.1", Publicipid: "ip-1", Publicport: "8080", Protocol: "tcp", Networkid: "net-1",
+		}, nil)
+		env.lb.EXPECT().NewAssignToLoadBalancerRuleParams("rule-2").Return(&cloudstack.AssignToLoadBalancerRuleParams{})
+		env.lb.EXPECT().AssignToLoadBalancerRule(gomock.Any()).Return(&cloudstack.AssignToLoadBalancerRuleResponse{}, nil)
+
+		tierRules := []*cloudstack.NetworkACL{otherServiceRule, ownACLRule("acl-own-80")}
+		env.acl.EXPECT().GetNetworkACLListByID("acl-1", gomock.Any()).Return(tierACLList, 1, nil)
+		env.acl.EXPECT().NewListNetworkACLsParams().Return(&cloudstack.ListNetworkACLsParams{}).Times(2)
+		env.acl.EXPECT().ListNetworkACLs(gomock.Any()).Return(&cloudstack.ListNetworkACLsResponse{Count: len(tierRules), NetworkACLs: tierRules}, nil).Times(2)
+		env.acl.EXPECT().NewCreateNetworkACLParams("tcp").Return(&cloudstack.CreateNetworkACLParams{})
+		env.acl.EXPECT().CreateNetworkACL(gomock.Any()).Return(&cloudstack.CreateNetworkACLResponse{Id: "acl-own-8080"}, nil)
+		deleteParams := &cloudstack.DeleteNetworkACLParams{}
+		env.acl.EXPECT().NewDeleteNetworkACLParams("acl-own-80").Return(deleteParams)
+		env.acl.EXPECT().DeleteNetworkACL(deleteParams).Return(&cloudstack.DeleteNetworkACLResponse{}, nil)
+
+		env.lb.EXPECT().NewDeleteLoadBalancerRuleParams("rule-1").Return(&cloudstack.DeleteLoadBalancerRuleParams{})
+		env.lb.EXPECT().DeleteLoadBalancerRule(gomock.Any()).Return(&cloudstack.DeleteLoadBalancerRuleResponse{}, nil)
+
+		if _, err := env.cs.EnsureLoadBalancer(context.TODO(), "test-cluster", env.service, env.nodes); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+}
+
+func TestEnsureLoadBalancerDeletedNetworkACLOwnership(t *testing.T) {
+	newEnv := func(t *testing.T) (*CSCloud, *cloudstack.MockLoadBalancerServiceIface, *cloudstack.MockNetworkACLServiceIface, *cloudstack.MockAddressServiceIface, *cloudstack.ListNetworkACLsParams) {
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+
+		mockLB := cloudstack.NewMockLoadBalancerServiceIface(ctrl)
+		mockNetwork := cloudstack.NewMockNetworkServiceIface(ctrl)
+		mockNetworkACL := cloudstack.NewMockNetworkACLServiceIface(ctrl)
+		mockAddress := cloudstack.NewMockAddressServiceIface(ctrl)
+
+		mockLB.EXPECT().NewListLoadBalancerRulesParams().Return(&cloudstack.ListLoadBalancerRulesParams{})
+		mockLB.EXPECT().ListLoadBalancerRules(gomock.Any()).Return(&cloudstack.ListLoadBalancerRulesResponse{
+			Count: 1,
+			LoadBalancerRules: []*cloudstack.LoadBalancerRule{{
+				Id: "rule-1", Name: "atestuid-tcp-80", Publicip: "10.0.0.1", Publicipid: "ip-1", Publicport: "80", Protocol: "tcp", Networkid: "net-tier",
+			}},
+		}, nil)
+		mockNetwork.EXPECT().GetNetworkByID("net-tier", gomock.Any()).Return(&cloudstack.Network{Id: "net-tier", Vpcid: "vpc-1"}, 1, nil)
+
+		listParams := &cloudstack.ListNetworkACLsParams{}
+		mockNetworkACL.EXPECT().NewListNetworkACLsParams().Return(listParams)
+		mockNetworkACL.EXPECT().ListNetworkACLs(gomock.Any()).Return(&cloudstack.ListNetworkACLsResponse{
+			Count: 3,
+			NetworkACLs: []*cloudstack.NetworkACL{
+				legacyACLRule("acl-other", func(r *cloudstack.NetworkACL) { r.Reason = networkACLReasonPrefix + "aotheruid" }),
+				ownACLRule("acl-own"),
+				legacyACLRule("acl-operator", func(r *cloudstack.NetworkACL) { r.Cidrlist = "10.0.0.0/8" }),
+			},
+		}, nil)
+
+		cs := &CSCloud{client: &cloudstack.CloudStackClient{
+			LoadBalancer: mockLB, Network: mockNetwork, NetworkACL: mockNetworkACL, Address: mockAddress,
+		}}
+		return cs, mockLB, mockNetworkACL, mockAddress, listParams
+	}
+	service := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: "test-service", Namespace: "default", UID: "test-uid"}}
+
+	t.Run("deletes only its own ACL rule, in the rule's own network, then the rule and the IP", func(t *testing.T) {
+		cs, mockLB, mockNetworkACL, mockAddress, listParams := newEnv(t)
+		deleteACL := &cloudstack.DeleteNetworkACLParams{}
+		deleteRule := &cloudstack.DeleteLoadBalancerRuleParams{}
+		release := &cloudstack.DisassociateIpAddressParams{}
+		gomock.InOrder(
+			mockNetworkACL.EXPECT().NewDeleteNetworkACLParams("acl-own").Return(deleteACL),
+			mockNetworkACL.EXPECT().DeleteNetworkACL(deleteACL).Return(&cloudstack.DeleteNetworkACLResponse{}, nil),
+			mockLB.EXPECT().NewDeleteLoadBalancerRuleParams("rule-1").Return(deleteRule),
+			mockLB.EXPECT().DeleteLoadBalancerRule(deleteRule).Return(&cloudstack.DeleteLoadBalancerRuleResponse{}, nil),
+			mockAddress.EXPECT().NewDisassociateIpAddressParams("ip-1").Return(release),
+			mockAddress.EXPECT().DisassociateIpAddress(release).Return(&cloudstack.DisassociateIpAddressResponse{}, nil),
+		)
+
+		if err := cs.EnsureLoadBalancerDeleted(context.TODO(), "test-cluster", service); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if networkID, _ := listParams.GetNetworkid(); networkID != "net-tier" {
+			t.Errorf("ACL rules listed on network %q, want the rule's own net-tier", networkID)
+		}
+	})
+
+	t.Run("deletes the other rules, keeps the failing one and reports both failures", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+
+		mockLB := cloudstack.NewMockLoadBalancerServiceIface(ctrl)
+		mockNetwork := cloudstack.NewMockNetworkServiceIface(ctrl)
+		mockNetworkACL := cloudstack.NewMockNetworkACLServiceIface(ctrl)
+		mockFirewall := cloudstack.NewMockFirewallServiceIface(ctrl)
+		mockAddress := cloudstack.NewMockAddressServiceIface(ctrl)
+
+		rule80 := &cloudstack.LoadBalancerRule{Id: "rule-80", Name: "atestuid-tcp-80", Publicip: "10.0.0.1", Publicipid: "ip-1", Publicport: "80", Protocol: "tcp", Networkid: "net-tier"}
+		rule8080 := &cloudstack.LoadBalancerRule{Id: "rule-8080", Name: "atestuid-tcp-8080", Publicip: "10.0.0.1", Publicipid: "ip-1", Publicport: "8080", Protocol: "tcp", Networkid: "net-tier"}
+		duplicate := &cloudstack.LoadBalancerRule{Id: "rule-dup", Name: "atestuid-tcp-80", Publicip: "10.0.0.2", Publicipid: "ip-dup", Publicport: "80", Protocol: "tcp", Networkid: "net-tier"}
+		mockLB.EXPECT().NewListLoadBalancerRulesParams().Return(&cloudstack.ListLoadBalancerRulesParams{})
+		mockLB.EXPECT().ListLoadBalancerRules(gomock.Any()).Return(&cloudstack.ListLoadBalancerRulesResponse{
+			Count: 3, LoadBalancerRules: []*cloudstack.LoadBalancerRule{rule80, rule8080, duplicate},
+		}, nil)
+		mockFirewall.EXPECT().NewListFirewallRulesParams().Return(&cloudstack.ListFirewallRulesParams{})
+		mockFirewall.EXPECT().ListFirewallRules(gomock.Any()).Return(nil, fmt.Errorf("firewall API down"))
+
+		mockNetwork.EXPECT().GetNetworkByID("net-tier", gomock.Any()).Return(&cloudstack.Network{Id: "net-tier", Vpcid: "vpc-1"}, 1, nil).Times(2)
+		tierRules := []*cloudstack.NetworkACL{
+			ownACLRule("acl-own-80"),
+			legacyACLRule("acl-own-8080", func(r *cloudstack.NetworkACL) { r.Reason = testACLReason; r.Startport, r.Endport = "8080", "8080" }),
+		}
+		mockNetworkACL.EXPECT().NewListNetworkACLsParams().DoAndReturn(func() *cloudstack.ListNetworkACLsParams {
+			return &cloudstack.ListNetworkACLsParams{}
+		}).Times(2)
+		mockNetworkACL.EXPECT().ListNetworkACLs(gomock.Any()).Return(&cloudstack.ListNetworkACLsResponse{Count: len(tierRules), NetworkACLs: tierRules}, nil).Times(2)
+		delete80 := &cloudstack.DeleteNetworkACLParams{}
+		delete8080 := &cloudstack.DeleteNetworkACLParams{}
+		mockNetworkACL.EXPECT().NewDeleteNetworkACLParams("acl-own-80").Return(delete80)
+		mockNetworkACL.EXPECT().DeleteNetworkACL(delete80).Return(nil, fmt.Errorf("router unreachable"))
+		mockNetworkACL.EXPECT().NewDeleteNetworkACLParams("acl-own-8080").Return(delete8080)
+		mockNetworkACL.EXPECT().DeleteNetworkACL(delete8080).Return(&cloudstack.DeleteNetworkACLResponse{}, nil)
+		deleteRule := &cloudstack.DeleteLoadBalancerRuleParams{}
+		mockLB.EXPECT().NewDeleteLoadBalancerRuleParams("rule-8080").Return(deleteRule)
+		mockLB.EXPECT().DeleteLoadBalancerRule(deleteRule).Return(&cloudstack.DeleteLoadBalancerRuleResponse{}, nil)
+
+		cs := &CSCloud{client: &cloudstack.CloudStackClient{
+			LoadBalancer: mockLB, Network: mockNetwork, NetworkACL: mockNetworkACL, Firewall: mockFirewall, Address: mockAddress,
+		}}
+
+		err := cs.EnsureLoadBalancerDeleted(context.TODO(), "test-cluster", service)
+		if err == nil || !strings.Contains(err.Error(), "router unreachable") || !strings.Contains(err.Error(), "firewall API down") {
+			t.Fatalf("error = %v, want both the ACL rule and the sweep failure", err)
+		}
+	})
+
+	t.Run("keeps the rule and the IP when its ACL rule cannot be deleted", func(t *testing.T) {
+		cs, _, mockNetworkACL, _, _ := newEnv(t)
+		deleteACL := &cloudstack.DeleteNetworkACLParams{}
+		mockNetworkACL.EXPECT().NewDeleteNetworkACLParams("acl-own").Return(deleteACL)
+		mockNetworkACL.EXPECT().DeleteNetworkACL(deleteACL).Return(nil, fmt.Errorf("router unreachable"))
+
+		err := cs.EnsureLoadBalancerDeleted(context.TODO(), "test-cluster", service)
+		if err == nil || !strings.Contains(err.Error(), "router unreachable") {
+			t.Fatalf("error = %v, want the ACL rule failure reported for a retry", err)
+		}
+	})
+}
+
+func TestEnsureLoadBalancerDeletedFirewallUsesRuleNetwork(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	t.Cleanup(ctrl.Finish)
+
+	mockLB := cloudstack.NewMockLoadBalancerServiceIface(ctrl)
+	mockNetwork := cloudstack.NewMockNetworkServiceIface(ctrl)
+	mockFirewall := cloudstack.NewMockFirewallServiceIface(ctrl)
+	mockAddress := cloudstack.NewMockAddressServiceIface(ctrl)
+
+	mockLB.EXPECT().NewListLoadBalancerRulesParams().Return(&cloudstack.ListLoadBalancerRulesParams{})
+	mockLB.EXPECT().ListLoadBalancerRules(gomock.Any()).Return(&cloudstack.ListLoadBalancerRulesResponse{
+		Count: 1,
+		LoadBalancerRules: []*cloudstack.LoadBalancerRule{{
+			Id: "rule-1", Name: "atestuid-tcp-80", Publicip: "203.0.113.1", Publicipid: "ip-1", Publicport: "80", Protocol: "tcp", Networkid: "net-iso",
+		}},
+	}, nil)
+	mockNetwork.EXPECT().GetNetworkByID("net-iso", gomock.Any()).Return(&cloudstack.Network{Id: "net-iso"}, 1, nil)
+	listParams := &cloudstack.ListFirewallRulesParams{}
+	deleteFirewall := &cloudstack.DeleteFirewallRuleParams{}
+	deleteRule := &cloudstack.DeleteLoadBalancerRuleParams{}
+	release := &cloudstack.DisassociateIpAddressParams{}
+	gomock.InOrder(
+		mockFirewall.EXPECT().NewListFirewallRulesParams().Return(listParams),
+		mockFirewall.EXPECT().ListFirewallRules(listParams).Return(&cloudstack.ListFirewallRulesResponse{
+			Count:         1,
+			FirewallRules: []*cloudstack.FirewallRule{{Id: "fw-1", Protocol: "tcp", Startport: 80, Endport: 80, Cidrlist: defaultAllowedCIDR}},
+		}, nil),
+		mockFirewall.EXPECT().NewDeleteFirewallRuleParams("fw-1").Return(deleteFirewall),
+		mockFirewall.EXPECT().DeleteFirewallRule(deleteFirewall).Return(&cloudstack.DeleteFirewallRuleResponse{}, nil),
+		mockLB.EXPECT().NewDeleteLoadBalancerRuleParams("rule-1").Return(deleteRule),
+		mockLB.EXPECT().DeleteLoadBalancerRule(deleteRule).Return(&cloudstack.DeleteLoadBalancerRuleResponse{}, nil),
+		mockAddress.EXPECT().NewDisassociateIpAddressParams("ip-1").Return(release),
+		mockAddress.EXPECT().DisassociateIpAddress(release).Return(&cloudstack.DisassociateIpAddressResponse{}, nil),
+	)
+
+	cs := &CSCloud{client: &cloudstack.CloudStackClient{
+		LoadBalancer: mockLB, Network: mockNetwork, Firewall: mockFirewall, Address: mockAddress,
+	}}
+	service := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: "test-service", Namespace: "default", UID: "test-uid"}}
+
+	if err := cs.EnsureLoadBalancerDeleted(context.TODO(), "test-cluster", service); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ipID, _ := listParams.GetIpaddressid(); ipID != "ip-1" {
+		t.Errorf("firewall rules listed on IP %q, want ip-1", ipID)
+	}
+}
+
 // A Network ACL rule is scoped to a network, so an obsolete rule left over in another network
 // is not protected by a desired port that happens to share its protocol and port.
 func TestPruneRulesScopesNetworkACLsToTheirNetwork(t *testing.T) {
@@ -5591,6 +6287,7 @@ func TestPruneRulesScopesNetworkACLsToTheirNetwork(t *testing.T) {
 				Network:      m.network,
 				Firewall:     m.firewall,
 			},
+			name:      "atestuid",
 			networkID: "net-new",
 			ipAddrID:  "ip-current",
 		}, m
@@ -5601,9 +6298,12 @@ func TestPruneRulesScopesNetworkACLsToTheirNetwork(t *testing.T) {
 		gomock.InOrder(
 			m.acl.EXPECT().NewListNetworkACLsParams().Return(listParams),
 			m.acl.EXPECT().ListNetworkACLs(gomock.Any()).Return(&cloudstack.ListNetworkACLsResponse{
-				Count: 1,
+				Count: 4,
 				NetworkACLs: []*cloudstack.NetworkACL{
-					{Id: "acl-rule-old", Protocol: "tcp", Startport: "80", Endport: "80"},
+					legacyACLRule("acl-other-service", func(r *cloudstack.NetworkACL) { r.Reason = networkACLReasonPrefix + "aotheruid" }),
+					ownACLRule("acl-rule-old"),
+					legacyACLRule("acl-legacy", nil),
+					legacyACLRule("acl-operator", func(r *cloudstack.NetworkACL) { r.Cidrlist = "10.0.0.0/8" }),
 				},
 			}, nil),
 			m.acl.EXPECT().NewDeleteNetworkACLParams("acl-rule-old").Return(&cloudstack.DeleteNetworkACLParams{}),
