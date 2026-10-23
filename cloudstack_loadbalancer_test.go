@@ -5250,6 +5250,9 @@ func TestEnsureLoadBalancer(t *testing.T) {
 		if len(status.Ingress) != 1 || status.Ingress[0].IP != "10.0.0.1" {
 			t.Errorf("status.Ingress = %v, want IP 10.0.0.1", status.Ingress)
 		}
+		if mode := status.Ingress[0].IPMode; mode == nil || *mode != corev1.LoadBalancerIPModeProxy {
+			t.Errorf("status.Ingress[0].IPMode = %v, want %q", mode, corev1.LoadBalancerIPModeProxy)
+		}
 		if proto, _ := updateParams.GetProtocol(); proto != "tcp-proxy" {
 			t.Errorf("updated protocol = %q, want %q", proto, "tcp-proxy")
 		}
