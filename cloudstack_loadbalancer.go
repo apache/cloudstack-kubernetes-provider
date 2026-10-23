@@ -38,6 +38,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	cloudprovider "k8s.io/cloud-provider"
+	"k8s.io/utils/ptr"
 )
 
 const (
@@ -137,7 +138,7 @@ func (cs *CSCloud) GetLoadBalancer(ctx context.Context, clusterName string, serv
 	klog.V(4).Infof("Found a load balancer associated with IP %v", lb.ipAddr)
 
 	status := &corev1.LoadBalancerStatus{}
-	status.Ingress = append(status.Ingress, corev1.LoadBalancerIngress{IP: lb.ipAddr})
+	status.Ingress = append(status.Ingress, loadBalancerIngress(service, lb.ipAddr))
 
 	return status, true, nil
 }
@@ -257,9 +258,21 @@ func (cs *CSCloud) EnsureLoadBalancer(ctx context.Context, clusterName string, s
 		return status, nil
 	}
 	// Default to IP
-	status.Ingress = []corev1.LoadBalancerIngress{{IP: lb.ipAddr}}
+	status.Ingress = []corev1.LoadBalancerIngress{loadBalancerIngress(service, lb.ipAddr)}
 
 	return status, nil
+}
+
+// loadBalancerIngress returns the status entry for the load balancer IP. With the proxy
+// protocol enabled the IP mode is Proxy, so kube-proxy does not short-circuit in-cluster
+// traffic to the IP straight to the backends: it has to go through the load balancer,
+// which adds the PROXY header the backends expect.
+func loadBalancerIngress(service *corev1.Service, ip string) corev1.LoadBalancerIngress {
+	ingress := corev1.LoadBalancerIngress{IP: ip}
+	if getBoolFromServiceAnnotation(service, ServiceAnnotationLoadBalancerProxyProtocol, false) {
+		ingress.IPMode = ptr.To(corev1.LoadBalancerIPModeProxy)
+	}
+	return ingress
 }
 
 // UpdateLoadBalancer updates hosts under the specified load balancer.
