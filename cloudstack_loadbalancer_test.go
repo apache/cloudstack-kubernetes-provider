@@ -6417,6 +6417,28 @@ func TestVPCHasFirewall(t *testing.T) {
 		}
 	})
 
+	t.Run("syncs of a CSCloud built without newCSCloud share the refusals", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+		mockLB := cloudstack.NewMockLoadBalancerServiceIface(ctrl)
+		mockLB.EXPECT().NewListLoadBalancerRulesParams().Return(&cloudstack.ListLoadBalancerRulesParams{}).Times(2)
+		mockLB.EXPECT().ListLoadBalancerRules(gomock.Any()).Return(&cloudstack.ListLoadBalancerRulesResponse{}, nil).Times(2)
+
+		cs := &CSCloud{client: &cloudstack.CloudStackClient{LoadBalancer: mockLB}}
+		service := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: "test-service", Namespace: "default"}}
+		first, err := cs.getLoadBalancer(service)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		second, err := cs.getLoadBalancer(service)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !first.firstVPCReadRefusal("vpc-1") || second.firstVPCReadRefusal("vpc-1") {
+			t.Errorf("vpc-1 should be reported by the first sync only")
+		}
+	})
+
 	t.Run("before CloudStack 4.23 the VPC is not looked up", func(t *testing.T) {
 		lb := &loadBalancer{CloudStackClient: &cloudstack.CloudStackClient{}, version: semver.Version{Major: 4, Minor: 22, Patch: 1}}
 		got, err := lb.vpcHasFirewall(tier)

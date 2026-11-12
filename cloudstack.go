@@ -72,7 +72,8 @@ type CSCloud struct {
 	clientBuilder cloudprovider.ControllerClientBuilder
 
 	// vpcReadRefused holds the VPCs the account may not read, so that is logged once per VPC.
-	vpcReadRefused *sync.Map
+	// Its zero value is ready to use, also in a CSCloud built without newCSCloud.
+	vpcReadRefused sync.Map
 }
 
 func init() {
@@ -107,8 +108,6 @@ func newCSCloud(cfg *CSConfig) (*CSCloud, error) {
 		zone:      cfg.Global.Zone,
 		region:    cfg.Global.Region,
 		version:   semver.Version{},
-
-		vpcReadRefused: &sync.Map{},
 	}
 
 	if cfg.Global.APIURL != "" && cfg.Global.APIKey != "" && cfg.Global.SecretKey != "" {

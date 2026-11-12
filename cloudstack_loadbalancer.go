@@ -568,7 +568,7 @@ func (cs *CSCloud) getLoadBalancer(service *corev1.Service) (*loadBalancer, erro
 		name:             cs.GetLoadBalancerName(context.TODO(), "", service),
 		projectID:        cs.projectID,
 		rules:            make(map[string]*cloudstack.LoadBalancerRule),
-		vpcReadRefused:   cs.vpcReadRefused,
+		vpcReadRefused:   &cs.vpcReadRefused,
 		version:          cs.version,
 	}
 
