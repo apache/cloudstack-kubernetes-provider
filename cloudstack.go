@@ -27,6 +27,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/apache/cloudstack-go/v2/cloudstack"
@@ -69,6 +70,9 @@ type CSCloud struct {
 	region        string
 	version       semver.Version
 	clientBuilder cloudprovider.ControllerClientBuilder
+
+	// vpcReadRefused holds the VPCs the account may not read, so that is logged once per VPC.
+	vpcReadRefused *sync.Map
 }
 
 func init() {
@@ -103,6 +107,8 @@ func newCSCloud(cfg *CSConfig) (*CSCloud, error) {
 		zone:      cfg.Global.Zone,
 		region:    cfg.Global.Region,
 		version:   semver.Version{},
+
+		vpcReadRefused: &sync.Map{},
 	}
 
 	if cfg.Global.APIURL != "" && cfg.Global.APIKey != "" && cfg.Global.SecretKey != "" {
