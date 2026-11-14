@@ -27,6 +27,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/apache/cloudstack-go/v2/cloudstack"
@@ -2942,6 +2943,39 @@ func TestListFirewallRulesDeduplicates(t *testing.T) {
 }
 
 func TestDeleteFirewallRule(t *testing.T) {
+	t.Run("a failed delete is reported even when a later one succeeds", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+
+		mockFirewall := cloudstack.NewMockFirewallServiceIface(ctrl)
+		listResp := &cloudstack.ListFirewallRulesResponse{
+			Count: 2,
+			FirewallRules: []*cloudstack.FirewallRule{
+				{Id: "fw-1", Protocol: "tcp", Startport: 80, Endport: 80, Cidrlist: defaultAllowedCIDR},
+				{Id: "fw-2", Protocol: "tcp", Startport: 80, Endport: 80, Cidrlist: "10.0.0.0/8"},
+			},
+		}
+		deleteFirst, deleteSecond := &cloudstack.DeleteFirewallRuleParams{}, &cloudstack.DeleteFirewallRuleParams{}
+		gomock.InOrder(
+			mockFirewall.EXPECT().NewListFirewallRulesParams().Return(&cloudstack.ListFirewallRulesParams{}),
+			mockFirewall.EXPECT().ListFirewallRules(gomock.Any()).Return(listResp, nil),
+			mockFirewall.EXPECT().NewDeleteFirewallRuleParams("fw-1").Return(deleteFirst),
+			mockFirewall.EXPECT().DeleteFirewallRule(deleteFirst).Return(nil, fmt.Errorf("router unreachable")),
+			mockFirewall.EXPECT().NewDeleteFirewallRuleParams("fw-2").Return(deleteSecond),
+			mockFirewall.EXPECT().DeleteFirewallRule(deleteSecond).Return(&cloudstack.DeleteFirewallRuleResponse{}, nil),
+		)
+
+		lb := &loadBalancer{CloudStackClient: &cloudstack.CloudStackClient{Firewall: mockFirewall}}
+
+		deleted, err := lb.deleteFirewallRule("ip-123", 80, LoadBalancerProtocolTCP)
+		if err == nil || !strings.Contains(err.Error(), "router unreachable") {
+			t.Fatalf("error = %v, want the failed delete", err)
+		}
+		if !deleted {
+			t.Errorf("deleted = false, want true for the rule that was deleted")
+		}
+	})
+
 	t.Run("delete matching rule", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		t.Cleanup(ctrl.Finish)
@@ -5063,6 +5097,7 @@ type ensureLBTestEnv struct {
 	firewall *cloudstack.MockFirewallServiceIface
 	address  *cloudstack.MockAddressServiceIface
 	acl      *cloudstack.MockNetworkACLServiceIface
+	vpc      *cloudstack.MockVPCServiceIface
 	service  *corev1.Service
 	nodes    []*corev1.Node
 
@@ -5080,6 +5115,7 @@ func newEnsureLBTestEnv(ctrl *gomock.Controller, annotations map[string]string, 
 		firewall: cloudstack.NewMockFirewallServiceIface(ctrl),
 		address:  cloudstack.NewMockAddressServiceIface(ctrl),
 		acl:      cloudstack.NewMockNetworkACLServiceIface(ctrl),
+		vpc:      cloudstack.NewMockVPCServiceIface(ctrl),
 	}
 
 	e.cs = &CSCloud{
@@ -5090,6 +5126,7 @@ func newEnsureLBTestEnv(ctrl *gomock.Controller, annotations map[string]string, 
 			Firewall:       e.firewall,
 			Address:        e.address,
 			NetworkACL:     e.acl,
+			VPC:            e.vpc,
 		},
 		version: semver.Version{Major: 4, Minor: 22, Patch: 0},
 	}
@@ -6292,6 +6329,476 @@ func TestEnsureLoadBalancerDeletedFirewallUsesRuleNetwork(t *testing.T) {
 	}
 	if ipID, _ := listParams.GetIpaddressid(); ipID != "ip-1" {
 		t.Errorf("firewall rules listed on IP %q, want ip-1", ipID)
+	}
+}
+
+func TestVPCHasFirewall(t *testing.T) {
+	tier := &cloudstack.Network{Id: "net-1", Vpcid: "vpc-1", Service: []cloudstack.NetworkServiceInternal{{Name: "NetworkACL"}}}
+	vpcWith := func(services ...string) *cloudstack.VPC {
+		vpc := &cloudstack.VPC{Id: "vpc-1"}
+		for _, name := range services {
+			vpc.Service = append(vpc.Service, cloudstack.VPCServiceInternal{Name: name})
+		}
+		return vpc
+	}
+	notAllowed := fmt.Errorf("CloudStack API error 432 (CSExceptionErrorCode: 9999): The API [listVPCs] does not exist or is not available for the account")
+
+	tests := []struct {
+		name    string
+		vpc     *cloudstack.VPC
+		err     error
+		want    bool
+		wantErr bool
+	}{
+		{name: "a VPC with the Firewall service", vpc: vpcWith("Dhcp", "Firewall", "NetworkACL"), want: true},
+		{name: "a VPC without the Firewall service", vpc: vpcWith("Dhcp", "NetworkACL"), want: false},
+		{name: "an account that may not list VPCs is treated as having no VPC firewall", err: notAllowed, want: false},
+		{name: "a failed lookup is reported", err: fmt.Errorf("API unavailable"), wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			t.Cleanup(ctrl.Finish)
+
+			count := 1
+			if tt.err != nil {
+				count = -1
+			}
+			mockVPC := cloudstack.NewMockVPCServiceIface(ctrl)
+			// Once only: an answer is remembered for the VPC, a failure is not.
+			times := 1
+			if tt.wantErr {
+				times = 2
+			}
+			mockVPC.EXPECT().GetVPCByID("vpc-1", gomock.Any()).Return(tt.vpc, count, tt.err).Times(times)
+			lb := &loadBalancer{CloudStackClient: &cloudstack.CloudStackClient{VPC: mockVPC}, name: "atestuid", version: vpcFirewallVersion}
+
+			for i := 0; i < 2; i++ {
+				got, err := lb.vpcHasFirewall(tier)
+				if tt.wantErr {
+					if err == nil || !strings.Contains(err.Error(), "API unavailable") {
+						t.Fatalf("error = %v, want the lookup failure", err)
+					}
+					continue
+				}
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				if got != tt.want {
+					t.Errorf("vpcHasFirewall() = %v, want %v", got, tt.want)
+				}
+			}
+		})
+	}
+
+	t.Run("a network outside a VPC is not looked up", func(t *testing.T) {
+		lb := &loadBalancer{CloudStackClient: &cloudstack.CloudStackClient{}, version: vpcFirewallVersion}
+		got, err := lb.vpcHasFirewall(&cloudstack.Network{Id: "net-iso", Service: []cloudstack.NetworkServiceInternal{{Name: "Firewall"}}})
+		if err != nil || got {
+			t.Errorf("vpcHasFirewall() = %v, %v, want false, nil", got, err)
+		}
+	})
+
+	t.Run("a refused lookup is reported once per VPC", func(t *testing.T) {
+		refused := &sync.Map{}
+		lb := &loadBalancer{vpcReadRefused: refused}
+		if !lb.firstVPCReadRefusal("vpc-1") || lb.firstVPCReadRefusal("vpc-1") {
+			t.Errorf("vpc-1 should be reported the first time only")
+		}
+		if !(&loadBalancer{vpcReadRefused: refused}).firstVPCReadRefusal("vpc-2") {
+			t.Errorf("vpc-2 should be reported, also by another sync")
+		}
+		unshared := &loadBalancer{}
+		first := unshared.firstVPCReadRefusal("vpc-1")
+		second := unshared.firstVPCReadRefusal("vpc-1")
+		if !first || !second {
+			t.Errorf("without shared state every refusal should be reported")
+		}
+	})
+
+	t.Run("syncs of a CSCloud built without newCSCloud share the refusals", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+		mockLB := cloudstack.NewMockLoadBalancerServiceIface(ctrl)
+		mockLB.EXPECT().NewListLoadBalancerRulesParams().Return(&cloudstack.ListLoadBalancerRulesParams{}).Times(2)
+		mockLB.EXPECT().ListLoadBalancerRules(gomock.Any()).Return(&cloudstack.ListLoadBalancerRulesResponse{}, nil).Times(2)
+
+		cs := &CSCloud{client: &cloudstack.CloudStackClient{LoadBalancer: mockLB}}
+		service := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: "test-service", Namespace: "default"}}
+		first, err := cs.getLoadBalancer(service)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		second, err := cs.getLoadBalancer(service)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !first.firstVPCReadRefusal("vpc-1") || second.firstVPCReadRefusal("vpc-1") {
+			t.Errorf("vpc-1 should be reported by the first sync only")
+		}
+	})
+
+	t.Run("before CloudStack 4.23 the VPC is not looked up", func(t *testing.T) {
+		lb := &loadBalancer{CloudStackClient: &cloudstack.CloudStackClient{}, version: semver.Version{Major: 4, Minor: 22, Patch: 1}}
+		got, err := lb.vpcHasFirewall(tier)
+		if err != nil || got {
+			t.Errorf("vpcHasFirewall() = %v, %v, want false, nil", got, err)
+		}
+	})
+}
+
+// In a VPC with the Firewall service the tiers list NetworkACL but not Firewall, and the VPC
+// virtual router only admits traffic to a public IP that a firewall rule allows. Such a tier needs
+// a firewall rule next to its Network ACL rule.
+func TestEnsureLoadBalancerVPCFirewall(t *testing.T) {
+	vpcTier := &cloudstack.Network{
+		Id:      "net-1",
+		Vpcid:   "vpc-1",
+		Aclid:   "acl-1",
+		Service: []cloudstack.NetworkServiceInternal{{Name: "NetworkACL"}},
+	}
+	tierACLList := &cloudstack.NetworkACLList{Id: "acl-1", Name: "tier-acl", Vpcid: "vpc-1"}
+	firewallVPC := &cloudstack.VPC{Id: "vpc-1", Service: []cloudstack.VPCServiceInternal{{Name: "NetworkACL"}, {Name: "Firewall"}}}
+	existingRule := func() *cloudstack.LoadBalancerRule {
+		return &cloudstack.LoadBalancerRule{
+			Id:          "rule-1",
+			Name:        "atestuid-tcp-80",
+			Publicip:    "10.0.0.1",
+			Publicipid:  "ip-1",
+			Publicport:  "80",
+			Privateport: "30000",
+			Cidrlist:    defaultAllowedCIDR,
+			Algorithm:   "roundrobin",
+			Protocol:    "tcp",
+			Networkid:   "net-1",
+		}
+	}
+
+	firewallRules := &cloudstack.ListFirewallRulesResponse{
+		Count:         1,
+		FirewallRules: []*cloudstack.FirewallRule{{Id: "fw-80", Protocol: "tcp", Startport: 80, Endport: 80, Cidrlist: defaultAllowedCIDR}},
+	}
+	tierRules := []*cloudstack.NetworkACL{ownACLRule("acl-own-80")}
+
+	// portChange registers a sync that moves the service from port 80 to 8080: the 8080 load
+	// balancer rule, its ACL rule and its firewall rule, which CloudStack answers with createErr.
+	// Removing the old port is left to each subtest.
+	portChange := func(t *testing.T, createErr error) (*ensureLBTestEnv, *cloudstack.CreateFirewallRuleParams, *cloudstack.CreateNetworkACLParams) {
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+
+		env := newEnsureLBTestEnv(ctrl, nil, []corev1.ServicePort{{Port: 8080, NodePort: 30000, Protocol: corev1.ProtocolTCP}})
+		env.cs.version = vpcFirewallVersion
+		env.service.Spec.LoadBalancerSourceRanges = []string{"192.0.2.0/24"}
+		env.expectHosts()
+		env.expectRules(existingRule())
+		env.network.EXPECT().GetNetworkByID("net-1", gomock.Any()).Return(vpcTier, 1, nil).Times(2)
+		env.vpc.EXPECT().GetVPCByID("vpc-1", gomock.Any()).Return(firewallVPC, 1, nil)
+
+		env.acl.EXPECT().GetNetworkACLListByID("acl-1", gomock.Any()).Return(tierACLList, 1, nil)
+		env.acl.EXPECT().NewListNetworkACLsParams().Return(&cloudstack.ListNetworkACLsParams{})
+		env.acl.EXPECT().ListNetworkACLs(gomock.Any()).Return(&cloudstack.ListNetworkACLsResponse{Count: len(tierRules), NetworkACLs: tierRules}, nil)
+		createACL := &cloudstack.CreateNetworkACLParams{}
+		env.acl.EXPECT().NewCreateNetworkACLParams("tcp").Return(createACL)
+		env.acl.EXPECT().CreateNetworkACL(createACL).Return(&cloudstack.CreateNetworkACLResponse{Id: "acl-own-8080"}, nil)
+
+		// The firewall rule follows the load balancer rule: on CloudStack releases that keep a
+		// public IP of a tier off the router once it has a firewall rule, the other order would
+		// leave a new IP unconfigured.
+		createFirewall := &cloudstack.CreateFirewallRuleParams{}
+		var created *cloudstack.CreateFirewallRuleResponse
+		if createErr == nil {
+			created = &cloudstack.CreateFirewallRuleResponse{Id: "fw-8080"}
+		}
+		gomock.InOrder(
+			env.lb.EXPECT().NewCreateLoadBalancerRuleParams("roundrobin", "atestuid-tcp-8080", 30000, 8080).Return(&cloudstack.CreateLoadBalancerRuleParams{}),
+			env.lb.EXPECT().CreateLoadBalancerRule(gomock.Any()).Return(&cloudstack.CreateLoadBalancerRuleResponse{
+				Id: "rule-2", Name: "atestuid-tcp-8080", Publicip: "10.0.0.1", Publicipid: "ip-1", Publicport: "8080", Protocol: "tcp", Networkid: "net-1",
+			}, nil),
+			env.firewall.EXPECT().NewListFirewallRulesParams().Return(&cloudstack.ListFirewallRulesParams{}),
+			env.firewall.EXPECT().ListFirewallRules(gomock.Any()).Return(firewallRules, nil),
+			env.firewall.EXPECT().NewCreateFirewallRuleParams("ip-1", "tcp").Return(createFirewall),
+			env.firewall.EXPECT().CreateFirewallRule(createFirewall).Return(created, createErr),
+		)
+		env.lb.EXPECT().NewAssignToLoadBalancerRuleParams("rule-2").Return(&cloudstack.AssignToLoadBalancerRuleParams{})
+		env.lb.EXPECT().AssignToLoadBalancerRule(gomock.Any()).Return(&cloudstack.AssignToLoadBalancerRuleResponse{}, nil)
+
+		return env, createFirewall, createACL
+	}
+
+	t.Run("a port change opens the new port in the firewall and the ACL, and closes the old one", func(t *testing.T) {
+		env, createFirewall, createACL := portChange(t, nil)
+
+		env.firewall.EXPECT().NewListFirewallRulesParams().Return(&cloudstack.ListFirewallRulesParams{})
+		env.firewall.EXPECT().ListFirewallRules(gomock.Any()).Return(firewallRules, nil)
+		deleteFirewall := &cloudstack.DeleteFirewallRuleParams{}
+		env.firewall.EXPECT().NewDeleteFirewallRuleParams("fw-80").Return(deleteFirewall)
+		env.firewall.EXPECT().DeleteFirewallRule(deleteFirewall).Return(&cloudstack.DeleteFirewallRuleResponse{}, nil)
+		env.acl.EXPECT().NewListNetworkACLsParams().Return(&cloudstack.ListNetworkACLsParams{})
+		env.acl.EXPECT().ListNetworkACLs(gomock.Any()).Return(&cloudstack.ListNetworkACLsResponse{Count: len(tierRules), NetworkACLs: tierRules}, nil)
+		deleteACL := &cloudstack.DeleteNetworkACLParams{}
+		env.acl.EXPECT().NewDeleteNetworkACLParams("acl-own-80").Return(deleteACL)
+		env.acl.EXPECT().DeleteNetworkACL(deleteACL).Return(&cloudstack.DeleteNetworkACLResponse{}, nil)
+		env.lb.EXPECT().NewDeleteLoadBalancerRuleParams("rule-1").Return(&cloudstack.DeleteLoadBalancerRuleParams{})
+		env.lb.EXPECT().DeleteLoadBalancerRule(gomock.Any()).Return(&cloudstack.DeleteLoadBalancerRuleResponse{}, nil)
+
+		if _, err := env.cs.EnsureLoadBalancer(context.TODO(), "test-cluster", env.service, env.nodes); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cidrs, _ := createFirewall.GetCidrlist(); !reflect.DeepEqual(cidrs, []string{"192.0.2.0/24"}) {
+			t.Errorf("firewall rule created for %v, want spec.loadBalancerSourceRanges", cidrs)
+		}
+		start, _ := createFirewall.GetStartport()
+		end, _ := createFirewall.GetEndport()
+		if start != 8080 || end != 8080 {
+			t.Errorf("firewall rule created for ports %v-%v, want 8080", start, end)
+		}
+		if aclPort, _ := createACL.GetStartport(); aclPort != 8080 {
+			t.Errorf("ACL rule created for port %v, want 8080", aclPort)
+		}
+	})
+
+	t.Run("an old port whose firewall rule cannot be deleted keeps its load balancer and ACL rules", func(t *testing.T) {
+		env, _, _ := portChange(t, nil)
+
+		env.firewall.EXPECT().NewListFirewallRulesParams().Return(&cloudstack.ListFirewallRulesParams{})
+		env.firewall.EXPECT().ListFirewallRules(gomock.Any()).Return(firewallRules, nil)
+		deleteFirewall := &cloudstack.DeleteFirewallRuleParams{}
+		env.firewall.EXPECT().NewDeleteFirewallRuleParams("fw-80").Return(deleteFirewall)
+		env.firewall.EXPECT().DeleteFirewallRule(deleteFirewall).Return(nil, fmt.Errorf("router unreachable"))
+
+		_, err := env.cs.EnsureLoadBalancer(context.TODO(), "test-cluster", env.service, env.nodes)
+		if err == nil || !strings.Contains(err.Error(), "router unreachable") {
+			t.Fatalf("error = %v, want the firewall rule failure reported for a retry", err)
+		}
+	})
+
+	t.Run("a firewall rule that cannot be created fails the sync", func(t *testing.T) {
+		env, _, _ := portChange(t, fmt.Errorf("router unreachable"))
+
+		_, err := env.cs.EnsureLoadBalancer(context.TODO(), "test-cluster", env.service, env.nodes)
+		if err == nil || !strings.Contains(err.Error(), "router unreachable") {
+			t.Fatalf("error = %v, want the firewall rule failure", err)
+		}
+	})
+
+	t.Run("an account that may not list VPCs keeps only the ACL rule", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+
+		env := newEnsureLBTestEnv(ctrl, nil, []corev1.ServicePort{{Port: 80, NodePort: 30000, Protocol: corev1.ProtocolTCP}})
+		env.cs.version = vpcFirewallVersion
+		env.expectHosts()
+		env.expectRules(existingRule())
+		env.network.EXPECT().GetNetworkByID("net-1", gomock.Any()).Return(vpcTier, 1, nil).Times(2)
+		env.vpc.EXPECT().GetVPCByID("vpc-1", gomock.Any()).Return(nil, -1,
+			fmt.Errorf("CloudStack API error 432 (CSExceptionErrorCode: 9999): The API [listVPCs] does not exist or is not available for the account"))
+		env.acl.EXPECT().GetNetworkACLListByID("acl-1", gomock.Any()).Return(tierACLList, 1, nil)
+		env.acl.EXPECT().NewListNetworkACLsParams().Return(&cloudstack.ListNetworkACLsParams{})
+		env.acl.EXPECT().ListNetworkACLs(gomock.Any()).Return(&cloudstack.ListNetworkACLsResponse{Count: 1, NetworkACLs: []*cloudstack.NetworkACL{ownACLRule("acl-own-80")}}, nil)
+
+		if _, err := env.cs.EnsureLoadBalancer(context.TODO(), "test-cluster", env.service, env.nodes); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("a failed VPC lookup for a new service associates no IP", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+
+		env := newEnsureLBTestEnv(ctrl, nil, []corev1.ServicePort{{Port: 80, NodePort: 30000, Protocol: corev1.ProtocolTCP}})
+		env.cs.version = vpcFirewallVersion
+		env.expectHosts()
+		env.expectRules()
+		env.network.EXPECT().GetNetworkByID("net-1", gomock.Any()).Return(vpcTier, 1, nil)
+		env.vpc.EXPECT().GetVPCByID("vpc-1", gomock.Any()).Return(nil, -1, fmt.Errorf("API unavailable"))
+
+		_, err := env.cs.EnsureLoadBalancer(context.TODO(), "test-cluster", env.service, env.nodes)
+		if err == nil || !strings.Contains(err.Error(), "API unavailable") {
+			t.Fatalf("error = %v, want the lookup failure", err)
+		}
+	})
+
+	t.Run("a failed VPC lookup creates nothing", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+
+		env := newEnsureLBTestEnv(ctrl, nil, []corev1.ServicePort{{Port: 8080, NodePort: 30000, Protocol: corev1.ProtocolTCP}})
+		env.cs.version = vpcFirewallVersion
+		env.expectHosts()
+		env.expectRules(existingRule())
+		env.network.EXPECT().GetNetworkByID("net-1", gomock.Any()).Return(vpcTier, 1, nil)
+		env.vpc.EXPECT().GetVPCByID("vpc-1", gomock.Any()).Return(nil, -1, fmt.Errorf("API unavailable"))
+
+		_, err := env.cs.EnsureLoadBalancer(context.TODO(), "test-cluster", env.service, env.nodes)
+		if err == nil || !strings.Contains(err.Error(), "API unavailable") {
+			t.Fatalf("error = %v, want the lookup failure", err)
+		}
+	})
+}
+
+func TestEnsureLoadBalancerDeletedVPCFirewall(t *testing.T) {
+	service := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: "test-service", Namespace: "default", UID: "test-uid"}}
+	firewallVPC := &cloudstack.VPC{Id: "vpc-1", Service: []cloudstack.VPCServiceInternal{{Name: "NetworkACL"}, {Name: "Firewall"}}}
+
+	type mocks struct {
+		lb       *cloudstack.MockLoadBalancerServiceIface
+		firewall *cloudstack.MockFirewallServiceIface
+		acl      *cloudstack.MockNetworkACLServiceIface
+		address  *cloudstack.MockAddressServiceIface
+		vpc      *cloudstack.MockVPCServiceIface
+	}
+	newEnv := func(t *testing.T) (*CSCloud, mocks) {
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+
+		m := mocks{
+			lb:       cloudstack.NewMockLoadBalancerServiceIface(ctrl),
+			firewall: cloudstack.NewMockFirewallServiceIface(ctrl),
+			acl:      cloudstack.NewMockNetworkACLServiceIface(ctrl),
+			address:  cloudstack.NewMockAddressServiceIface(ctrl),
+			vpc:      cloudstack.NewMockVPCServiceIface(ctrl),
+		}
+		mockNetwork := cloudstack.NewMockNetworkServiceIface(ctrl)
+
+		m.lb.EXPECT().NewListLoadBalancerRulesParams().Return(&cloudstack.ListLoadBalancerRulesParams{})
+		m.lb.EXPECT().ListLoadBalancerRules(gomock.Any()).Return(&cloudstack.ListLoadBalancerRulesResponse{
+			Count: 1,
+			LoadBalancerRules: []*cloudstack.LoadBalancerRule{{
+				Id: "rule-1", Name: "atestuid-tcp-80", Publicip: "10.0.0.1", Publicipid: "ip-1", Publicport: "80", Protocol: "tcp", Networkid: "net-tier",
+			}},
+		}, nil)
+		mockNetwork.EXPECT().GetNetworkByID("net-tier", gomock.Any()).Return(&cloudstack.Network{Id: "net-tier", Vpcid: "vpc-1"}, 1, nil)
+
+		cs := &CSCloud{
+			client: &cloudstack.CloudStackClient{
+				LoadBalancer: m.lb, Network: mockNetwork, Firewall: m.firewall, NetworkACL: m.acl, Address: m.address, VPC: m.vpc,
+			},
+			version: vpcFirewallVersion,
+		}
+		return cs, m
+	}
+	firewallRules := &cloudstack.ListFirewallRulesResponse{
+		Count:         1,
+		FirewallRules: []*cloudstack.FirewallRule{{Id: "fw-80", Protocol: "tcp", Startport: 80, Endport: 80, Cidrlist: defaultAllowedCIDR}},
+	}
+
+	t.Run("deletes the firewall rule on the rule's IP and its own ACL rule, then the rule and the IP", func(t *testing.T) {
+		cs, m := newEnv(t)
+		m.vpc.EXPECT().GetVPCByID("vpc-1", gomock.Any()).Return(firewallVPC, 1, nil)
+		listFirewall := &cloudstack.ListFirewallRulesParams{}
+		deleteFirewall := &cloudstack.DeleteFirewallRuleParams{}
+		deleteACL := &cloudstack.DeleteNetworkACLParams{}
+		deleteRule := &cloudstack.DeleteLoadBalancerRuleParams{}
+		release := &cloudstack.DisassociateIpAddressParams{}
+		gomock.InOrder(
+			m.firewall.EXPECT().NewListFirewallRulesParams().Return(listFirewall),
+			m.firewall.EXPECT().ListFirewallRules(listFirewall).Return(firewallRules, nil),
+			m.firewall.EXPECT().NewDeleteFirewallRuleParams("fw-80").Return(deleteFirewall),
+			m.firewall.EXPECT().DeleteFirewallRule(deleteFirewall).Return(&cloudstack.DeleteFirewallRuleResponse{}, nil),
+			m.acl.EXPECT().NewListNetworkACLsParams().Return(&cloudstack.ListNetworkACLsParams{}),
+			m.acl.EXPECT().ListNetworkACLs(gomock.Any()).Return(&cloudstack.ListNetworkACLsResponse{Count: 1, NetworkACLs: []*cloudstack.NetworkACL{ownACLRule("acl-own")}}, nil),
+			m.acl.EXPECT().NewDeleteNetworkACLParams("acl-own").Return(deleteACL),
+			m.acl.EXPECT().DeleteNetworkACL(deleteACL).Return(&cloudstack.DeleteNetworkACLResponse{}, nil),
+			m.lb.EXPECT().NewDeleteLoadBalancerRuleParams("rule-1").Return(deleteRule),
+			m.lb.EXPECT().DeleteLoadBalancerRule(deleteRule).Return(&cloudstack.DeleteLoadBalancerRuleResponse{}, nil),
+			m.address.EXPECT().NewDisassociateIpAddressParams("ip-1").Return(release),
+			m.address.EXPECT().DisassociateIpAddress(release).Return(&cloudstack.DisassociateIpAddressResponse{}, nil),
+		)
+
+		if err := cs.EnsureLoadBalancerDeleted(context.TODO(), "test-cluster", service); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if ipID, _ := listFirewall.GetIpaddressid(); ipID != "ip-1" {
+			t.Errorf("firewall rules listed on IP %q, want ip-1", ipID)
+		}
+	})
+
+	t.Run("keeps the rule and the IP when the firewall rule cannot be deleted", func(t *testing.T) {
+		cs, m := newEnv(t)
+		m.vpc.EXPECT().GetVPCByID("vpc-1", gomock.Any()).Return(firewallVPC, 1, nil)
+		m.firewall.EXPECT().NewListFirewallRulesParams().Return(&cloudstack.ListFirewallRulesParams{})
+		m.firewall.EXPECT().ListFirewallRules(gomock.Any()).Return(firewallRules, nil)
+		deleteFirewall := &cloudstack.DeleteFirewallRuleParams{}
+		m.firewall.EXPECT().NewDeleteFirewallRuleParams("fw-80").Return(deleteFirewall)
+		m.firewall.EXPECT().DeleteFirewallRule(deleteFirewall).Return(nil, fmt.Errorf("router unreachable"))
+
+		err := cs.EnsureLoadBalancerDeleted(context.TODO(), "test-cluster", service)
+		if err == nil || !strings.Contains(err.Error(), "router unreachable") {
+			t.Fatalf("error = %v, want the firewall rule failure reported for a retry", err)
+		}
+	})
+
+	t.Run("an account that may not list VPCs still deletes the ACL rule, the rule and the IP", func(t *testing.T) {
+		cs, m := newEnv(t)
+		m.vpc.EXPECT().GetVPCByID("vpc-1", gomock.Any()).Return(nil, -1,
+			fmt.Errorf("CloudStack API error 432 (CSExceptionErrorCode: 9999): The API [listVPCs] does not exist or is not available for the account"))
+		deleteACL := &cloudstack.DeleteNetworkACLParams{}
+		deleteRule := &cloudstack.DeleteLoadBalancerRuleParams{}
+		release := &cloudstack.DisassociateIpAddressParams{}
+		gomock.InOrder(
+			m.acl.EXPECT().NewListNetworkACLsParams().Return(&cloudstack.ListNetworkACLsParams{}),
+			m.acl.EXPECT().ListNetworkACLs(gomock.Any()).Return(&cloudstack.ListNetworkACLsResponse{Count: 1, NetworkACLs: []*cloudstack.NetworkACL{ownACLRule("acl-own")}}, nil),
+			m.acl.EXPECT().NewDeleteNetworkACLParams("acl-own").Return(deleteACL),
+			m.acl.EXPECT().DeleteNetworkACL(deleteACL).Return(&cloudstack.DeleteNetworkACLResponse{}, nil),
+			m.lb.EXPECT().NewDeleteLoadBalancerRuleParams("rule-1").Return(deleteRule),
+			m.lb.EXPECT().DeleteLoadBalancerRule(deleteRule).Return(&cloudstack.DeleteLoadBalancerRuleResponse{}, nil),
+			m.address.EXPECT().NewDisassociateIpAddressParams("ip-1").Return(release),
+			m.address.EXPECT().DisassociateIpAddress(release).Return(&cloudstack.DisassociateIpAddressResponse{}, nil),
+		)
+
+		if err := cs.EnsureLoadBalancerDeleted(context.TODO(), "test-cluster", service); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("keeps the rule and the IP when the VPC cannot be read", func(t *testing.T) {
+		cs, m := newEnv(t)
+		m.vpc.EXPECT().GetVPCByID("vpc-1", gomock.Any()).Return(nil, -1, fmt.Errorf("API unavailable"))
+
+		err := cs.EnsureLoadBalancerDeleted(context.TODO(), "test-cluster", service)
+		if err == nil || !strings.Contains(err.Error(), "API unavailable") {
+			t.Fatalf("error = %v, want the lookup failure reported for a retry", err)
+		}
+	})
+}
+
+// An obsolete rule in another VPC whose VPC cannot be read keeps its load balancer, firewall and
+// ACL rules, so the next sync can retry.
+func TestPruneRulesKeepsTheRuleWhenItsVPCCannotBeRead(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	t.Cleanup(ctrl.Finish)
+
+	mockNetwork := cloudstack.NewMockNetworkServiceIface(ctrl)
+	mockVPC := cloudstack.NewMockVPCServiceIface(ctrl)
+	mockNetwork.EXPECT().GetNetworkByID("net-old", gomock.Any()).Return(&cloudstack.Network{
+		Id: "net-old", Vpcid: "vpc-old", Service: []cloudstack.NetworkServiceInternal{{Name: "NetworkACL"}},
+	}, 1, nil)
+	mockVPC.EXPECT().GetVPCByID("vpc-old", gomock.Any()).Return(nil, -1, fmt.Errorf("API unavailable"))
+
+	lb := &loadBalancer{
+		CloudStackClient: &cloudstack.CloudStackClient{
+			LoadBalancer: cloudstack.NewMockLoadBalancerServiceIface(ctrl),
+			Network:      mockNetwork,
+			NetworkACL:   cloudstack.NewMockNetworkACLServiceIface(ctrl),
+			Firewall:     cloudstack.NewMockFirewallServiceIface(ctrl),
+			VPC:          mockVPC,
+		},
+		name:      "atestuid",
+		networkID: "net-new",
+		ipAddrID:  "ip-current",
+		version:   vpcFirewallVersion,
+	}
+	obsolete := []obsoleteRule{{
+		rule:     &cloudstack.LoadBalancerRule{Id: "rule-old", Name: "atestuid-tcp-80", Publicipid: "ip-2", Publicport: "80", Protocol: "tcp", Networkid: "net-old"},
+		protocol: LoadBalancerProtocolTCP,
+		tuple:    portProtocol{"tcp", 80},
+	}}
+
+	err := lb.pruneRules(obsolete, nil, &cloudstack.Network{Id: "net-new", Service: []cloudstack.NetworkServiceInternal{{Name: "Firewall"}}})
+	if err == nil || !strings.Contains(err.Error(), "API unavailable") {
+		t.Fatalf("error = %v, want the lookup failure", err)
 	}
 }
 
