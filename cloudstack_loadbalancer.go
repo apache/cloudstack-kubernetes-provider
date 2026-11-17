@@ -30,6 +30,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"unicode"
 
 	"github.com/apache/cloudstack-go/v2/cloudstack"
@@ -77,6 +78,10 @@ const (
 // the rule and creating it again.
 var cidrListUpdateVersion = semver.Version{Major: 4, Minor: 22, Patch: 0}
 
+// vpcFirewallVersion is the first CloudStack release in which a VPC offering can include the
+// Firewall service. Below it no VPC has a firewall, so the VPC is not read.
+var vpcFirewallVersion = semver.Version{Major: 4, Minor: 23, Patch: 0}
+
 type loadBalancer struct {
 	*cloudstack.CloudStackClient
 
@@ -90,6 +95,9 @@ type loadBalancer struct {
 	rules                    map[string]*cloudstack.LoadBalancerRule
 	duplicateRules           []*cloudstack.LoadBalancerRule
 	networks                 map[string]*cloudstack.Network
+	vpcFirewalls             map[string]bool
+	vpcReadRefused           *sync.Map
+	version                  semver.Version
 	ipAssociatedByController bool
 }
 
@@ -189,6 +197,13 @@ func (cs *CSCloud) EnsureLoadBalancer(ctx context.Context, clusterName string, s
 	}
 	if err := stickiness.normalise(supportedStickinessMethods(network)); err != nil {
 		return nil, err
+	}
+	// Likewise read the VPC of a tier now, so a failed lookup fails before an IP is associated.
+	// The answer is remembered for applyLoadBalancerRules.
+	if usesNetworkACL(network) {
+		if _, err := lb.vpcHasFirewall(network); err != nil {
+			return nil, err
+		}
 	}
 
 	rulesApplied := false
@@ -333,6 +348,64 @@ func isNetworkACLSupported(services []cloudstack.NetworkServiceInternal) bool {
 	return false
 }
 
+// vpcHasFirewall reports whether the VPC a network belongs to has the Firewall service. Since
+// CloudStack 4.23 a VPC offering can include it. A tier lists the service only if its own network
+// offering includes it, and the VPC virtual router drops traffic to a public IP with a load
+// balancer rule unless a firewall rule admits it, on top of the tier's Network ACL. A network
+// outside a VPC, or on an earlier release, has no VPC firewall.
+//
+// The answer is remembered per VPC. An account that may not call listVPCs is treated as if the
+// VPC had no Firewall service, as earlier releases did. The account CloudStack's Kubernetes
+// service creates for clusters in projects is one such account, and most VPCs have no Firewall
+// service, so the warning that names the missing API is logged once per VPC.
+func (lb *loadBalancer) vpcHasFirewall(network *cloudstack.Network) (bool, error) {
+	if network.Vpcid == "" || lb.version.LT(vpcFirewallVersion) {
+		return false, nil
+	}
+	if hasFirewall, ok := lb.vpcFirewalls[network.Vpcid]; ok {
+		return hasFirewall, nil
+	}
+
+	hasFirewall := false
+	vpc, _, err := lb.VPC.GetVPCByID(network.Vpcid, cloudstack.WithProject(lb.projectID))
+	switch {
+	case err != nil && isNotAllowed(err):
+		if lb.firstVPCReadRefusal(network.Vpcid) {
+			klog.Warningf("Cannot read VPC %v to check for the Firewall service, so no firewall rules are managed there; allow the account to call listVPCs: %v", network.Vpcid, err)
+		} else {
+			klog.V(4).Infof("Cannot read VPC %v to check for the Firewall service for load balancer %v: %v", network.Vpcid, lb.name, err)
+		}
+	case err != nil:
+		return false, fmt.Errorf("error fetching VPC %v of network %v: %v", network.Vpcid, network.Id, err)
+	default:
+		hasFirewall = slices.ContainsFunc(vpc.Service, func(svc cloudstack.VPCServiceInternal) bool {
+			return svc.Name == "Firewall"
+		})
+	}
+
+	if lb.vpcFirewalls == nil {
+		lb.vpcFirewalls = make(map[string]bool)
+	}
+	lb.vpcFirewalls[network.Vpcid] = hasFirewall
+
+	return hasFirewall, nil
+}
+
+// firstVPCReadRefusal reports whether the account was refused reading the VPC for the first time.
+func (lb *loadBalancer) firstVPCReadRefusal(vpcID string) bool {
+	if lb.vpcReadRefused == nil {
+		return true
+	}
+	_, seen := lb.vpcReadRefused.LoadOrStore(vpcID, struct{}{})
+	return !seen
+}
+
+// usesNetworkACL reports whether the controller opens ports on the network with Network ACL rules
+// rather than firewall rules.
+func usesNetworkACL(network *cloudstack.Network) bool {
+	return !isFirewallSupported(network.Service) && isNetworkACLSupported(network.Service)
+}
+
 // EnsureLoadBalancerDeleted deletes the specified load balancer if it exists, returning
 // nil if the load balancer specified either didn't exist or was successfully deleted.
 func (cs *CSCloud) EnsureLoadBalancerDeleted(ctx context.Context, clusterName string, service *corev1.Service) error {
@@ -351,7 +424,7 @@ func (cs *CSCloud) EnsureLoadBalancerDeleted(ctx context.Context, clusterName st
 		klog.Errorf("Error removing duplicate load balancer rules for %v/%v: %v", service.Namespace, service.Name, sweepErr)
 	}
 
-	var aclErr error
+	var openingErr error
 	for _, lbRule := range lb.rules {
 		klog.V(4).Infof("Deleting firewall rules / Network ACLs for load balancer: %v", lbRule.Name)
 		protocol := ProtocolFromLoadBalancer(lbRule.Protocol)
@@ -383,14 +456,36 @@ func (cs *CSCloud) EnsureLoadBalancerDeleted(ctx context.Context, clusterName st
 						klog.Errorf("Error deleting firewall rule: %v", err)
 					}
 				} else {
+					// In a VPC with the Firewall service the port also has a firewall rule on the
+					// IP. Like the ACL rule below, it is reached only through this rule, which is
+					// kept for the retry if the VPC cannot be read or the rule cannot be deleted.
+					vpcFirewall, err := lb.vpcHasFirewall(network)
+					if err != nil {
+						klog.Errorf("Error reading the VPC of network %v, keeping load balancer rule %v for the retry: %v", networkId, lbRule.Name, err)
+						if openingErr == nil {
+							openingErr = err
+						}
+						continue
+					}
+					if vpcFirewall {
+						klog.V(4).Infof("Deleting firewall rules for %v - %v", int(port), protocol)
+						if _, err := lb.deleteFirewallRule(lbRule.Publicipid, int(port), protocol); err != nil {
+							klog.Errorf("Error deleting firewall rule, keeping load balancer rule %v for the retry: %v", lbRule.Name, err)
+							if openingErr == nil {
+								openingErr = err
+							}
+							continue
+						}
+					}
+
 					klog.V(4).Infof("Deleting network ACLs for %v - %v", int(port), protocol)
 					_, err = lb.deleteNetworkACLRule(int(port), protocol, networkId)
 					if err != nil {
 						// Kubernetes stops retrying once no load balancer rule is left, and only
 						// this rule leads back to the tier and port of its ACL rule, so it is kept.
 						klog.Errorf("Error deleting Network ACL rule, keeping load balancer rule %v for the retry: %v", lbRule.Name, err)
-						if aclErr == nil {
-							aclErr = err
+						if openingErr == nil {
+							openingErr = err
 						}
 						continue
 					}
@@ -405,8 +500,8 @@ func (cs *CSCloud) EnsureLoadBalancerDeleted(ctx context.Context, clusterName st
 	}
 
 	// Releasing the IP would make CloudStack revoke the rules kept for the retry.
-	if aclErr != nil {
-		return errors.Join(aclErr, sweepErr)
+	if openingErr != nil {
+		return errors.Join(openingErr, sweepErr)
 	}
 
 	if lb.ipAddr != "" {
@@ -473,6 +568,8 @@ func (cs *CSCloud) getLoadBalancer(service *corev1.Service) (*loadBalancer, erro
 		name:             cs.GetLoadBalancerName(context.TODO(), "", service),
 		projectID:        cs.projectID,
 		rules:            make(map[string]*cloudstack.LoadBalancerRule),
+		vpcReadRefused:   &cs.vpcReadRefused,
+		version:          cs.version,
 	}
 
 	p := cs.client.LoadBalancer.NewListLoadBalancerRulesParams()
@@ -986,7 +1083,8 @@ func (lb *loadBalancer) ruleNetwork(lbRule *cloudstack.LoadBalancerRule) (*cloud
 // pruneRuleOpening deletes the firewall or network ACL rule admitting traffic to an obsolete
 // load balancer rule, unless a desired service port still claims that same opening. Which of
 // the two a rule has follows the network that rule belongs to, not the one being reconciled
-// towards, so a rule left behind in a network of the other kind does not keep its opening.
+// towards, so a rule left behind in a network of the other kind does not keep its opening. A
+// tier of a VPC with the Firewall service has both.
 //
 // A rule with an uninterpretable protocol keeps its opening, which cannot be identified without
 // one. A rule whose network cannot be established still has its firewall rule deleted, that
@@ -1009,6 +1107,15 @@ func (lb *loadBalancer) pruneRuleOpening(o obsoleteRule, claimed map[portProtoco
 	case isFirewallSupported(network.Service):
 		return lb.pruneFirewallRule(o, claimed)
 	case isNetworkACLSupported(network.Service):
+		vpcFirewall, err := lb.vpcHasFirewall(network)
+		if err != nil {
+			return err
+		}
+		if vpcFirewall {
+			if err := lb.pruneFirewallRule(o, claimed); err != nil {
+				return err
+			}
+		}
 		return lb.pruneNetworkACLRule(o, claimed, network.Id)
 	}
 
@@ -1109,6 +1216,16 @@ func (lb *loadBalancer) repairEmptyRule(lbRule *cloudstack.LoadBalancerRule) err
 // port and reconciles the firewall or network ACL rules it needs. It returns the rule of each
 // desired port, in the same order.
 func (lb *loadBalancer) applyLoadBalancerRules(desired []desiredLBRule, service *corev1.Service, network *cloudstack.Network, version semver.Version) ([]*cloudstack.LoadBalancerRule, error) {
+	// A tier of a VPC with the Firewall service needs a firewall rule as well as its ACL rule.
+	// This is checked before any rule is created.
+	vpcFirewall := false
+	if usesNetworkACL(network) {
+		var err error
+		if vpcFirewall, err = lb.vpcHasFirewall(network); err != nil {
+			return nil, err
+		}
+	}
+
 	rules := make([]*cloudstack.LoadBalancerRule, 0, len(desired))
 	for _, d := range desired {
 		lbRule, err := lb.ensureLoadBalancerRule(d, service, version)
@@ -1126,6 +1243,12 @@ func (lb *loadBalancer) applyLoadBalancerRules(desired []desiredLBRule, service 
 			klog.V(4).Infof("Creating ACL rules for load balancer rule: %v (%v:%v:%v)", d.name, d.protocol, lbRule.Publicip, d.port.Port)
 			if _, err := lb.updateNetworkACL(int(d.port.Port), d.protocol, network.Id); err != nil {
 				return nil, err
+			}
+			if vpcFirewall {
+				klog.V(4).Infof("Creating firewall rules for load balancer rule: %v (%v:%v:%v)", d.name, d.protocol, lbRule.Publicip, d.port.Port)
+				if _, err := lb.updateFirewallRule(lbRule.Publicipid, int(d.port.Port), d.protocol, service.Spec.LoadBalancerSourceRanges); err != nil {
+					return nil, err
+				}
 			}
 		}
 	}
@@ -2183,19 +2306,22 @@ func (lb *loadBalancer) deleteFirewallRule(publicIpId string, publicPort int, pr
 		}
 	}
 
-	// delete all rules
+	// delete all rules; the first failure is returned, so a later success does not hide it
 	deleted := false
+	var firstErr error
 	for _, rule := range filtered {
 		p := lb.Firewall.NewDeleteFirewallRuleParams(rule.Id)
-		_, err = lb.Firewall.DeleteFirewallRule(p)
-		if err != nil {
+		if _, err := lb.Firewall.DeleteFirewallRule(p); err != nil {
 			klog.Errorf("Error deleting old firewall rule %v: %v", rule.Id, err)
+			if firstErr == nil {
+				firstErr = err
+			}
 		} else {
 			deleted = true
 		}
 	}
 
-	return deleted, err
+	return deleted, firstErr
 }
 
 // deleteNetworkACLRule deletes this load balancer's Network ACL rules for a port on a tier and

@@ -65,6 +65,14 @@ On VPC tiers the controller also calls `updateNetworkACLItem`, to take over Netw
 earlier releases created (see [Per-Service Network ACL rules](#per-service-network-acl-rules)).
 Without it the controller creates its own rules and leaves the old ones for you to delete.
 
+From CloudStack 4.23 on, the controller also calls `listVPCs` on VPC tiers, to find out whether the
+VPC has the Firewall service (see [VPC Networks](#vpc-networks)). If the account may not call it,
+the controller manages Network ACL rules only, as earlier releases did, and logs a warning once per
+VPC. As of CloudStack 4.23, the role that CloudStack's Kubernetes service creates for its accounts
+in projects (`Project Kubernetes Service Role`) includes neither `listVPCs` nor
+`listNetworkACLLists`, which the controller needs to manage Network ACL rules. Add them to that
+role, before the rule that denies everything else.
+
 To create the secret, use the following command:
 ```bash
 kubectl -n kube-system create secret generic cloudstack-secret --from-file=cloud-config
@@ -320,18 +328,18 @@ annotation by hand — doing so can leak a public IP or release one that you all
 ### Restricting Source Traffic
 
 Traffic is filtered at two independent layers, which are configured separately. The second layer is
-either a firewall rule or a Network ACL rule, depending on what the network offers:
+a firewall rule, a Network ACL rule, or both, depending on the network:
 
 | Layer | Configured by | Default |
 | --- | --- | --- |
 | CloudStack load balancer rule | `service.beta.kubernetes.io/cloudstack-load-balancer-source-cidrs` annotation | `0.0.0.0/0` |
-| Firewall rule — isolated networks, and VPC networks that offer the Firewall service | `spec.loadBalancerSourceRanges` | `0.0.0.0/0` |
-| Network ACL rule — VPC networks without the Firewall service | Not configurable | `0.0.0.0/0` |
+| Firewall rule — isolated networks, and VPC tiers where the tier or its VPC offers the Firewall service | `spec.loadBalancerSourceRanges` | `0.0.0.0/0` |
+| Network ACL rule — VPC tiers whose own offering does not include the Firewall service | Not configurable | `0.0.0.0/0` |
 
-Traffic has to be allowed by both layers, so where firewall rules are used, either setting alone is
+Traffic has to be allowed by every layer, so where firewall rules are used, either setting alone is
 enough to block unwanted sources. Setting both keeps the two rules consistent in CloudStack.
-Where Network ACL rules are used, `spec.loadBalancerSourceRanges` has no effect and the annotation
-is the only way to restrict sources.
+Where only Network ACL rules are used, `spec.loadBalancerSourceRanges` has no effect and the
+annotation is the only way to restrict sources.
 
 The two layers turn traffic away differently. The firewall discards the packets on the virtual
 router, so a blocked client simply times out. The load balancer rule lets the connection be
@@ -405,10 +413,13 @@ controller creates **Network ACL** rules instead of firewall rules for the manag
 associates public IPs with the VPC rather than with the network.
 
 CloudStack 4.23 adds support for firewall rules on public IPs in VPC networks. This requires a
-network offering that includes the Firewall service and is not enabled by default. The controller
-chooses the mechanism based on the services the network offers, so on such networks it manages
-firewall rules instead of Network ACL rules, and `spec.loadBalancerSourceRanges` is applied to
-them.
+VPC offering that includes the Firewall service and is not enabled by default. A tier lists the
+service only if its own network offering includes it, and the VPC's virtual router drops traffic to
+a public IP with a load balancer rule unless a firewall rule allows it. On a tier the controller
+therefore reads the VPC with `listVPCs`, and if the VPC has the Firewall service, it manages a
+firewall rule on the public IP in addition to the tier's Network ACL rule, with
+`spec.loadBalancerSourceRanges` applied to the firewall rule. A network whose own offering includes
+the Firewall service gets firewall rules instead of Network ACL rules.
 
 When the controller manages Network ACL rules:
 * Each Service gets its own ACL rule for each port, even when another Service on the tier uses the
@@ -561,7 +572,51 @@ The controller keeps the Service's load balancer rule until its ACL rule is dele
 Kubernetes only retries the cleanup while a load balancer rule is left. Fix the cause shown in the
 log, for example the account's permissions, and the cleanup finishes on its own.
 
+### A deleted Service stays `Terminating`, log shows `Error deleting firewall rule, keeping load balancer rule`
+
+On a tier of a VPC with the Firewall service the Service also has a firewall rule, and the
+controller keeps the load balancer rule until that is deleted too, for the same reason. The same
+applies when the log shows `Error reading the VPC`: without the VPC the controller cannot tell
+whether there is a firewall rule. Fix the cause shown in the log and the cleanup finishes on its
+own.
+
+### A port in a VPC with the Firewall service stays closed, log shows `Cannot read VPC`
+
+The controller could not read the VPC to find out whether it has the Firewall service, so it added
+the Network ACL rule but no firewall rule, and the VPC's virtual router drops the traffic. Allow the
+controller's account to call `listVPCs` (see [Kubernetes](#kubernetes)). The warning is logged once
+per VPC until the controller restarts. The controller adds the firewall rule the next time it syncs
+the Service, which happens when the Service changes or the controller restarts.
+
 ## Upgrading
+
+### Firewall rules on tiers of a VPC with the Firewall service
+
+This affects CloudStack 4.23 and later, on VPC tiers whose VPC offering includes the Firewall
+service but whose own offering does not. Earlier releases added only a Network ACL rule there, so
+the VPC's firewall kept the Service's ports closed. A tier whose own offering includes the Firewall
+service still gets a firewall rule only, which is now also deleted with the Service. Other networks
+behave as before.
+
+Before upgrading:
+
+* As on isolated networks, the controller treats the firewall rules on a Service's IP for its ports
+  and protocols as the Service's: it replaces a rule with another CIDR list and deletes the rules
+  with the Service. If you added such rules by hand, for example to work around the missing rule,
+  and they allow fewer sources than `0.0.0.0/0`, put those CIDRs into the Service's
+  `spec.loadBalancerSourceRanges`. Otherwise the first sync replaces them with a rule for
+  `0.0.0.0/0`.
+* Allow the controller's account to call `listVPCs`; see [Kubernetes](#kubernetes). Without it the
+  controller keeps managing only the ACL rule.
+* If the cloud config sets `version`, keep it at the CloudStack version in use. The controller reads
+  the VPC only when that version is 4.23 or later.
+
+After upgrading, the first sync of each Service adds a firewall rule on its public IP for each port,
+allowing the CIDRs in `spec.loadBalancerSourceRanges`, or `0.0.0.0/0` if it is empty.
+
+An earlier release only deletes the ACL rule. After a downgrade, the firewall rule of a Service or
+port that is removed later stays on its IP if the IP is kept, for example the cluster's API IP used
+as `loadBalancerIP`. Delete such rules by hand.
 
 ### Per-Service Network ACL rules
 
