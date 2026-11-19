@@ -31,6 +31,7 @@ import (
 	"go.uber.org/mock/gomock"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 )
 
 type entryPointEnv struct {
@@ -98,13 +99,14 @@ func (e *entryPointEnv) expectRuleListing(t *testing.T, rules []*cloudstack.Load
 // rules are looked up by the Service's load balancer name in its project.
 func TestGetLoadBalancerStatus(t *testing.T) {
 	tests := []struct {
-		name       string
-		projectID  string
-		rules      []*cloudstack.LoadBalancerRule
-		err        error
-		wantStatus *corev1.LoadBalancerStatus
-		wantExists bool
-		wantErr    string
+		name        string
+		projectID   string
+		annotations map[string]string
+		rules       []*cloudstack.LoadBalancerRule
+		err         error
+		wantStatus  *corev1.LoadBalancerStatus
+		wantExists  bool
+		wantErr     string
 	}{
 		{name: "no rules means no load balancer"},
 		{
@@ -120,12 +122,22 @@ func TestGetLoadBalancerStatus(t *testing.T) {
 			wantStatus: &corev1.LoadBalancerStatus{Ingress: []corev1.LoadBalancerIngress{{IP: "203.0.113.1"}}},
 			wantExists: true,
 		},
+		{
+			name:        "proxy protocol reports the Proxy IP mode",
+			annotations: map[string]string{ServiceAnnotationLoadBalancerProxyProtocol: "true"},
+			rules:       []*cloudstack.LoadBalancerRule{tcpRule("rule-80", "80", "203.0.113.1", "ip-1")},
+			wantStatus: &corev1.LoadBalancerStatus{Ingress: []corev1.LoadBalancerIngress{
+				{IP: "203.0.113.1", IPMode: ptr.To(corev1.LoadBalancerIPModeProxy)},
+			}},
+			wantExists: true,
+		},
 		{name: "listing fails", err: errors.New("boom"), wantErr: "error retrieving load balancer rules: boom"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			env := newEntryPointEnv(t, tt.projectID)
+			env.service.Annotations = tt.annotations
 			env.expectRuleListing(t, tt.rules, tt.err)
 
 			status, exists, err := env.cs.GetLoadBalancer(context.TODO(), testClusterName, env.service)
