@@ -26,9 +26,9 @@ source "${E2E_ROOT}/lib/log.sh"
 # shellcheck source=/dev/null
 source "${E2E_OUT}/keys.env" 2>/dev/null || die "missing ${E2E_OUT}/keys.env — run 10-simulator-up.sh first"
 
-# The CCM pod must reach the simulator via its IP on the shared docker
-# network: pods cannot resolve docker's embedded DNS, and host.docker.internal
-# does not exist on Linux.
+# The CCM pod reaches the simulator via its IP on the shared docker network,
+# which works whatever DNS the kind node is given; host.docker.internal does
+# not exist on Linux.
 sim_ip="$(docker inspect -f "{{(index .NetworkSettings.Networks \"${E2E_NET}\").IPAddress}}" "$SIM_NAME")"
 [[ -n "$sim_ip" ]] || die "could not determine simulator IP on ${E2E_NET}"
 

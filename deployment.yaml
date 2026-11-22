@@ -141,8 +141,8 @@ spec:
       k8s-app: cloud-controller-manager
   strategy:
     rollingUpdate:
-      maxSurge: 25%
-      maxUnavailable: 25%
+      maxSurge: 0
+      maxUnavailable: 1
     type: RollingUpdate
   template:
     metadata:
@@ -157,6 +157,9 @@ spec:
         - --leader-elect=true
         - --cloud-provider=external-cloudstack
         - --cloud-config=/config/cloud-config
+        ports:
+        - name: https
+          containerPort: 10258
         resources:
           limits:
             cpu: 50m
@@ -167,6 +170,17 @@ spec:
         volumeMounts:
         - name: config-volume
           mountPath: /config
+      hostNetwork: true
+      # use the node's resolver: CoreDNS may not be running before the nodes are initialised
+      dnsPolicy: Default
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            preference:
+              matchExpressions:
+              - key: node-role.kubernetes.io/control-plane
+                operator: Exists
       restartPolicy: Always
       serviceAccountName: cloud-controller-manager
       terminationGracePeriodSeconds: 30
@@ -178,4 +192,16 @@ spec:
       # this is required so CCM can bootstrap itself
       - key: node.cloudprovider.kubernetes.io/uninitialized
         value: "true"
+        effect: NoSchedule
+      - key: node.kubernetes.io/not-ready
+        operator: Exists
+        effect: NoSchedule
+      - key: node.kubernetes.io/network-unavailable
+        operator: Exists
+        effect: NoSchedule
+      - key: node-role.kubernetes.io/control-plane
+        operator: Exists
+        effect: NoSchedule
+      - key: node-role.kubernetes.io/master
+        operator: Exists
         effect: NoSchedule

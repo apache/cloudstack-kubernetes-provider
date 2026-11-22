@@ -241,10 +241,10 @@ Generates two `cloud-config` files that differ **only in `api-url`**:
 * `hack/e2e/_out/cloud-config-host` — used when you run the CCM as a host
   process, pointing at `http://localhost:8080/client/api`.
 
-The in-cluster config must use the simulator's **IP address**, not its
-container name or network alias: pods have their own network namespace and
-cannot reach Docker's embedded DNS resolver, and `host.docker.internal` does
-not exist on Linux Docker Engine.
+The in-cluster config uses the simulator's **IP address**, not its
+container name or network alias. The CCM runs on the host network with the
+kind node's resolver, and an IP works whatever DNS that node is given;
+`host.docker.internal` does not exist on Linux Docker Engine.
 
 Both configs set `zone` explicitly. If `zone` is empty the CCM tries to
 detect it by looking up its own pod, which cannot work when running as a host
